@@ -18,3 +18,8 @@ class FundEstimateOut(BaseModel):
     source_snapshot: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class RefreshAndEstimateRequest(BaseModel):
+    fund_codes: list[str] | None = None
+    fund_ids: list[int] | None = None

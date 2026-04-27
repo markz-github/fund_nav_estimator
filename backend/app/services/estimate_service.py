@@ -42,8 +42,11 @@ class EstimateService:
             .limit(limit)
         ).all()
 
-    def run_estimates(self) -> dict:
-        funds = self.db.scalars(select(Fund).where(Fund.enabled == 1)).all()
+    def run_estimates(self, fund_codes: list[str] | None = None) -> dict:
+        statement = select(Fund).where(Fund.enabled == 1)
+        if fund_codes:
+            statement = statement.where(Fund.fund_code.in_(fund_codes))
+        funds = self.db.scalars(statement).all()
         estimates: list[FundEstimate] = []
         skipped: list[dict] = []
         estimate_time = datetime.now().replace(microsecond=0)
@@ -122,10 +125,17 @@ class EstimateService:
 
     def _latest_holdings(self, fund_code: str) -> list[FundHolding]:
         latest_period = self.db.scalar(
-            select(func.max(FundHolding.report_period)).where(FundHolding.fund_code == fund_code)
+            select(func.max(FundHolding.report_period)).where(
+                FundHolding.fund_code == fund_code,
+                FundHolding.holding_ratio > 0,
+            )
         )
         if latest_period is None:
-            return []
+            latest_period = self.db.scalar(
+                select(func.max(FundHolding.report_period)).where(FundHolding.fund_code == fund_code)
+            )
+            if latest_period is None:
+                return []
         return self.db.scalars(
             select(FundHolding)
             .where(

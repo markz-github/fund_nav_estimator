@@ -7,3 +7,4 @@ APScheduler==3.11.0
 akshare==1.18.57
 python-dotenv==1.0.1
 cryptography==46.0.3
+PySocks==1.7.1

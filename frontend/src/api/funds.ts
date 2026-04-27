@@ -12,6 +12,7 @@ export interface Fund {
   latest_estimated_nav?: string | null
   latest_estimated_growth_rate?: string | null
   latest_estimate_time?: string | null
+  latest_coverage_ratio?: string | null
 }
 
 export interface FundHolding {
@@ -49,14 +50,29 @@ export async function listFundHoldings(fundCode: string): Promise<FundHolding[]>
   return data
 }
 
-export async function refreshFundHoldings(fundCode: string): Promise<void> {
-  await apiClient.post(`/funds/${fundCode}/refresh-holdings`)
+export interface RefreshHoldingsResult {
+  fund_code: string
+  refreshed: boolean
+  holding_count: number
+}
+
+export interface RefreshNavResult {
+  fund_code: string
+  refreshed: boolean
+  nav_date?: string | null
+  unit_nav?: string | null
+}
+
+export async function refreshFundHoldings(fundCode: string): Promise<RefreshHoldingsResult> {
+  const { data } = await apiClient.post<RefreshHoldingsResult>(`/funds/${fundCode}/refresh-holdings`)
+  return data
 }
 
 export async function deleteFund(fundCode: string): Promise<void> {
   await apiClient.delete(`/funds/${fundCode}`)
 }
 
-export async function refreshFundNav(fundCode: string): Promise<void> {
-  await apiClient.post(`/funds/${fundCode}/refresh-nav`)
+export async function refreshFundNav(fundCode: string): Promise<RefreshNavResult> {
+  const { data } = await apiClient.post<RefreshNavResult>(`/funds/${fundCode}/refresh-nav`)
+  return data
 }

@@ -16,8 +16,8 @@ class MarketService:
     def fetch_quotes(self, asset_codes: list[str]):
         return self.source.get_market_quotes(asset_codes)
 
-    def refresh_quotes_for_holdings(self) -> list[MarketQuote]:
-        asset_names = self._asset_names_from_latest_holdings()
+    def refresh_quotes_for_holdings(self, fund_codes: list[str] | None = None) -> list[MarketQuote]:
+        asset_names = self._asset_names_from_latest_holdings(fund_codes)
         asset_codes = list(asset_names.keys())
         snapshots = self.source.get_market_quotes(asset_codes)
         quotes: list[MarketQuote] = []
@@ -57,13 +57,16 @@ class MarketService:
             )
         ).all()
 
-    def _asset_names_from_latest_holdings(self) -> dict[str, str]:
-        latest_periods = (
-            select(FundHolding.fund_code, func.max(FundHolding.report_period).label("report_period"))
-            .group_by(FundHolding.fund_code)
-            .subquery()
-        )
-        rows = self.db.execute(
+    def _asset_names_from_latest_holdings(self, fund_codes: list[str] | None = None) -> dict[str, str]:
+        latest_period_statement = select(
+            FundHolding.fund_code,
+            func.max(FundHolding.report_period).label("report_period"),
+        ).where(FundHolding.holding_ratio > 0)
+        if fund_codes:
+            latest_period_statement = latest_period_statement.where(FundHolding.fund_code.in_(fund_codes))
+        latest_periods = latest_period_statement.group_by(FundHolding.fund_code).subquery()
+
+        statement = (
             select(FundHolding.asset_code, FundHolding.asset_name)
             .join(
                 latest_periods,
@@ -71,5 +74,6 @@ class MarketService:
                 & (FundHolding.report_period == latest_periods.c.report_period),
             )
             .distinct()
-        ).all()
+        )
+        rows = self.db.execute(statement).all()
         return {asset_code: asset_name for asset_code, asset_name in rows}
