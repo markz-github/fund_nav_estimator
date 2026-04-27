@@ -33,6 +33,7 @@ async function submitFund() {
   saving.value = true
   try {
     await createFund(fundCode.value.trim(), remark.value.trim() || undefined)
+    message.value = '基金已添加，净值和持仓正在后台同步。'
     fundCode.value = ''
     remark.value = ''
     await loadFunds({ keepMessage: true })
@@ -96,9 +97,6 @@ onMounted(loadFunds)
           <h1>基金当日净值估算 <span>(Intraday Fund NAV Estimates)</span></h1>
           <p class="subtitle">实时同步行情，高频（半小时粒度）精细估算。</p>
         </div>
-        <button class="ghost refresh-button" :disabled="estimating" @click="estimateToday">
-          {{ estimating ? '刷新中...' : '全局刷新' }}
-        </button>
       </header>
 
       <div class="toolbar">

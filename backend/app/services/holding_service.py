@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.data_sources.akshare_source import AkshareSource
@@ -10,6 +10,7 @@ from app.data_sources.fund_company_source import FundCompanySource
 from app.data_sources.public_web_source import PublicWebFundSource
 from app.data_sources.sina_source import SinaFundSource
 from app.models.fund_holding import FundHolding
+from app.utils.performance import timed
 
 
 class HoldingService:
@@ -36,6 +37,7 @@ class HoldingService:
             PublicWebFundSource(),
         ]
 
+    @timed()
     def list_holdings(self, fund_code: str) -> list[FundHolding]:
         normalized_code = self.source._normalize_fund_code(fund_code)
         return self.db.scalars(
@@ -44,6 +46,7 @@ class HoldingService:
             .order_by(FundHolding.report_period.desc(), FundHolding.holding_ratio.desc())
         ).all()
 
+    @timed()
     def refresh_holdings(self, fund_code: str) -> list[FundHolding]:
         normalized_code = self.source._normalize_fund_code(fund_code)
         snapshots = self._collect_holdings(normalized_code)
@@ -52,6 +55,7 @@ class HoldingService:
             if target_fund_snapshots:
                 snapshots = target_fund_snapshots
         refreshed: list[FundHolding] = []
+        self._delete_stale_holdings(normalized_code, snapshots)
 
         for snapshot in snapshots:
             holding = self.db.scalar(
@@ -78,6 +82,23 @@ class HoldingService:
             self.db.refresh(holding)
         return refreshed
 
+    def _delete_stale_holdings(self, fund_code: str, snapshots: list[dict]) -> None:
+        by_period: dict[str, set[str]] = {}
+        for snapshot in snapshots:
+            by_period.setdefault(snapshot["report_period"], set()).add(snapshot["asset_code"])
+
+        for report_period, asset_codes in by_period.items():
+            if not asset_codes:
+                continue
+            self.db.execute(
+                delete(FundHolding).where(
+                    FundHolding.fund_code == fund_code,
+                    FundHolding.report_period == report_period,
+                    FundHolding.asset_code.not_in(asset_codes),
+                )
+            )
+
+    @timed()
     def _collect_holdings(self, fund_code: str) -> list[dict]:
         for source in self.holding_sources:
             try:
@@ -89,6 +110,7 @@ class HoldingService:
                 return snapshots
         return []
 
+    @timed()
     def _collect_target_fund_holdings(self, fund_code: str) -> list[dict]:
         for source in self.target_fund_sources:
             try:

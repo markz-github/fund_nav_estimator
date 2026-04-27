@@ -377,19 +377,18 @@ tbody tr {
   line-height: 1.45;
 }
 
-.estimate-line {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: baseline;
-}
-
 .up {
-  color: #b23b36;
+  color: #d71920;
 }
 
 .down {
-  color: #15803d;
+  color: #009a44;
+}
+
+.change-rate {
+  font-size: 1.46rem;
+  font-weight: 800;
+  line-height: 1.15;
 }
 
 .status-cell {
@@ -408,7 +407,7 @@ tbody tr:hover {
 
 .fund-table-card table th:last-child,
 .fund-table-card table td:last-child {
-  width: 240px;
+  width: 220px;
 }
 
 .table-card .quick-actions button,

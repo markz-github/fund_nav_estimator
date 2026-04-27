@@ -72,17 +72,18 @@ function statusClass(fund: Fund) {
           </th>
           <th>基金资产</th>
           <th>最新估算数据</th>
-          <th>参考基准</th>
+          <th>涨跌幅</th>
           <th>估算状态</th>
+          <th>参考基准</th>
           <th>快捷操作</th>
         </tr>
       </thead>
       <tbody>
         <tr v-if="loading">
-          <td colspan="6">正在加载基金池...</td>
+          <td colspan="7">正在加载基金池...</td>
         </tr>
         <tr v-else-if="funds.length === 0">
-          <td colspan="6">还没有自选基金，先添加一只试试。</td>
+          <td colspan="7">还没有自选基金，先添加一只试试。</td>
         </tr>
         <tr v-for="fund in funds" :key="fund.fund_code">
           <td>
@@ -98,24 +99,24 @@ function statusClass(fund: Fund) {
             <span class="muted mono">{{ fund.fund_code }}</span>
           </td>
           <td>
-            <strong class="metric estimate-line">
-              {{ fund.latest_estimated_nav ?? '-' }}
-              <span
-                v-if="fund.latest_estimated_growth_rate"
-                :class="Number(fund.latest_estimated_growth_rate) >= 0 ? 'up' : 'down'"
-              >
-                {{ percent(fund.latest_estimated_growth_rate) }}
-              </span>
-            </strong>
+            <strong class="metric">{{ fund.latest_estimated_nav ?? '-' }}</strong>
             <span class="muted">{{ shortDateTime(fund.latest_estimate_time) }}</span>
           </td>
           <td>
-            <strong class="metric">{{ fund.latest_unit_nav ?? '-' }}</strong>
-            <span class="muted">{{ fund.latest_nav_date ?? '-' }}</span>
+            <strong
+              class="metric change-rate"
+              :class="fund.latest_estimated_growth_rate && Number(fund.latest_estimated_growth_rate) >= 0 ? 'up' : 'down'"
+            >
+              {{ percent(fund.latest_estimated_growth_rate) }}
+            </strong>
           </td>
           <td class="status-cell">
             <span class="status-pill" :class="statusClass(fund)">{{ statusText(fund) }}</span>
             <span class="muted">覆盖 {{ percent(fund.latest_coverage_ratio) }}</span>
+          </td>
+          <td>
+            <strong class="metric">{{ fund.latest_unit_nav ?? '-' }}</strong>
+            <span class="muted">{{ fund.latest_nav_date ?? '-' }}</span>
           </td>
           <td>
             <div class="quick-actions">

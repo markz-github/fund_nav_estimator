@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas.fund import FundCreate, FundOut
 from app.schemas.holding import FundHoldingOut
 from app.services.fund_service import FundService
+from app.services.fund_sync_service import sync_new_fund_data
 from app.services.holding_service import HoldingService
 from app.services.operation_log_service import log_fetch_error, log_task
 
@@ -21,21 +22,24 @@ def list_funds(db: Session = Depends(get_db)) -> list[dict]:
 
 
 @router.post("", response_model=FundOut, status_code=status.HTTP_201_CREATED)
-def create_fund(payload: FundCreate, db: Session = Depends(get_db)):
+def create_fund(
+    payload: FundCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     started_at = datetime.now()
     service = FundService(db)
     try:
         fund = service.create_fund(payload)
-    except LookupError as exc:
+    except ValueError as exc:
         db.rollback()
-        log_fetch_error(db, "akshare", "fund_profile", payload.fund_code, str(exc))
-        log_task(db, "新增自选基金", "create_fund", "failed", started_at, str(exc))
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        log_task(db, "新增自选基金", "create_fund", "duplicate", started_at, str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         db.rollback()
-        log_fetch_error(db, "akshare", "fund_profile", payload.fund_code, repr(exc))
         log_task(db, "新增自选基金", "create_fund", "failed", started_at, repr(exc))
-        raise HTTPException(status_code=502, detail="基金数据源响应异常，请稍后重试。") from exc
+        raise HTTPException(status_code=500, detail="基金添加失败，请稍后重试。") from exc
+    background_tasks.add_task(sync_new_fund_data, fund.fund_code)
     log_task(db, "新增自选基金", "create_fund", "success", started_at, fund.fund_code)
     return service._fund_with_latest_data(fund)
 

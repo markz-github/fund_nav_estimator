@@ -8,6 +8,8 @@ from app.models.fund import Fund
 from app.models.fund_estimate import FundEstimate
 from app.models.fund_nav import FundNav
 from app.schemas.fund import FundCreate
+from app.services.fund_profile_service import FundProfileService
+from app.utils.performance import timed
 
 
 class FundService:
@@ -15,10 +17,12 @@ class FundService:
         self.db = db
         self.source = source or AkshareSource()
 
+    @timed()
     def list_funds(self) -> list[dict]:
         funds = self.db.scalars(select(Fund).order_by(Fund.created_at.desc())).all()
         return [self._fund_with_latest_data(fund) for fund in funds]
 
+    @timed()
     def get_fund_detail(self, fund_code: str) -> dict | None:
         normalized_code = self.source._normalize_fund_code(fund_code)
         fund = self.db.scalar(select(Fund).where(Fund.fund_code == normalized_code))
@@ -26,24 +30,41 @@ class FundService:
             return None
         return self._fund_with_latest_data(fund)
 
+    @timed()
     def create_fund(self, payload: FundCreate) -> Fund:
         fund_code = self.source._normalize_fund_code(payload.fund_code)
         existing = self.db.scalar(select(Fund).where(Fund.fund_code == fund_code))
         if existing:
-            self.refresh_nav(existing.fund_code)
-            return existing
-
-        profile = self.source.get_fund_profile(fund_code)
+            raise ValueError("基金已在自选基金池中")
+        profile = FundProfileService(self.db, self.source).get_profile(fund_code)
         fund = Fund(
-            fund_code=profile.fund_code,
-            fund_name=profile.fund_name,
-            fund_type=profile.fund_type,
+            fund_code=fund_code,
+            fund_name=profile.fund_name if profile else fund_code,
+            fund_type=profile.fund_type if profile else None,
             remark=payload.remark,
         )
         self.db.add(fund)
         self.db.commit()
         self.db.refresh(fund)
-        self.refresh_nav(fund.fund_code)
+        return fund
+
+    @timed()
+    def refresh_profile(self, fund_code: str) -> Fund | None:
+        normalized_code = self.source._normalize_fund_code(fund_code)
+        fund = self.db.scalar(select(Fund).where(Fund.fund_code == normalized_code))
+        if fund is None:
+            return None
+
+        profile = FundProfileService(self.db, self.source).get_profile(normalized_code)
+        if profile is None:
+            source_profile = self.source.get_fund_profile(normalized_code)
+            fund.fund_name = source_profile.fund_name
+            fund.fund_type = source_profile.fund_type
+        else:
+            fund.fund_name = profile.fund_name
+            fund.fund_type = profile.fund_type
+        self.db.commit()
+        self.db.refresh(fund)
         return fund
 
     def delete_fund(self, fund_code: str) -> bool:
@@ -54,6 +75,7 @@ class FundService:
         self.db.commit()
         return True
 
+    @timed()
     def refresh_nav(self, fund_code: str) -> FundNav | None:
         normalized_code = self.source._normalize_fund_code(fund_code)
         snapshot = self.source.get_latest_fund_nav(normalized_code)
@@ -73,20 +95,14 @@ class FundService:
                 unit_nav=snapshot.unit_nav,
                 accumulated_nav=snapshot.accumulated_nav,
                 daily_growth_rate=snapshot.daily_growth_rate,
-                source=self.source.source_name,
+                source=snapshot.source,
             )
             self.db.add(nav)
         else:
             nav.unit_nav = snapshot.unit_nav
             nav.accumulated_nav = snapshot.accumulated_nav
             nav.daily_growth_rate = snapshot.daily_growth_rate
-            nav.source = self.source.source_name
-
-        fund = self.db.scalar(select(Fund).where(Fund.fund_code == normalized_code))
-        if fund is not None:
-            profile = self.source.get_fund_profile(normalized_code)
-            fund.fund_name = profile.fund_name
-            fund.fund_type = profile.fund_type
+            nav.source = snapshot.source
 
         self.db.commit()
         self.db.refresh(nav)
