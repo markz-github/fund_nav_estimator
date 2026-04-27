@@ -90,40 +90,39 @@ onMounted(loadFunds)
 
 <template>
   <main class="page-shell">
-    <section class="hero">
-      <div>
-        <p class="eyebrow">Intraday Fund NAV Lab</p>
-        <h1>基金当日净值估算</h1>
-        <p class="subtitle">
-          维护自选基金池，定时同步持仓与行情，用半小时粒度估算当日基金净值。
-        </p>
+    <section class="dashboard-panel">
+      <header class="dashboard-header">
+        <div>
+          <h1>基金当日净值估算 <span>(Intraday Fund NAV Estimates)</span></h1>
+          <p class="subtitle">实时同步行情，高频（半小时粒度）精细估算。</p>
+        </div>
+        <button class="ghost refresh-button" :disabled="estimating" @click="estimateToday">
+          {{ estimating ? '刷新中...' : '全局刷新' }}
+        </button>
+      </header>
+
+      <div class="toolbar">
         <div class="page-actions">
           <button class="ghost" :disabled="estimating" @click="estimateToday">
-            {{ estimating ? '估算中...' : selectedFundCodes.length ? `估算选中 ${selectedFundCodes.length} 只` : '估算全部基金' }}
+            {{ estimating ? '估算中...' : selectedFundCodes.length ? `刷新选中 ${selectedFundCodes.length} 只` : '批量刷新全部' }}
           </button>
           <RouterLink class="link-button" to="/operations">查看运行状态</RouterLink>
         </div>
+        <form class="inline-add-form" @submit.prevent="submitFund">
+          <input v-model="fundCode" class="code-input" placeholder="基金代码" />
+          <input v-model="remark" class="remark-input" placeholder="备注" />
+          <button type="submit" :disabled="saving">{{ saving ? '添加中...' : '添加基金' }}</button>
+        </form>
       </div>
-      <form class="add-card" @submit.prevent="submitFund">
-        <label>
-          基金代码
-          <input v-model="fundCode" placeholder="例如 000001" />
-        </label>
-        <label>
-          备注
-          <input v-model="remark" placeholder="可选" />
-        </label>
-        <button type="submit" :disabled="saving">{{ saving ? '添加中...' : '加入自选' }}</button>
-      </form>
-    </section>
 
-    <p v-if="message" class="message">{{ message }}</p>
-    <FundTable
-      v-model:selected-fund-codes="selectedFundCodes"
-      :funds="funds"
-      :loading="loading"
-      @delete="removeFund"
-      @refresh="refreshNav"
-    />
+      <p v-if="message" class="message">{{ message }}</p>
+      <FundTable
+        v-model:selected-fund-codes="selectedFundCodes"
+        :funds="funds"
+        :loading="loading"
+        @delete="removeFund"
+        @refresh="refreshNav"
+      />
+    </section>
   </main>
 </template>
