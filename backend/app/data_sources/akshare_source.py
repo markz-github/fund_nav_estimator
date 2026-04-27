@@ -6,6 +6,7 @@ from decimal import Decimal
 import re
 
 import akshare as ak
+import requests
 
 
 @dataclass(frozen=True)
@@ -167,7 +168,9 @@ class AkshareSource:
 
         missing_codes = target_codes - set(snapshots.keys())
         for asset_code in missing_codes:
-            fallback = self._get_latest_history_quote(asset_code, quote_time)
+            fallback = self._get_sina_quote(asset_code, quote_time)
+            if fallback is None:
+                fallback = self._get_latest_history_quote(asset_code, quote_time)
             if fallback is not None:
                 snapshots[asset_code] = fallback
 
@@ -312,6 +315,76 @@ class AkshareSource:
             prev_close=prev_close,
             change_rate=change_rate,
         )
+
+    def _get_sina_quote(
+        self, asset_code: str, quote_time: datetime
+    ) -> MarketQuoteSnapshot | None:
+        sina_code = self._sina_asset_code(asset_code)
+        if sina_code is None:
+            return None
+
+        try:
+            response = requests.get(
+                f"https://hq.sinajs.cn/list={sina_code}",
+                headers={
+                    "Referer": "https://finance.sina.com.cn",
+                    "User-Agent": "Mozilla/5.0",
+                },
+                timeout=15,
+            )
+            response.encoding = "gbk"
+        except requests.RequestException:
+            return None
+
+        match = re.search(r'="(?P<payload>[^"]*)"', response.text)
+        if not match:
+            return None
+        fields = match.group("payload").split(",")
+        if len(fields) < 32 or not fields[0]:
+            return None
+
+        latest_price = self._optional_decimal(fields[3])
+        prev_close = self._optional_decimal(fields[2])
+        change_rate = None
+        if latest_price is not None and prev_close not in (None, Decimal("0")):
+            change_rate = (latest_price - prev_close) / prev_close
+
+        trade_date = quote_time.date()
+        try:
+            trade_date = date.fromisoformat(fields[30])
+        except (ValueError, IndexError):
+            pass
+
+        quote_datetime = quote_time
+        try:
+            quote_datetime = datetime.fromisoformat(f"{fields[30]} {fields[31]}")
+        except (ValueError, IndexError):
+            pass
+
+        asset_type = "etf" if asset_code.startswith(("5", "1")) else "stock"
+        return MarketQuoteSnapshot(
+            asset_code=asset_code,
+            asset_name=fields[0],
+            asset_type=asset_type,
+            market=self._infer_stock_market(asset_code) if asset_type == "stock" else "CN",
+            trade_date=trade_date,
+            quote_time=quote_datetime,
+            latest_price=latest_price,
+            prev_close=prev_close,
+            change_rate=change_rate,
+        )
+
+    @staticmethod
+    def _sina_asset_code(asset_code: str) -> str | None:
+        if len(asset_code) == 5:
+            return f"hk{asset_code}"
+        if not asset_code.isdigit() or len(asset_code) != 6:
+            return None
+        if asset_code.startswith(("5", "6", "9")):
+            return f"sh{asset_code}"
+        if asset_code.startswith(("0", "1", "2", "3")):
+            return f"sz{asset_code}"
+        return None
 
     @staticmethod
     def _previous_close(

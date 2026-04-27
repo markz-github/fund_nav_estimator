@@ -1,22 +1,28 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import FundTable from '../components/FundTable.vue'
+import { apiErrorMessage } from '../api/client'
+import { refreshQuotesAndRunEstimates } from '../api/estimates'
 import { createFund, deleteFund, listFunds, refreshFundNav, type Fund } from '../api/funds'
 
 const funds = ref<Fund[]>([])
+const selectedFundCodes = ref<string[]>([])
 const fundCode = ref('')
 const remark = ref('')
 const loading = ref(false)
 const saving = ref(false)
+const estimating = ref(false)
 const message = ref('')
 
-async function loadFunds() {
+async function loadFunds(options?: { keepMessage?: boolean }) {
   loading.value = true
-  message.value = ''
+  if (!options?.keepMessage) message.value = ''
   try {
     funds.value = await listFunds()
+    const existingCodes = new Set(funds.value.map((fund) => fund.fund_code))
+    selectedFundCodes.value = selectedFundCodes.value.filter((code) => existingCodes.has(code))
   } catch (error) {
-    message.value = '基金列表加载失败，请确认后端服务和 MySQL 配置。'
+    message.value = apiErrorMessage(error, '基金列表加载失败，请确认后端服务和 MySQL 配置。')
   } finally {
     loading.value = false
   }
@@ -29,22 +35,54 @@ async function submitFund() {
     await createFund(fundCode.value.trim(), remark.value.trim() || undefined)
     fundCode.value = ''
     remark.value = ''
-    await loadFunds()
+    await loadFunds({ keepMessage: true })
   } catch (error) {
-    message.value = '新增基金失败，请检查基金代码或后端日志。'
+    message.value = apiErrorMessage(error, '新增基金失败，请检查基金代码或后端日志。')
   } finally {
     saving.value = false
   }
 }
 
 async function removeFund(code: string) {
-  await deleteFund(code)
-  await loadFunds()
+  try {
+    await deleteFund(code)
+    await loadFunds()
+  } catch (error) {
+    message.value = apiErrorMessage(error, '删除基金失败，请稍后重试。')
+  }
 }
 
 async function refreshNav(code: string) {
-  await refreshFundNav(code)
-  await loadFunds()
+  try {
+    const result = await refreshFundNav(code)
+    message.value = result.refreshed ? '官方净值已刷新。' : '未获取到新的官方净值，已记录到运行状态。'
+    await loadFunds({ keepMessage: true })
+  } catch (error) {
+    message.value = apiErrorMessage(error, '官方净值刷新失败，请查看运行状态。')
+  }
+}
+
+async function estimateToday() {
+  estimating.value = true
+  const targetCodes =
+    selectedFundCodes.value.length > 0
+      ? selectedFundCodes.value
+      : funds.value.map((fund) => fund.fund_code)
+  message.value = `正在为 ${targetCodes.length} 只基金刷新行情并估算...`
+  try {
+    const estimateResult = await refreshQuotesAndRunEstimates(targetCodes)
+    const skippedText = estimateResult.skipped_count
+      ? `，跳过 ${estimateResult.skipped_count} 只：${estimateResult.skipped
+          .map((item) => `${item.fund_code}(${item.reason})`)
+          .join('、')}`
+      : ''
+    message.value = `行情刷新 ${estimateResult.quote_count} 条，估算成功 ${estimateResult.estimated_count} 只${skippedText}。`
+    await loadFunds({ keepMessage: true })
+  } catch (error) {
+    message.value = apiErrorMessage(error, '估算当日净值失败，请查看运行状态。')
+  } finally {
+    estimating.value = false
+  }
 }
 
 onMounted(loadFunds)
@@ -55,10 +93,16 @@ onMounted(loadFunds)
     <section class="hero">
       <div>
         <p class="eyebrow">Intraday Fund NAV Lab</p>
-        <h1>基金当日净值预测</h1>
+        <h1>基金当日净值估算</h1>
         <p class="subtitle">
           维护自选基金池，定时同步持仓与行情，用半小时粒度估算当日基金净值。
         </p>
+        <div class="page-actions">
+          <button class="ghost" :disabled="estimating" @click="estimateToday">
+            {{ estimating ? '估算中...' : selectedFundCodes.length ? `估算选中 ${selectedFundCodes.length} 只` : '估算全部基金' }}
+          </button>
+          <RouterLink class="link-button" to="/operations">查看运行状态</RouterLink>
+        </div>
       </div>
       <form class="add-card" @submit.prevent="submitFund">
         <label>
@@ -74,6 +118,12 @@ onMounted(loadFunds)
     </section>
 
     <p v-if="message" class="message">{{ message }}</p>
-    <FundTable :funds="funds" :loading="loading" @delete="removeFund" @refresh="refreshNav" />
+    <FundTable
+      v-model:selected-fund-codes="selectedFundCodes"
+      :funds="funds"
+      :loading="loading"
+      @delete="removeFund"
+      @refresh="refreshNav"
+    />
   </main>
 </template>

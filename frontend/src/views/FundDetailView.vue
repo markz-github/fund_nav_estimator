@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { apiErrorMessage } from '../api/client'
 import {
   getFund,
   listFundHoldings,
@@ -33,7 +34,7 @@ async function loadDetail() {
     fund.value = fundResult
     holdings.value = holdingsResult
   } catch (error) {
-    message.value = '基金详情加载失败，请稍后重试。'
+    message.value = apiErrorMessage(error, '基金详情加载失败，请稍后重试。')
   } finally {
     loading.value = false
   }
@@ -43,10 +44,11 @@ async function refreshHoldings() {
   refreshingHoldings.value = true
   message.value = ''
   try {
-    await refreshFundHoldings(fundCode.value)
+    const result = await refreshFundHoldings(fundCode.value)
     holdings.value = await listFundHoldings(fundCode.value)
+    message.value = result.refreshed ? `持仓已刷新，共 ${result.holding_count} 条。` : '未获取到持仓数据，已记录到运行状态。'
   } catch (error) {
-    message.value = '持仓刷新失败，请稍后重试。'
+    message.value = apiErrorMessage(error, '持仓刷新失败，请稍后重试。')
   } finally {
     refreshingHoldings.value = false
   }
@@ -96,7 +98,17 @@ onMounted(loadDetail)
         <span>估算时间</span>
         <strong>{{ fund.latest_estimate_time ?? '-' }}</strong>
       </article>
+      <article class="info-card" :class="{ 'warning-card': fund.latest_coverage_ratio && Number(fund.latest_coverage_ratio) < 0.6 }">
+        <span>有效覆盖率</span>
+        <strong>{{ percent(fund.latest_coverage_ratio) }}</strong>
+      </article>
     </section>
+
+    <p v-if="fund && !fund.latest_unit_nav" class="message">缺少官方净值，请先刷新净值。</p>
+    <p v-else-if="fund && !fund.latest_estimated_nav" class="message">当前还没有估算结果，可在运行状态页查看估算任务日志。</p>
+    <p v-else-if="fund?.latest_coverage_ratio && Number(fund.latest_coverage_ratio) < 0.6" class="message">
+      当前估算覆盖率偏低，可能存在持仓或行情缺失。
+    </p>
 
     <section class="section-title">
       <div>
