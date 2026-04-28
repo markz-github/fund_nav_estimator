@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import AppLogo from '../components/AppLogo.vue'
 import FundTable from '../components/FundTable.vue'
 import { apiErrorMessage, isRequestTimeout } from '../api/client'
 import { refreshQuotesAndRunEstimates } from '../api/estimates'
-import { createFund, deleteFund, listFunds, refreshFundNav, type Fund } from '../api/funds'
+import {
+  createFund,
+  deleteFund,
+  listFunds,
+  refreshFundNav,
+  type Fund,
+  type FundSortBy,
+  type SortOrder,
+} from '../api/funds'
 
 const funds = ref<Fund[]>([])
 const selectedFundCodes = ref<string[]>([])
@@ -14,12 +23,14 @@ const saving = ref(false)
 const estimating = ref(false)
 const message = ref('')
 const pendingDeleteFund = ref<Fund | null>(null)
+const sortBy = ref<FundSortBy | null>(null)
+const sortOrder = ref<SortOrder>('desc')
 
 async function loadFunds(options?: { keepMessage?: boolean }) {
   loading.value = true
   if (!options?.keepMessage) message.value = ''
   try {
-    funds.value = await listFunds()
+    funds.value = await listFunds({ sortBy: sortBy.value, sortOrder: sortOrder.value })
     const existingCodes = new Set(funds.value.map((fund) => fund.fund_code))
     selectedFundCodes.value = selectedFundCodes.value.filter((code) => existingCodes.has(code))
   } catch (error) {
@@ -27,6 +38,16 @@ async function loadFunds(options?: { keepMessage?: boolean }) {
   } finally {
     loading.value = false
   }
+}
+
+async function updateSort(nextSortBy: FundSortBy) {
+  if (sortBy.value === nextSortBy) {
+    sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc'
+  } else {
+    sortBy.value = nextSortBy
+    sortOrder.value = 'desc'
+  }
+  await loadFunds()
 }
 
 async function submitFund() {
@@ -112,9 +133,12 @@ onMounted(loadFunds)
   <main class="page-shell">
     <section class="dashboard-panel">
       <header class="dashboard-header">
-        <div>
+        <div class="brand-heading">
+          <AppLogo />
+          <div>
           <h1>基金当日净值估算 <span>(Intraday Fund NAV Estimates)</span></h1>
           <p class="subtitle">实时同步行情，高频（半小时粒度）精细估算。</p>
+          </div>
         </div>
       </header>
 
@@ -137,8 +161,11 @@ onMounted(loadFunds)
         v-model:selected-fund-codes="selectedFundCodes"
         :funds="funds"
         :loading="loading"
+        :sort-by="sortBy"
+        :sort-order="sortOrder"
         @delete="removeFund"
         @refresh="refreshNav"
+        @sort="updateSort"
       />
     </section>
 

@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import type { Fund } from '../api/funds'
+import type { Fund, FundSortBy, SortOrder } from '../api/funds'
 
 const props = defineProps<{
   funds: Fund[]
   loading?: boolean
   selectedFundCodes: string[]
+  sortBy?: FundSortBy | null
+  sortOrder?: SortOrder
 }>()
 
 const emit = defineEmits<{
   delete: [fundCode: string]
   refresh: [fundCode: string]
+  sort: [sortBy: FundSortBy]
   'update:selectedFundCodes': [fundCodes: string[]]
 }>()
 
@@ -54,6 +57,11 @@ function statusText(fund: Fund) {
 function statusClass(fund: Fund) {
   return statusText(fund) === '正常' ? 'status-ok' : 'status-warn'
 }
+
+function sortIndicator(sortBy: FundSortBy) {
+  if (props.sortBy !== sortBy) return '↕'
+  return props.sortOrder === 'asc' ? '↑' : '↓'
+}
 </script>
 
 <template>
@@ -72,7 +80,11 @@ function statusClass(fund: Fund) {
           </th>
           <th>基金资产</th>
           <th>最新估算数据</th>
-          <th>涨跌幅</th>
+          <th>
+            <button class="sort-header" type="button" :disabled="loading" @click="emit('sort', 'latest_estimated_growth_rate')">
+              涨跌幅 <span aria-hidden="true">{{ sortIndicator('latest_estimated_growth_rate') }}</span>
+            </button>
+          </th>
           <th>估算状态</th>
           <th>参考基准</th>
           <th>快捷操作</th>

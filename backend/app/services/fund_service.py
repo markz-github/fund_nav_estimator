@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, asc, desc, func, select
 from sqlalchemy.orm import Session
 
 from app.data_sources.akshare_source import AkshareSource
@@ -20,8 +20,42 @@ class FundService:
         self.source = source or AkshareSource()
 
     @timed()
-    def list_funds(self) -> list[dict]:
-        funds = self.db.scalars(select(Fund).order_by(Fund.created_at.desc())).all()
+    def list_funds(self, sort_by: str | None = None, sort_order: str = "desc") -> list[dict]:
+        query = select(Fund)
+        if sort_by == "latest_estimated_growth_rate":
+            latest_estimate_times = (
+                select(
+                    FundEstimate.fund_code,
+                    func.max(FundEstimate.estimate_time).label("latest_estimate_time"),
+                )
+                .group_by(FundEstimate.fund_code)
+                .subquery()
+            )
+            latest_estimates = (
+                select(
+                    FundEstimate.fund_code,
+                    FundEstimate.estimated_growth_rate,
+                )
+                .join(
+                    latest_estimate_times,
+                    (FundEstimate.fund_code == latest_estimate_times.c.fund_code)
+                    & (FundEstimate.estimate_time == latest_estimate_times.c.latest_estimate_time),
+                )
+                .subquery()
+            )
+            direction = asc if sort_order == "asc" else desc
+            query = (
+                query.outerjoin(latest_estimates, Fund.fund_code == latest_estimates.c.fund_code)
+                .order_by(
+                    latest_estimates.c.estimated_growth_rate.is_(None),
+                    direction(latest_estimates.c.estimated_growth_rate),
+                    Fund.created_at.desc(),
+                )
+            )
+        else:
+            query = query.order_by(Fund.created_at.desc())
+
+        funds = self.db.scalars(query).all()
         return [self._fund_with_latest_data(fund) for fund in funds]
 
     @timed()

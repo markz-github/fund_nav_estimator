@@ -15,6 +15,9 @@ export interface Fund {
   latest_coverage_ratio?: string | null
 }
 
+export type FundSortBy = 'latest_estimated_growth_rate'
+export type SortOrder = 'asc' | 'desc'
+
 export interface FundHolding {
   fund_code: string
   report_period: string
@@ -27,8 +30,15 @@ export interface FundHolding {
   source: string
 }
 
-export async function listFunds(): Promise<Fund[]> {
-  const { data } = await apiClient.get<Fund[]>('/funds')
+export async function listFunds(options?: { sortBy?: FundSortBy | null; sortOrder?: SortOrder }): Promise<Fund[]> {
+  const { data } = await apiClient.get<Fund[]>('/funds', {
+    params: options?.sortBy
+      ? {
+          sort_by: options.sortBy,
+          sort_order: options.sortOrder ?? 'desc',
+        }
+      : undefined,
+  })
   return data
 }
 

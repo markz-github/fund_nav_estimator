@@ -59,8 +59,39 @@ button:disabled {
   margin-bottom: 20px;
 }
 
+.brand-heading {
+  --brand-title-size: clamp(2rem, 4vw, 3rem);
+  --brand-subtitle-size: 1.15rem;
+}
+
 .dashboard-header h1 {
-  font-size: clamp(2rem, 4vw, 3rem);
+  margin: 0;
+  font-size: var(--brand-title-size);
+  line-height: 1.02;
+}
+
+.dashboard-header .subtitle {
+  font-size: var(--brand-subtitle-size);
+  line-height: 1.45;
+}
+
+.brand-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.app-logo {
+  flex: 0 0 auto;
+  width: calc(var(--brand-title-size, 3rem) * 1.02 + var(--brand-subtitle-size, 1.15rem) * 1.45 + 8px);
+  height: calc(var(--brand-title-size, 3rem) * 1.02 + var(--brand-subtitle-size, 1.15rem) * 1.45 + 8px);
+}
+
+.app-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .dashboard-header h1 span {
@@ -193,6 +224,23 @@ th {
   color: #303a33;
   font-size: 1rem;
   font-weight: 700;
+}
+
+.sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font-weight: inherit;
+}
+
+.sort-header:hover:not(:disabled) {
+  color: #1f3f35;
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 tbody tr {
@@ -501,6 +549,10 @@ tbody tr:hover {
   .toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .brand-heading {
+    align-items: flex-start;
   }
 
   .inline-add-form {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -17,8 +17,12 @@ router = APIRouter(prefix="/funds", tags=["funds"])
 
 
 @router.get("", response_model=list[FundOut])
-def list_funds(db: Session = Depends(get_db)) -> list[dict]:
-    return FundService(db).list_funds()
+def list_funds(
+    sort_by: str | None = Query(default=None, pattern="^latest_estimated_growth_rate$"),
+    sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    return FundService(db).list_funds(sort_by=sort_by, sort_order=sort_order)
 
 
 @router.post("", response_model=FundOut, status_code=status.HTTP_201_CREATED)
