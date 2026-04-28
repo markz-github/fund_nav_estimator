@@ -36,7 +36,7 @@ export async function createFund(fundCode: string, remark?: string): Promise<Fun
   const { data } = await apiClient.post<Fund>('/funds', {
     fund_code: fundCode,
     remark,
-  })
+  }, { timeout: 60000 })
   return data
 }
 

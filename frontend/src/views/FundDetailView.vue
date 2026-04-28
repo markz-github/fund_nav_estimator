@@ -14,9 +14,44 @@ const route = useRoute()
 const fundCode = computed(() => String(route.params.fundCode || ''))
 const fund = ref<Fund | null>(null)
 const holdings = ref<FundHolding[]>([])
+const selectedReportPeriod = ref('')
 const loading = ref(false)
 const refreshingHoldings = ref(false)
 const message = ref('')
+
+const reportPeriods = computed(() =>
+  Array.from(new Set(holdings.value.map((holding) => holding.report_period))).sort((a, b) =>
+    b.localeCompare(a),
+  ),
+)
+
+const filteredHoldings = computed(() =>
+  selectedReportPeriod.value
+    ? holdings.value.filter((holding) => holding.report_period === selectedReportPeriod.value)
+    : holdings.value,
+)
+
+const selectedHoldingRatio = computed(() =>
+  filteredHoldings.value.reduce((total, holding) => total + Number(holding.holding_ratio || 0), 0),
+)
+
+const holdingCompletenessWarning = computed(() => {
+  if (!fund.value || holdings.value.length === 0) return ''
+  const fundType = fund.value.fund_type ?? ''
+  const fundName = fund.value.fund_name ?? ''
+  if (fundType.includes('QDII') || fundName.includes('联接')) {
+    return '该基金可能是联接基金或 QDII，公开持仓可能只覆盖部分底层资产，估算结果需结合覆盖率判断。'
+  }
+  if (selectedHoldingRatio.value > 0 && selectedHoldingRatio.value < 0.6) {
+    return '当前报告期持仓覆盖比例偏低，可能存在持仓或行情缺失。'
+  }
+  return ''
+})
+
+function latestReportPeriod(items: FundHolding[]) {
+  return Array.from(new Set(items.map((holding) => holding.report_period)))
+    .sort((a, b) => b.localeCompare(a))[0] ?? ''
+}
 
 function percent(value?: string | null) {
   if (!value) return '-'
@@ -33,6 +68,7 @@ async function loadDetail() {
     ])
     fund.value = fundResult
     holdings.value = holdingsResult
+    selectedReportPeriod.value = latestReportPeriod(holdingsResult)
   } catch (error) {
     message.value = apiErrorMessage(error, '基金详情加载失败，请稍后重试。')
   } finally {
@@ -46,6 +82,7 @@ async function refreshHoldings() {
   try {
     const result = await refreshFundHoldings(fundCode.value)
     holdings.value = await listFundHoldings(fundCode.value)
+    selectedReportPeriod.value = latestReportPeriod(holdings.value)
     message.value = result.refreshed ? `持仓已刷新，共 ${result.holding_count} 条。` : '未获取到持仓数据，已记录到运行状态。'
   } catch (error) {
     message.value = apiErrorMessage(error, '持仓刷新失败，请稍后重试。')
@@ -116,12 +153,18 @@ onMounted(loadDetail)
         <h2>持仓情况</h2>
       </div>
       <div class="section-actions">
-        <span>{{ holdings.length }} 条记录</span>
+        <span>{{ filteredHoldings.length }} / {{ holdings.length }} 条记录</span>
+        <select v-model="selectedReportPeriod" class="period-select" :disabled="reportPeriods.length === 0">
+          <option value="">全部报告期</option>
+          <option v-for="period in reportPeriods" :key="period" :value="period">{{ period }}</option>
+        </select>
         <button class="ghost" :disabled="refreshingHoldings" @click="refreshHoldings">
           {{ refreshingHoldings ? '刷新中...' : '刷新持仓' }}
         </button>
       </div>
     </section>
+
+    <p v-if="holdingCompletenessWarning" class="message">{{ holdingCompletenessWarning }}</p>
 
     <div class="table-card">
       <table>
@@ -141,7 +184,10 @@ onMounted(loadDetail)
           <tr v-if="holdings.length === 0">
             <td colspan="8">当前还没有持仓数据，可以点击“刷新持仓”从 akshare 同步。</td>
           </tr>
-          <tr v-for="holding in holdings" :key="`${holding.report_period}-${holding.asset_code}`">
+          <tr v-else-if="filteredHoldings.length === 0">
+            <td colspan="8">当前报告期没有持仓数据。</td>
+          </tr>
+          <tr v-for="holding in filteredHoldings" :key="`${holding.report_period}-${holding.asset_code}`">
             <td>{{ holding.report_period }}</td>
             <td class="mono">{{ holding.asset_code }}</td>
             <td>{{ holding.asset_name }}</td>

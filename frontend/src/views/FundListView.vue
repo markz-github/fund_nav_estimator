@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import FundTable from '../components/FundTable.vue'
-import { apiErrorMessage } from '../api/client'
+import { apiErrorMessage, isRequestTimeout } from '../api/client'
 import { refreshQuotesAndRunEstimates } from '../api/estimates'
 import { createFund, deleteFund, listFunds, refreshFundNav, type Fund } from '../api/funds'
 
@@ -13,6 +13,7 @@ const loading = ref(false)
 const saving = ref(false)
 const estimating = ref(false)
 const message = ref('')
+const pendingDeleteFund = ref<Fund | null>(null)
 
 async function loadFunds(options?: { keepMessage?: boolean }) {
   loading.value = true
@@ -38,15 +39,33 @@ async function submitFund() {
     remark.value = ''
     await loadFunds({ keepMessage: true })
   } catch (error) {
-    message.value = apiErrorMessage(error, '新增基金失败，请检查基金代码或后端日志。')
+    if (isRequestTimeout(error)) {
+      await loadFunds({ keepMessage: true })
+      message.value = '新增基金请求超时，已刷新列表；如果基金稍后出现，说明后台已完成写入。'
+    } else {
+      message.value = apiErrorMessage(error, '新增基金失败，请检查基金代码或后端日志。')
+    }
   } finally {
     saving.value = false
   }
 }
 
 async function removeFund(code: string) {
+  const fund = funds.value.find((item) => item.fund_code === code)
+  pendingDeleteFund.value = fund ?? {
+    id: 0,
+    fund_code: code,
+    fund_name: code,
+    enabled: 1,
+  }
+}
+
+async function confirmDeleteFund() {
+  if (!pendingDeleteFund.value) return
+  const code = pendingDeleteFund.value.fund_code
   try {
     await deleteFund(code)
+    pendingDeleteFund.value = null
     await loadFunds()
   } catch (error) {
     message.value = apiErrorMessage(error, '删除基金失败，请稍后重试。')
@@ -122,5 +141,20 @@ onMounted(loadFunds)
         @refresh="refreshNav"
       />
     </section>
+
+    <div v-if="pendingDeleteFund" class="modal-backdrop" @click.self="pendingDeleteFund = null">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+        <p class="eyebrow">Delete Fund</p>
+        <h2 id="delete-title">删除自选基金</h2>
+        <p class="dialog-copy">
+          确认删除 <strong>{{ pendingDeleteFund.fund_name }}</strong>
+          <span class="mono">({{ pendingDeleteFund.fund_code }})</span>？
+        </p>
+        <div class="dialog-actions">
+          <button class="ghost" type="button" @click="pendingDeleteFund = null">取消</button>
+          <button class="danger" type="button" @click="confirmDeleteFund">删除</button>
+        </div>
+      </section>
+    </div>
   </main>
 </template>

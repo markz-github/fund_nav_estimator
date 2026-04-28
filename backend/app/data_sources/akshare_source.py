@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 import re
+from time import monotonic
 
 import akshare as ak
 import requests
@@ -49,6 +50,9 @@ class AkshareSource:
     """
 
     source_name = "akshare"
+    _fund_daily_cache_ttl_seconds = 600
+    _fund_daily_cache = None
+    _fund_daily_cache_loaded_at = 0.0
 
     @timed()
     def get_fund_profile(self, fund_code: str) -> FundProfile:
@@ -90,7 +94,12 @@ class AkshareSource:
     @timed()
     def get_latest_fund_nav(self, fund_code: str) -> FundNavSnapshot | None:
         normalized_code = self._normalize_fund_code(fund_code)
-        daily_df = ak.fund_open_fund_daily_em()
+        if self._should_try_etf_first(normalized_code):
+            etf_snapshot = self._get_latest_etf_nav_snapshot(normalized_code)
+            if etf_snapshot is not None:
+                return etf_snapshot
+
+        daily_df = self.get_fund_daily_dataframe()
         matched = daily_df[daily_df["基金代码"].astype(str).str.zfill(6) == normalized_code]
         if matched.empty:
             return self._get_latest_etf_nav_snapshot(normalized_code)
@@ -110,6 +119,23 @@ class AkshareSource:
             daily_growth_rate=self._percent(row.get("日增长率")),
             source=self.source_name,
         )
+
+    @classmethod
+    def get_fund_daily_dataframe(cls):
+        now = monotonic()
+        if (
+            cls._fund_daily_cache is not None
+            and now - cls._fund_daily_cache_loaded_at < cls._fund_daily_cache_ttl_seconds
+        ):
+            return cls._fund_daily_cache
+
+        cls._fund_daily_cache = ak.fund_open_fund_daily_em()
+        cls._fund_daily_cache_loaded_at = now
+        return cls._fund_daily_cache
+
+    @staticmethod
+    def _should_try_etf_first(fund_code: str) -> bool:
+        return fund_code.startswith("5")
 
     def _get_latest_etf_nav_snapshot(self, fund_code: str) -> FundNavSnapshot | None:
         if not fund_code.startswith(("5", "1")):

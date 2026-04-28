@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
@@ -78,6 +80,10 @@ class FundService:
     @timed()
     def refresh_nav(self, fund_code: str) -> FundNav | None:
         normalized_code = self.source._normalize_fund_code(fund_code)
+        latest_nav = self.db.scalar(self._latest_nav_query(normalized_code))
+        if latest_nav is not None and latest_nav.nav_date >= date.today():
+            return latest_nav
+
         snapshot = self.source.get_latest_fund_nav(normalized_code)
         if snapshot is None:
             return None
