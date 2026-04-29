@@ -28,6 +28,10 @@ function statusClass(status: string) {
   return 'status-warn'
 }
 
+function durationText(durationMs?: number | null) {
+  return durationMs == null ? '-' : `${durationMs} ms`
+}
+
 onMounted(loadOperations)
 </script>
 
@@ -77,7 +81,7 @@ onMounted(loadOperations)
             <td class="mono">{{ log.task_type }}</td>
             <td><span class="status-pill" :class="statusClass(log.status)">{{ log.status }}</span></td>
             <td>{{ log.started_at }}</td>
-            <td>{{ log.duration_ms ?? '-' }} ms</td>
+            <td>{{ durationText(log.duration_ms) }}</td>
             <td>{{ log.message ?? '-' }}</td>
           </tr>
         </tbody>

@@ -495,9 +495,40 @@ tbody tr {
   line-height: 1.15;
 }
 
+.change-rate,
+.inline-growth,
+.info-card .up,
+.info-card .down {
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
 .status-cell {
   display: grid;
   gap: 8px;
+}
+
+.benchmark-cell {
+  display: inline-grid;
+  grid-template-columns: max-content max-content;
+  gap: 8px;
+  align-items: center;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.benchmark-cell > div {
+  display: grid;
+  align-content: center;
+}
+
+.benchmark-cell .muted {
+  margin-top: 3px;
+}
+
+.inline-growth {
+  display: inline;
+  font-size: 0.98rem;
 }
 
 tbody tr:hover {

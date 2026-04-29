@@ -42,6 +42,18 @@ function percent(value?: string | null) {
   return `${(Number(value) * 100).toFixed(2)}%`
 }
 
+function growthPercent(value?: string | null) {
+  if (!value) return '-'
+  const percentValue = Number(value) * 100
+  const sign = percentValue > 0 ? '+' : ''
+  return `${sign}${percentValue.toFixed(2)}%`
+}
+
+function growthClass(value?: string | null) {
+  if (!value) return ''
+  return Number(value) >= 0 ? 'up' : 'down'
+}
+
 function shortDateTime(value?: string | null) {
   if (!value) return '-'
   return value.replace('T', ' ').slice(0, 16)
@@ -86,7 +98,7 @@ function sortIndicator(sortBy: FundSortBy) {
             </button>
           </th>
           <th>估算状态</th>
-          <th>参考基准</th>
+          <th>官方净值</th>
           <th>快捷操作</th>
         </tr>
       </thead>
@@ -115,11 +127,8 @@ function sortIndicator(sortBy: FundSortBy) {
             <span class="muted">{{ shortDateTime(fund.latest_estimate_time) }}</span>
           </td>
           <td>
-            <strong
-              class="metric change-rate"
-              :class="fund.latest_estimated_growth_rate && Number(fund.latest_estimated_growth_rate) >= 0 ? 'up' : 'down'"
-            >
-              {{ percent(fund.latest_estimated_growth_rate) }}
+            <strong class="metric change-rate" :class="growthClass(fund.latest_estimated_growth_rate)">
+              {{ growthPercent(fund.latest_estimated_growth_rate) }}
             </strong>
           </td>
           <td class="status-cell">
@@ -127,8 +136,15 @@ function sortIndicator(sortBy: FundSortBy) {
             <span class="muted">覆盖 {{ percent(fund.latest_coverage_ratio) }}</span>
           </td>
           <td>
-            <strong class="metric">{{ fund.latest_unit_nav ?? '-' }}</strong>
-            <span class="muted">{{ fund.latest_nav_date ?? '-' }}</span>
+            <div class="benchmark-cell">
+              <div>
+                <strong class="metric">{{ fund.latest_unit_nav ?? '-' }}</strong>
+                <span class="muted">{{ fund.latest_nav_date ?? '-' }}</span>
+              </div>
+              <strong class="inline-growth" :class="growthClass(fund.latest_daily_growth_rate)">
+                {{ growthPercent(fund.latest_daily_growth_rate) }}
+              </strong>
+            </div>
           </td>
           <td>
             <div class="quick-actions">

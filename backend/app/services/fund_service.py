@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import Select, asc, desc, func, select
 from sqlalchemy.orm import Session
@@ -115,12 +115,12 @@ class FundService:
     def refresh_nav(self, fund_code: str) -> FundNav | None:
         normalized_code = self.source._normalize_fund_code(fund_code)
         latest_nav = self.db.scalar(self._latest_nav_query(normalized_code))
-        if latest_nav is not None and latest_nav.nav_date >= date.today():
+        if latest_nav is not None and self._is_fresh_local_nav(latest_nav):
             return latest_nav
 
         snapshot = self.source.get_latest_fund_nav(normalized_code)
         if snapshot is None:
-            return None
+            return latest_nav
 
         nav = self.db.scalar(
             select(FundNav).where(
@@ -129,20 +129,31 @@ class FundService:
             )
         )
         if nav is None:
-            nav = FundNav(
-                fund_code=normalized_code,
-                nav_date=snapshot.nav_date,
-                unit_nav=snapshot.unit_nav,
-                accumulated_nav=snapshot.accumulated_nav,
-                daily_growth_rate=snapshot.daily_growth_rate,
-                source=snapshot.source,
-            )
-            self.db.add(nav)
+            if self._should_replace_legacy_etf_nav(latest_nav, snapshot.source):
+                nav = latest_nav
+                nav.nav_date = snapshot.nav_date
+            else:
+                nav = FundNav(
+                    fund_code=normalized_code,
+                    nav_date=snapshot.nav_date,
+                    unit_nav=snapshot.unit_nav,
+                    accumulated_nav=snapshot.accumulated_nav,
+                    daily_growth_rate=snapshot.daily_growth_rate,
+                    source=snapshot.source,
+                )
+                self.db.add(nav)
         else:
-            nav.unit_nav = snapshot.unit_nav
-            nav.accumulated_nav = snapshot.accumulated_nav
-            nav.daily_growth_rate = snapshot.daily_growth_rate
-            nav.source = snapshot.source
+            if (
+                self._should_replace_legacy_etf_nav(latest_nav, snapshot.source)
+                and latest_nav is not None
+                and latest_nav.id != nav.id
+            ):
+                self.db.delete(latest_nav)
+
+        nav.unit_nav = snapshot.unit_nav
+        nav.accumulated_nav = snapshot.accumulated_nav
+        nav.daily_growth_rate = snapshot.daily_growth_rate
+        nav.source = snapshot.source
 
         self.db.commit()
         self.db.refresh(nav)
@@ -160,6 +171,7 @@ class FundService:
             "remark": fund.remark,
             "latest_unit_nav": latest_nav.unit_nav if latest_nav else None,
             "latest_nav_date": latest_nav.nav_date if latest_nav else None,
+            "latest_daily_growth_rate": latest_nav.daily_growth_rate if latest_nav else None,
             "latest_estimated_nav": latest_estimate.estimated_nav if latest_estimate else None,
             "latest_estimated_growth_rate": (
                 latest_estimate.estimated_growth_rate if latest_estimate else None
@@ -184,4 +196,30 @@ class FundService:
             .where(FundEstimate.fund_code == fund_code)
             .order_by(FundEstimate.estimate_time.desc())
             .limit(1)
+        )
+
+    @staticmethod
+    def _is_fresh_local_nav(nav: FundNav) -> bool:
+        if nav.daily_growth_rate is None:
+            return False
+        today = date.today()
+        if nav.source == "akshare:etf_spot_prev_close":
+            return nav.nav_date >= FundService._previous_business_day(today)
+        if nav.source == "akshare:etf_spot":
+            return False
+        return nav.nav_date >= today
+
+    @staticmethod
+    def _previous_business_day(value: date) -> date:
+        previous = value - timedelta(days=1)
+        while previous.weekday() >= 5:
+            previous -= timedelta(days=1)
+        return previous
+
+    @staticmethod
+    def _should_replace_legacy_etf_nav(nav: FundNav | None, next_source: str) -> bool:
+        return (
+            nav is not None
+            and nav.source == "akshare:etf_spot"
+            and next_source == "akshare:etf_spot_prev_close"
         )

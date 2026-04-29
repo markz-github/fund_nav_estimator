@@ -58,6 +58,18 @@ function percent(value?: string | null) {
   return `${(Number(value) * 100).toFixed(2)}%`
 }
 
+function growthPercent(value?: string | null) {
+  if (!value) return '-'
+  const percentValue = Number(value) * 100
+  const sign = percentValue > 0 ? '+' : ''
+  return `${sign}${percentValue.toFixed(2)}%`
+}
+
+function growthClass(value?: string | null) {
+  if (!value) return ''
+  return Number(value) >= 0 ? 'up' : 'down'
+}
+
 async function loadDetail() {
   loading.value = true
   message.value = ''
@@ -124,12 +136,16 @@ onMounted(loadDetail)
         <strong>{{ fund.latest_nav_date ?? '-' }}</strong>
       </article>
       <article class="info-card">
+        <span>昨日官方涨跌幅</span>
+        <strong :class="growthClass(fund.latest_daily_growth_rate)">{{ growthPercent(fund.latest_daily_growth_rate) }}</strong>
+      </article>
+      <article class="info-card">
         <span>估算净值</span>
         <strong>{{ fund.latest_estimated_nav ?? '-' }}</strong>
       </article>
       <article class="info-card">
         <span>估算涨跌幅</span>
-        <strong>{{ percent(fund.latest_estimated_growth_rate) }}</strong>
+        <strong :class="growthClass(fund.latest_estimated_growth_rate)">{{ growthPercent(fund.latest_estimated_growth_rate) }}</strong>
       </article>
       <article class="info-card">
         <span>估算时间</span>

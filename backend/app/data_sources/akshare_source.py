@@ -151,22 +151,30 @@ class AkshareSource:
             return None
 
         row = matched.iloc[0]
-        unit_nav = self._optional_decimal(row.get("IOPV实时估值"))
+        prev_close = self._optional_decimal(row.get("昨收"))
+        unit_nav = prev_close
+        source = f"{self.source_name}:etf_spot_prev_close"
+
+        if unit_nav is None:
+            unit_nav = self._optional_decimal(row.get("IOPV实时估值"))
+            source = f"{self.source_name}:etf_spot"
         if unit_nav is None:
             unit_nav = self._optional_decimal(row.get("最新价"))
+            source = f"{self.source_name}:etf_spot"
         if unit_nav is None:
             return None
 
-        nav_date = date.today()
+        quote_date = date.today()
         raw_date = row.get("数据日期")
         if raw_date is not None:
             try:
                 if hasattr(raw_date, "date"):
-                    nav_date = raw_date.date()
+                    quote_date = raw_date.date()
                 else:
-                    nav_date = date.fromisoformat(str(raw_date).split(" ")[0])
+                    quote_date = date.fromisoformat(str(raw_date).split(" ")[0])
             except ValueError:
                 pass
+        nav_date = self._previous_business_day(quote_date) if prev_close is not None else quote_date
 
         return FundNavSnapshot(
             fund_code=fund_code,
@@ -174,7 +182,7 @@ class AkshareSource:
             unit_nav=unit_nav,
             accumulated_nav=None,
             daily_growth_rate=self._percent(row.get("涨跌幅")),
-            source=f"{self.source_name}:etf_spot",
+            source=source,
         )
 
     @timed()
@@ -294,6 +302,13 @@ class AkshareSource:
         if not candidates:
             raise ValueError("No unit nav date column found in akshare daily fund data.")
         return max(candidates)
+
+    @staticmethod
+    def _previous_business_day(value: date) -> date:
+        previous = value - timedelta(days=1)
+        while previous.weekday() >= 5:
+            previous -= timedelta(days=1)
+        return previous
 
     @classmethod
     def _extract_latest_nav_date_for_row(cls, row, columns: list[str]) -> date | None:

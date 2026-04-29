@@ -9,6 +9,7 @@ export interface Fund {
   remark?: string | null
   latest_unit_nav?: string | null
   latest_nav_date?: string | null
+  latest_daily_growth_rate?: string | null
   latest_estimated_nav?: string | null
   latest_estimated_growth_rate?: string | null
   latest_estimate_time?: string | null
@@ -69,8 +70,17 @@ export interface RefreshHoldingsResult {
 export interface RefreshNavResult {
   fund_code: string
   refreshed: boolean
+  from_cache?: boolean
   nav_date?: string | null
   unit_nav?: string | null
+}
+
+export interface RefreshFundNavsResult {
+  fund_codes: string[]
+  refreshed_count: number
+  from_cache_count: number
+  failed_count: number
+  results: RefreshNavResult[]
 }
 
 export async function refreshFundHoldings(fundCode: string): Promise<RefreshHoldingsResult> {
@@ -84,5 +94,14 @@ export async function deleteFund(fundCode: string): Promise<void> {
 
 export async function refreshFundNav(fundCode: string): Promise<RefreshNavResult> {
   const { data } = await apiClient.post<RefreshNavResult>(`/funds/${fundCode}/refresh-nav`)
+  return data
+}
+
+export async function refreshFundNavs(fundCodes: string[]): Promise<RefreshFundNavsResult> {
+  const { data } = await apiClient.post<RefreshFundNavsResult>(
+    '/funds/actions/refresh-navs',
+    { fund_codes: fundCodes },
+    { timeout: 180000 },
+  )
   return data
 }

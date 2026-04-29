@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.market import MarketQuoteOut
 from app.services.market_service import MarketService
-from app.services.operation_log_service import log_fetch_error, log_task
+from app.services.operation_log_service import finish_task, log_fetch_error, start_task
 
 router = APIRouter(prefix="/market", tags=["market"])
 
@@ -16,24 +16,29 @@ router = APIRouter(prefix="/market", tags=["market"])
 @router.post("/refresh")
 def refresh_market_quotes(db: Session = Depends(get_db)) -> dict:
     started_at = datetime.now()
+    task_log = start_task(
+        db,
+        "手动刷新持仓资产行情",
+        "refresh_quote_manual",
+        started_at,
+        "刷新持仓资产行情执行中",
+    )
     try:
         quotes = MarketService(db).refresh_quotes_for_holdings()
     except Exception as exc:
         db.rollback()
         log_fetch_error(db, "akshare", "quote", "holdings", repr(exc))
-        log_task(db, "手动刷新持仓资产行情", "refresh_quote_manual", "failed", started_at, repr(exc))
+        finish_task(db, task_log, "failed", repr(exc))
         raise HTTPException(status_code=502, detail="行情同步失败，请查看运行状态中的数据异常。") from exc
     if not quotes:
         message = "no market quotes refreshed for current holdings"
         log_fetch_error(db, "akshare", "quote", "holdings", message)
-        log_task(db, "手动刷新持仓资产行情", "refresh_quote_manual", "partial", started_at, message)
+        finish_task(db, task_log, "partial", message)
     else:
-        log_task(
+        finish_task(
             db,
-            "手动刷新持仓资产行情",
-            "refresh_quote_manual",
+            task_log,
             "success",
-            started_at,
             f"quotes={len(quotes)}",
         )
     return {

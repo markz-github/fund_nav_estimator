@@ -9,10 +9,13 @@ import {
   deleteFund,
   listFunds,
   refreshFundNav,
+  refreshFundNavs,
   type Fund,
   type FundSortBy,
   type SortOrder,
 } from '../api/funds'
+
+const SORT_STORAGE_KEY = 'fund-list-sort'
 
 const funds = ref<Fund[]>([])
 const selectedFundCodes = ref<string[]>([])
@@ -21,10 +24,36 @@ const remark = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const estimating = ref(false)
+const refreshingNavs = ref(false)
 const message = ref('')
 const pendingDeleteFund = ref<Fund | null>(null)
-const sortBy = ref<FundSortBy | null>(null)
-const sortOrder = ref<SortOrder>('desc')
+const initialSort = readSavedSort()
+const sortBy = ref<FundSortBy | null>(initialSort.sortBy)
+const sortOrder = ref<SortOrder>(initialSort.sortOrder)
+
+function readSavedSort(): { sortBy: FundSortBy | null; sortOrder: SortOrder } {
+  try {
+    const rawValue = window.localStorage.getItem(SORT_STORAGE_KEY)
+    if (!rawValue) return { sortBy: null, sortOrder: 'desc' }
+    const parsed = JSON.parse(rawValue) as { sortBy?: string | null; sortOrder?: string }
+    return {
+      sortBy: parsed.sortBy === 'latest_estimated_growth_rate' ? parsed.sortBy : null,
+      sortOrder: parsed.sortOrder === 'asc' ? 'asc' : 'desc',
+    }
+  } catch {
+    return { sortBy: null, sortOrder: 'desc' }
+  }
+}
+
+function saveSort() {
+  window.localStorage.setItem(
+    SORT_STORAGE_KEY,
+    JSON.stringify({
+      sortBy: sortBy.value,
+      sortOrder: sortOrder.value,
+    }),
+  )
+}
 
 async function loadFunds(options?: { keepMessage?: boolean }) {
   loading.value = true
@@ -47,6 +76,7 @@ async function updateSort(nextSortBy: FundSortBy) {
     sortBy.value = nextSortBy
     sortOrder.value = 'desc'
   }
+  saveSort()
   await loadFunds()
 }
 
@@ -96,10 +126,34 @@ async function confirmDeleteFund() {
 async function refreshNav(code: string) {
   try {
     const result = await refreshFundNav(code)
-    message.value = result.refreshed ? '官方净值已刷新。' : '未获取到新的官方净值，已记录到运行状态。'
+    message.value = result.refreshed
+      ? result.from_cache
+        ? '数据源暂时不可用，已保留本地已有基准。'
+        : '官方净值已刷新。'
+      : '未获取到新的官方净值，已记录到运行状态。'
     await loadFunds({ keepMessage: true })
   } catch (error) {
     message.value = apiErrorMessage(error, '官方净值刷新失败，请查看运行状态。')
+  }
+}
+
+async function refreshSelectedNavs() {
+  refreshingNavs.value = true
+  const targetCodes =
+    selectedFundCodes.value.length > 0
+      ? selectedFundCodes.value
+      : funds.value.map((fund) => fund.fund_code)
+  message.value = `正在为 ${targetCodes.length} 只基金更新官方净值...`
+  try {
+    const result = await refreshFundNavs(targetCodes)
+    const cacheText = result.from_cache_count ? `，保留本地已有基准 ${result.from_cache_count} 只` : ''
+    const failedText = result.failed_count ? `，失败 ${result.failed_count} 只` : ''
+    message.value = `官方净值更新 ${result.refreshed_count} 只${cacheText}${failedText}。`
+    await loadFunds({ keepMessage: true })
+  } catch (error) {
+    message.value = apiErrorMessage(error, '批量更新官方净值失败，请查看运行状态。')
+  } finally {
+    refreshingNavs.value = false
   }
 }
 
@@ -145,7 +199,16 @@ onMounted(loadFunds)
       <div class="toolbar">
         <div class="page-actions">
           <button class="ghost" :disabled="estimating" @click="estimateToday">
-            {{ estimating ? '估算中...' : selectedFundCodes.length ? `刷新选中 ${selectedFundCodes.length} 只` : '批量刷新全部' }}
+            {{ estimating ? '估算中...' : selectedFundCodes.length ? `估算选中 ${selectedFundCodes.length} 只` : '批量估算全部' }}
+          </button>
+          <button class="ghost" :disabled="refreshingNavs" @click="refreshSelectedNavs">
+            {{
+              refreshingNavs
+                ? '更新中...'
+                : selectedFundCodes.length
+                  ? `更新选中 ${selectedFundCodes.length} 只官方净值`
+                  : '批量更新官方净值'
+            }}
           </button>
           <RouterLink class="link-button" to="/operations">查看运行状态</RouterLink>
         </div>

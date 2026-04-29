@@ -16,6 +16,11 @@ class FundUpdate(BaseModel):
     remark: str | None = None
 
 
+class RefreshFundNavsRequest(BaseModel):
+    fund_codes: list[str] | None = None
+    fund_ids: list[int] | None = None
+
+
 class FundOut(BaseModel):
     id: int
     fund_code: str
@@ -25,6 +30,7 @@ class FundOut(BaseModel):
     remark: str | None = None
     latest_unit_nav: Decimal | None = None
     latest_nav_date: date | None = None
+    latest_daily_growth_rate: Decimal | None = None
     latest_estimated_nav: Decimal | None = None
     latest_estimated_growth_rate: Decimal | None = None
     latest_estimate_time: datetime | None = None
