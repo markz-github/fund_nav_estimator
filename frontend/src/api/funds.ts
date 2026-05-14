@@ -7,6 +7,10 @@ export interface Fund {
   fund_type?: string | null
   enabled: number
   remark?: string | null
+  tracked_index_code?: string | null
+  tracked_index_name?: string | null
+  tracked_index_source?: string | null
+  tracked_index_confidence?: string | null
   latest_unit_nav?: string | null
   latest_nav_date?: string | null
   latest_daily_growth_rate?: string | null

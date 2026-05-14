@@ -128,6 +128,11 @@ onMounted(loadDetail)
         <strong>{{ fund.fund_type ?? '-' }}</strong>
       </article>
       <article class="info-card">
+        <span>跟踪指数</span>
+        <strong>{{ fund.tracked_index_name ?? '-' }}</strong>
+        <small v-if="fund.tracked_index_code" class="muted mono">{{ fund.tracked_index_code }}</small>
+      </article>
+      <article class="info-card">
         <span>官方净值</span>
         <strong>{{ fund.latest_unit_nav ?? '-' }}</strong>
       </article>

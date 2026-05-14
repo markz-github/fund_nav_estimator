@@ -4,6 +4,7 @@ from datetime import datetime
 
 from app.database import SessionLocal
 from app.services.estimate_service import EstimateService
+from app.services.fund_index_mapping_service import FundIndexMappingService
 from app.services.fund_profile_service import FundProfileService
 from app.services.fund_service import FundService
 from app.services.holding_service import HoldingService
@@ -24,6 +25,7 @@ def sync_new_fund_data(fund_code: str) -> None:
             except Exception:
                 db.rollback()
         profile = fund_service.refresh_profile(fund_code)
+        index_mapping = FundIndexMappingService(db).refresh_mapping(fund_code)
         nav = fund_service.refresh_nav(fund_code)
         holdings = HoldingService(db).refresh_holdings(fund_code)
         quotes = MarketService(db).refresh_quotes_for_holdings([fund_code]) if holdings else []
@@ -39,6 +41,7 @@ def sync_new_fund_data(fund_code: str) -> None:
             started_at,
             (
                 f"profile={profile is not None};nav={nav is not None};"
+                f"index_mapping={index_mapping is not None};"
                 f"holdings={len(holdings)};quotes={len(quotes)};"
                 f"estimated={estimate_result['estimated_count']};"
                 f"skipped={estimate_result['skipped_count']};"

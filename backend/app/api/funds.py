@@ -12,6 +12,7 @@ from app.schemas.fund import FundCreate, FundOut, RefreshFundNavsRequest
 from app.schemas.holding import FundHoldingOut
 from app.services.fund_service import FundService
 from app.services.fund_sync_service import sync_new_fund_data
+from app.services.fund_index_mapping_service import FundIndexMappingService
 from app.services.holding_service import HoldingService
 from app.services.operation_log_service import finish_task, log_fetch_error, log_task, start_task
 
@@ -137,6 +138,19 @@ def get_fund(fund_code: str, db: Session = Depends(get_db)) -> dict:
     if fund is None:
         raise HTTPException(status_code=404, detail="Fund not found")
     return fund
+
+
+@router.post("/{fund_code}/refresh-index-mapping")
+def refresh_index_mapping(fund_code: str, db: Session = Depends(get_db)) -> dict:
+    mapping = FundIndexMappingService(db).refresh_mapping(fund_code)
+    return {
+        "fund_code": fund_code,
+        "refreshed": mapping is not None,
+        "index_code": mapping.index_code if mapping else None,
+        "index_name": mapping.index_name if mapping else None,
+        "source": mapping.source if mapping else None,
+        "confidence": mapping.confidence if mapping else None,
+    }
 
 
 @router.post("/{fund_code}/refresh-nav")

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.data_sources.akshare_source import AkshareSource
 from app.models.fund import Fund
 from app.models.fund_estimate import FundEstimate
+from app.models.fund_index_mapping import FundIndexMapping
 from app.models.fund_nav import FundNav
 from app.schemas.fund import FundCreate
 from app.services.fund_profile_service import FundProfileService
@@ -162,6 +163,7 @@ class FundService:
     def _fund_with_latest_data(self, fund: Fund) -> dict:
         latest_nav = self.db.scalar(self._latest_nav_query(fund.fund_code))
         latest_estimate = self.db.scalar(self._latest_estimate_query(fund.fund_code))
+        index_mapping = self.db.scalar(self._index_mapping_query(fund.fund_code))
         return {
             "id": fund.id,
             "fund_code": fund.fund_code,
@@ -169,6 +171,10 @@ class FundService:
             "fund_type": fund.fund_type,
             "enabled": fund.enabled,
             "remark": fund.remark,
+            "tracked_index_code": index_mapping.index_code if index_mapping else None,
+            "tracked_index_name": index_mapping.index_name if index_mapping else None,
+            "tracked_index_source": index_mapping.source if index_mapping else None,
+            "tracked_index_confidence": index_mapping.confidence if index_mapping else None,
             "latest_unit_nav": latest_nav.unit_nav if latest_nav else None,
             "latest_nav_date": latest_nav.nav_date if latest_nav else None,
             "latest_daily_growth_rate": latest_nav.daily_growth_rate if latest_nav else None,
@@ -195,6 +201,14 @@ class FundService:
             select(FundEstimate)
             .where(FundEstimate.fund_code == fund_code)
             .order_by(FundEstimate.estimate_time.desc())
+            .limit(1)
+        )
+
+    @staticmethod
+    def _index_mapping_query(fund_code: str) -> Select[tuple[FundIndexMapping]]:
+        return (
+            select(FundIndexMapping)
+            .where(FundIndexMapping.fund_code == fund_code)
             .limit(1)
         )
 
