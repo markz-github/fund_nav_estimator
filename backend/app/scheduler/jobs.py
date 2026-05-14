@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.models.fund import Fund
 from app.services.estimate_service import EstimateService
+from app.services.fund_profile_service import FundProfileService
 from app.services.fund_service import FundService
 from app.services.holding_service import HoldingService
 from app.services.market_service import MarketService
@@ -56,6 +57,36 @@ def refresh_fund_navs_job() -> None:
         return status, f"success={success};failed={failed}"
 
     _run_task("刷新基金官方净值", "refresh_nav", handler)
+
+
+def refresh_fund_profiles_job() -> None:
+    def handler(db: Session) -> tuple[str, str]:
+        profile_count = FundProfileService(db).refresh_profiles()
+        service = FundService(db)
+        funds = db.scalars(select(Fund).where(Fund.enabled == 1)).all()
+        success = 0
+        failed = 0
+        for fund in funds:
+            try:
+                refreshed = service.refresh_profile(fund.fund_code)
+                success += 1 if refreshed is not None else 0
+                if refreshed is None:
+                    failed += 1
+                    log_fetch_error(
+                        db,
+                        "akshare",
+                        "fund_profile",
+                        fund.fund_code,
+                        "fund not found in local fund pool",
+                    )
+            except Exception as exc:
+                db.rollback()
+                failed += 1
+                log_fetch_error(db, "akshare", "fund_profile", fund.fund_code, repr(exc))
+        status = "success" if failed == 0 else "partial"
+        return status, f"profiles={profile_count};success={success};failed={failed}"
+
+    _run_task("刷新基金名称和类型", "refresh_profile", handler)
 
 
 def refresh_fund_holdings_job() -> None:
@@ -134,6 +165,13 @@ def create_scheduler() -> BackgroundScheduler:
         refresh_fund_navs_job,
         trigger=CronTrigger.from_crontab(settings.scheduler_refresh_nav_cron),
         id="refresh_fund_navs",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        refresh_fund_profiles_job,
+        trigger=CronTrigger.from_crontab(settings.scheduler_refresh_profiles_cron),
+        id="refresh_fund_profiles",
         replace_existing=True,
         max_instances=1,
     )

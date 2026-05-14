@@ -11,7 +11,7 @@ from app.models.fund import Fund
 from app.schemas.estimate import FundEstimateOut, RefreshAndEstimateRequest
 from app.services.estimate_service import EstimateService
 from app.services.market_service import MarketService
-from app.services.operation_log_service import log_fetch_error, log_task
+from app.services.operation_log_service import finish_task, log_fetch_error, start_task
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 
@@ -24,12 +24,19 @@ def latest_estimates(db: Session = Depends(get_db)):
 @router.post("/actions/run")
 def run_estimates(db: Session = Depends(get_db)) -> dict:
     started_at = datetime.now()
+    task_log = start_task(
+        db,
+        "手动估算基金当日净值",
+        "estimate_nav_manual",
+        started_at,
+        "估算基金当日净值执行中",
+    )
     try:
         result = EstimateService(db).run_estimates()
     except Exception as exc:
         db.rollback()
         log_fetch_error(db, "internal", "estimate_nav", "all", repr(exc))
-        log_task(db, "手动估算基金当日净值", "estimate_nav_manual", "failed", started_at, repr(exc))
+        finish_task(db, task_log, "failed", repr(exc))
         raise HTTPException(status_code=500, detail="估算任务执行失败，请查看运行状态中的数据异常。") from exc
     for skipped in result["skipped"]:
         log_fetch_error(
@@ -40,12 +47,10 @@ def run_estimates(db: Session = Depends(get_db)) -> dict:
             skipped["reason"],
         )
     status = "success" if result["skipped_count"] == 0 else "partial"
-    log_task(
+    finish_task(
         db,
-        "手动估算基金当日净值",
-        "estimate_nav_manual",
+        task_log,
         status,
-        started_at,
         f"estimated={result['estimated_count']};skipped={result['skipped_count']};details={result['skipped']}",
     )
     return result
@@ -59,18 +64,23 @@ def refresh_quotes_and_run_estimates(
     started_at = datetime.now()
     fund_codes = _resolve_fund_codes(db, payload)
     target = ",".join(fund_codes) if fund_codes else "all"
+    task_log = start_task(
+        db,
+        "手动刷新行情并估算",
+        "refresh_quote_estimate_manual",
+        started_at,
+        f"target={target};执行中",
+    )
     try:
         quotes = MarketService(db).refresh_quotes_for_holdings(fund_codes or None)
         result = EstimateService(db).run_estimates(fund_codes or None)
     except Exception as exc:
         db.rollback()
         log_fetch_error(db, "internal", "refresh_quote_estimate", target, repr(exc))
-        log_task(
+        finish_task(
             db,
-            "手动刷新行情并估算",
-            "refresh_quote_estimate_manual",
+            task_log,
             "failed",
-            started_at,
             repr(exc),
         )
         raise HTTPException(status_code=500, detail="刷新行情并估算失败，请查看运行状态。") from exc
@@ -95,12 +105,10 @@ def refresh_quotes_and_run_estimates(
     status = "success"
     if not quotes or result["skipped_count"] > 0:
         status = "partial"
-    log_task(
+    finish_task(
         db,
-        "手动刷新行情并估算",
-        "refresh_quote_estimate_manual",
+        task_log,
         status,
-        started_at,
         (
             f"funds={len(fund_codes) if fund_codes else 'all'};quotes={len(quotes)};"
             f"estimated={result['estimated_count']};skipped={result['skipped_count']};"

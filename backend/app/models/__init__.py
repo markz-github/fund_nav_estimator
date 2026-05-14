@@ -2,7 +2,9 @@ from app.models.data_fetch_error import DataFetchError
 from app.models.fund import Fund
 from app.models.fund_estimate import FundEstimate
 from app.models.fund_holding import FundHolding
+from app.models.fund_index_mapping import FundIndexMapping
 from app.models.fund_nav import FundNav
+from app.models.fund_profile import FundProfile
 from app.models.market_quote import MarketQuote
 from app.models.task_log import TaskLog
 
@@ -11,7 +13,9 @@ __all__ = [
     "Fund",
     "FundEstimate",
     "FundHolding",
+    "FundIndexMapping",
     "FundNav",
+    "FundProfile",
     "MarketQuote",
     "TaskLog",
 ]

@@ -4,9 +4,12 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 import re
+from time import monotonic
 
 import akshare as ak
 import requests
+
+from app.utils.performance import timed
 
 
 @dataclass(frozen=True)
@@ -23,6 +26,7 @@ class FundNavSnapshot:
     unit_nav: Decimal
     accumulated_nav: Decimal | None
     daily_growth_rate: Decimal | None
+    source: str = "akshare"
 
 
 @dataclass(frozen=True)
@@ -46,10 +50,14 @@ class AkshareSource:
     """
 
     source_name = "akshare"
+    _fund_daily_cache_ttl_seconds = 600
+    _fund_daily_cache = None
+    _fund_daily_cache_loaded_at = 0.0
 
+    @timed()
     def get_fund_profile(self, fund_code: str) -> FundProfile:
         normalized_code = self._normalize_fund_code(fund_code)
-        fund_df = ak.fund_name_em()
+        fund_df = self.get_fund_profiles_dataframe()
         matched = fund_df[fund_df["基金代码"].astype(str).str.zfill(6) == normalized_code]
         if matched.empty:
             raise LookupError(f"Fund not found: {normalized_code}")
@@ -61,15 +69,45 @@ class AkshareSource:
             fund_type=self._none_if_nan(row.get("基金类型")),
         )
 
+    @timed()
+    def get_fund_profiles(self) -> list[FundProfile]:
+        fund_df = self.get_fund_profiles_dataframe()
+        profiles: list[FundProfile] = []
+        for _, row in fund_df.iterrows():
+            fund_code = str(row["基金代码"]).strip().zfill(6)
+            fund_name = self._none_if_nan(row.get("基金简称"))
+            if not fund_code or fund_name is None:
+                continue
+            profiles.append(
+                FundProfile(
+                    fund_code=fund_code,
+                    fund_name=fund_name,
+                    fund_type=self._none_if_nan(row.get("基金类型")),
+                )
+            )
+        return profiles
+
+    @staticmethod
+    def get_fund_profiles_dataframe():
+        return ak.fund_name_em()
+
+    @timed()
     def get_latest_fund_nav(self, fund_code: str) -> FundNavSnapshot | None:
         normalized_code = self._normalize_fund_code(fund_code)
-        daily_df = ak.fund_open_fund_daily_em()
+        if self._should_try_etf_first(normalized_code):
+            etf_snapshot = self._get_latest_etf_nav_snapshot(normalized_code)
+            if etf_snapshot is not None:
+                return etf_snapshot
+
+        daily_df = self.get_fund_daily_dataframe()
         matched = daily_df[daily_df["基金代码"].astype(str).str.zfill(6) == normalized_code]
         if matched.empty:
-            return None
+            return self._get_latest_etf_nav_snapshot(normalized_code)
 
         row = matched.iloc[0]
-        nav_date = self._extract_latest_nav_date(list(daily_df.columns))
+        nav_date = self._extract_latest_nav_date_for_row(row, list(daily_df.columns))
+        if nav_date is None:
+            return None
         unit_nav_column = f"{nav_date.isoformat()}-单位净值"
         accumulated_nav_column = f"{nav_date.isoformat()}-累计净值"
 
@@ -79,8 +117,75 @@ class AkshareSource:
             unit_nav=self._decimal(row[unit_nav_column]),
             accumulated_nav=self._optional_decimal(row.get(accumulated_nav_column)),
             daily_growth_rate=self._percent(row.get("日增长率")),
+            source=self.source_name,
         )
 
+    @classmethod
+    def get_fund_daily_dataframe(cls):
+        now = monotonic()
+        if (
+            cls._fund_daily_cache is not None
+            and now - cls._fund_daily_cache_loaded_at < cls._fund_daily_cache_ttl_seconds
+        ):
+            return cls._fund_daily_cache
+
+        cls._fund_daily_cache = ak.fund_open_fund_daily_em()
+        cls._fund_daily_cache_loaded_at = now
+        return cls._fund_daily_cache
+
+    @staticmethod
+    def _should_try_etf_first(fund_code: str) -> bool:
+        return fund_code.startswith("5")
+
+    def _get_latest_etf_nav_snapshot(self, fund_code: str) -> FundNavSnapshot | None:
+        if not fund_code.startswith(("5", "1")):
+            return None
+
+        try:
+            etf_df = ak.fund_etf_spot_em()
+        except Exception:
+            return None
+
+        matched = etf_df[etf_df["代码"].astype(str).str.zfill(6) == fund_code]
+        if matched.empty:
+            return None
+
+        row = matched.iloc[0]
+        prev_close = self._optional_decimal(row.get("昨收"))
+        unit_nav = prev_close
+        source = f"{self.source_name}:etf_spot_prev_close"
+
+        if unit_nav is None:
+            unit_nav = self._optional_decimal(row.get("IOPV实时估值"))
+            source = f"{self.source_name}:etf_spot"
+        if unit_nav is None:
+            unit_nav = self._optional_decimal(row.get("最新价"))
+            source = f"{self.source_name}:etf_spot"
+        if unit_nav is None:
+            return None
+
+        quote_date = date.today()
+        raw_date = row.get("数据日期")
+        if raw_date is not None:
+            try:
+                if hasattr(raw_date, "date"):
+                    quote_date = raw_date.date()
+                else:
+                    quote_date = date.fromisoformat(str(raw_date).split(" ")[0])
+            except ValueError:
+                pass
+        nav_date = self._previous_business_day(quote_date) if prev_close is not None else quote_date
+
+        return FundNavSnapshot(
+            fund_code=fund_code,
+            nav_date=nav_date,
+            unit_nav=unit_nav,
+            accumulated_nav=None,
+            daily_growth_rate=self._percent(row.get("涨跌幅")),
+            source=source,
+        )
+
+    @timed()
     def get_fund_holdings(self, fund_code: str) -> list[dict]:
         normalized_code = self._normalize_fund_code(fund_code)
         current_year = date.today().year
@@ -91,7 +196,7 @@ class AkshareSource:
 
             holdings = []
             for _, row in holding_df.iterrows():
-                asset_code = str(row["股票代码"]).strip().zfill(5 if len(str(row["股票代码"]).strip()) == 5 else 6)
+                asset_code = self._normalize_holding_asset_code(row["股票代码"])
                 holdings.append(
                     {
                         "fund_code": normalized_code,
@@ -108,6 +213,7 @@ class AkshareSource:
             return holdings
         return []
 
+    @timed()
     def get_market_quotes(self, asset_codes: list[str]) -> list[MarketQuoteSnapshot]:
         target_codes = {str(code).strip() for code in asset_codes if str(code).strip()}
         if not target_codes:
@@ -119,6 +225,7 @@ class AkshareSource:
         has_hk = any(len(code) == 5 for code in target_codes)
         has_etf = any(len(code) == 6 and code.startswith(("5", "1")) for code in target_codes)
         has_cn_stock = any(len(code) == 6 and not code.startswith(("5", "1")) for code in target_codes)
+        us_codes = {code for code in target_codes if self._is_us_stock_code(code)}
 
         fetch_tasks = []
         if has_cn_stock:
@@ -166,6 +273,11 @@ class AkshareSource:
                     change_rate=self._percent(row.get("涨跌幅")),
                 )
 
+        for asset_code in us_codes:
+            snapshot = self._get_us_daily_quote(asset_code, quote_time)
+            if snapshot is not None:
+                snapshots[asset_code] = snapshot
+
         missing_codes = target_codes - set(snapshots.keys())
         for asset_code in missing_codes:
             fallback = self._get_sina_quote(asset_code, quote_time)
@@ -189,6 +301,26 @@ class AkshareSource:
                 candidates.append(date.fromisoformat(match.group(1)))
         if not candidates:
             raise ValueError("No unit nav date column found in akshare daily fund data.")
+        return max(candidates)
+
+    @staticmethod
+    def _previous_business_day(value: date) -> date:
+        previous = value - timedelta(days=1)
+        while previous.weekday() >= 5:
+            previous -= timedelta(days=1)
+        return previous
+
+    @classmethod
+    def _extract_latest_nav_date_for_row(cls, row, columns: list[str]) -> date | None:
+        candidates: list[date] = []
+        for column in columns:
+            match = re.match(r"^(\d{4}-\d{2}-\d{2})-单位净值$", column)
+            if not match:
+                continue
+            if cls._none_if_nan(row.get(column)) is not None:
+                candidates.append(date.fromisoformat(match.group(1)))
+        if not candidates:
+            return None
         return max(candidates)
 
     @staticmethod
@@ -232,6 +364,8 @@ class AkshareSource:
 
     @staticmethod
     def _infer_stock_market(asset_code: str) -> str | None:
+        if AkshareSource._is_us_stock_code(asset_code):
+            return "US"
         if len(asset_code) == 5:
             return "HK"
         if asset_code.startswith(("6", "9")):
@@ -251,6 +385,55 @@ class AkshareSource:
         if code.isdigit() and len(code) < 6:
             return code.zfill(6)
         return code
+
+    @staticmethod
+    def _normalize_holding_asset_code(asset_code) -> str:
+        code = str(asset_code).strip().upper()
+        if re.search(r"[A-Z]", code):
+            return re.sub(r"^0+", "", code)
+        return code.zfill(5 if len(code) == 5 else 6)
+
+    @staticmethod
+    def _is_us_stock_code(asset_code: str) -> bool:
+        return bool(re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", asset_code.upper()))
+
+    def _get_us_daily_quote(
+        self, asset_code: str, quote_time: datetime
+    ) -> MarketQuoteSnapshot | None:
+        try:
+            history_df = ak.stock_us_daily(symbol=asset_code, adjust="")
+        except Exception:
+            return None
+
+        if history_df.empty or len(history_df) < 1:
+            return None
+
+        row = history_df.iloc[-1]
+        previous_row = history_df.iloc[-2] if len(history_df) >= 2 else None
+
+        latest_price = self._optional_decimal(row.get("close"))
+        prev_close = self._optional_decimal(previous_row.get("close")) if previous_row is not None else None
+        change_rate = None
+        if latest_price is not None and prev_close not in (None, Decimal("0")):
+            change_rate = (latest_price - prev_close) / prev_close
+
+        trade_date_value = row.get("date")
+        if hasattr(trade_date_value, "date"):
+            trade_date = trade_date_value.date()
+        else:
+            trade_date = date.fromisoformat(str(trade_date_value).split(" ")[0])
+
+        return MarketQuoteSnapshot(
+            asset_code=asset_code,
+            asset_name=None,
+            asset_type="stock",
+            market="US",
+            trade_date=trade_date,
+            quote_time=datetime.combine(trade_date, datetime.min.time()),
+            latest_price=latest_price,
+            prev_close=prev_close,
+            change_rate=change_rate,
+        )
 
     def _get_latest_history_quote(
         self, asset_code: str, quote_time: datetime
@@ -378,6 +561,8 @@ class AkshareSource:
     def _sina_asset_code(asset_code: str) -> str | None:
         if len(asset_code) == 5:
             return f"hk{asset_code}"
+        if AkshareSource._is_us_stock_code(asset_code):
+            return None
         if not asset_code.isdigit() or len(asset_code) != 6:
             return None
         if asset_code.startswith(("5", "6", "9")):
