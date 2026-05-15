@@ -1,0 +1,93 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - private
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    container:
+      image: 192.168.50.50:13000/markz/python-node-ci:py3.14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Verify toolchain
+        run: |
+          python --version
+          node --version
+          bash --version | head -n 1
+
+      - name: Install Docker CLI if missing
+        run: |
+          if ! command -v docker >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y docker.io docker-compose-v2 || apt-get install -y docker.io docker-compose
+          fi
+          docker --version
+          docker compose version || docker-compose --version
+
+      - name: Deploy changed parts
+        env:
+          DEPLOY_ENV: test
+          BACKEND_ENV_FILE: ${{ secrets.TEST_ENV }}
+          BACKEND_PORT: 18000
+        run: |
+          deploy_frontend=false
+          deploy_backend=false
+
+          if [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" ]]; then
+            deploy_frontend=true
+            deploy_backend=true
+            echo "Manual deployment requested; deploying frontend and backend."
+          else
+            if git rev-parse HEAD~1 >/dev/null 2>&1; then
+              changed_files="$(git diff --name-only HEAD~1 HEAD)"
+            else
+              changed_files="$(git show --format= --name-only HEAD)"
+            fi
+
+            echo "Changed files:"
+            printf '%s\n' "$changed_files"
+
+            if printf '%s\n' "$changed_files" | grep -Eq '^(frontend/)'; then
+              deploy_frontend=true
+            fi
+
+            if printf '%s\n' "$changed_files" | grep -Eq '^(backend/|docker-compose\.yml|\.gitea/workflows/deploy\.yml)'; then
+              deploy_backend=true
+            fi
+          fi
+
+          export COMPOSE_PROJECT_NAME="fund-nav-estimator-${DEPLOY_ENV}"
+
+          if [[ "$deploy_frontend" == "true" ]]; then
+            echo "Deploying frontend static assets."
+            docker compose -f docker-compose.yml --profile build build frontend
+            docker compose -f docker-compose.yml --profile build run --rm frontend
+          else
+            echo "No frontend changes detected; skipping frontend deployment."
+          fi
+
+          if [[ "$deploy_backend" == "true" ]]; then
+            echo "Deploying backend service."
+            mkdir -p backend
+            umask 077
+            printf '%s\n' "$BACKEND_ENV_FILE" > backend/.env
+
+            if [[ ! -s backend/.env ]]; then
+              echo "backend/.env is required for backend deployment. Set the environment-specific Gitea secret TEST_ENV." >&2
+              exit 1
+            fi
+
+            docker compose -f docker-compose.yml up -d --build --remove-orphans backend
+          else
+            echo "No backend changes detected; skipping backend deployment."
+          fi
+
+          docker compose -f docker-compose.yml ps

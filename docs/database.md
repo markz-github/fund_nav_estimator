@@ -19,6 +19,27 @@ CREATE TABLE funds (
 );
 ```
 
+## fund_profiles
+
+全量基金基础信息字典表，定期从 `akshare.fund_name_em()` 同步，用于添加基金时快速查询基金名称和类型。
+
+```sql
+CREATE TABLE fund_profiles (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    fund_code VARCHAR(20) NOT NULL COMMENT '基金代码',
+    fund_name VARCHAR(100) NOT NULL COMMENT '基金名称',
+    fund_type VARCHAR(50) NULL COMMENT '基金类型',
+    source VARCHAR(50) NOT NULL DEFAULT 'akshare' COMMENT '数据来源',
+    synced_at DATETIME NOT NULL COMMENT '最近同步时间',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_fund_profiles_code (fund_code),
+    INDEX idx_fund_profiles_name (fund_name),
+    INDEX idx_fund_profiles_type (fund_type),
+    INDEX idx_fund_profiles_synced_at (synced_at)
+);
+```
+
 ## fund_navs
 
 基金官方净值表。
@@ -35,6 +56,27 @@ CREATE TABLE fund_navs (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_fund_nav (fund_code, nav_date),
     INDEX idx_fund_nav_date (nav_date)
+);
+```
+
+## fund_index_mappings
+
+指数基金与跟踪指数映射表。
+
+```sql
+CREATE TABLE fund_index_mappings (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    fund_code VARCHAR(20) NOT NULL COMMENT '基金代码',
+    index_code VARCHAR(30) NULL COMMENT '指数代码，如 930997.CSI',
+    index_name VARCHAR(100) NULL COMMENT '指数名称',
+    benchmark_text TEXT NULL COMMENT '业绩比较基准原文',
+    source VARCHAR(50) NOT NULL COMMENT '映射来源，如 99fund、eastmoney',
+    confidence VARCHAR(20) NOT NULL DEFAULT 'medium' COMMENT '置信度：high、medium、low',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_fund_index_mapping_code (fund_code),
+    INDEX idx_fund_index_mapping_index_code (index_code),
+    INDEX idx_fund_index_mapping_updated_at (updated_at)
 );
 ```
 

@@ -11,15 +11,84 @@
 
 所有 akshare 调用都应集中在 `backend/app/data_sources/akshare_source.py`，避免业务服务直接依赖具体接口名称。
 
-## 备用数据源
+## akshare 接口使用结论
 
-当 akshare 无法获取基金持仓或行情时，可以接入：
+### 基金基础信息
 
-- 天天基金公开页面。
-- 基金公司公告和定期报告。
-- 新浪财经、同花顺等公开行情页面。
+- `ak.fund_name_em()` 可返回全量基金基础信息，当前实测约 2.6 万条。
+- 全量结果应定期同步到本地 `fund_profiles` 表。
+- 添加自选基金时优先查本地 `fund_profiles`，避免每次添加都访问外部数据源。
 
-备用数据源统一放在 `backend/app/data_sources/fallback_source.py` 或拆分成更具体的 adapter。
+### 开放式基金净值
+
+- `ak.fund_open_fund_daily_em()` 用于开放式基金官方净值。
+- 该接口返回的是宽表，不同基金在最新日期列可能为空。
+- 解析时应按“目标基金这一行中最近一个非空单位净值日期”取值，而不是直接使用全表最大日期。
+
+### 场内 ETF 净值 / 基准
+
+- 场内 ETF 如 `515450` 不一定出现在 `fund_open_fund_daily_em()` 中。
+- 对这类基金可 fallback 到 `ak.fund_etf_spot_em()`。
+- `昨收` 优先作为 ETF 参考基准，使估算口径保持为“上一基准价 × 当日持仓涨跌”。
+- `昨收` 缺失时再 fallback 到 `IOPV实时估值`，仍缺失时可用 `最新价`。
+- 使用 `昨收` 时，基准日期按 `数据日期` 推算到上一工作日，来源标记为 `akshare:etf_spot_prev_close`。
+- fallback 到 `IOPV实时估值` / `最新价` 时，`数据日期` 作为基准日期，来源标记为 `akshare:etf_spot`。页面上应理解为 ETF 行情基准，不是传统开放式基金官方净值。
+
+### A 股 / 港股 / ETF 行情
+
+- A 股、港股、ETF 行情优先通过 `AkshareSource.get_market_quotes()` 统一获取。
+- ETF 行情可通过 `ak.fund_etf_spot_em()`。
+- 部分行情接口可能返回重复 quote_time，写入 `market_quotes` 时需要处理唯一键冲突。
+
+### 美股 QDII 行情
+
+- akshare 有美股行情和历史行情接口：
+  - `ak.stock_us_spot_em()`：东方财富美股实时行情，通常延迟约 15 分钟。
+  - `ak.stock_us_hist()`：东方财富美股日线。
+  - `ak.stock_us_daily()`：新浪美股日线。
+- 对国内交易时间内的美股 QDII 基金，通常只需要使用美股上一交易日收盘价。
+- 当前建议用 `ak.stock_us_daily(symbol="NVDA", adjust="")` 读取日线，并用最近两天 `close` 计算涨跌幅。
+- QDII 持仓中可能出现 `00NVDA`、`00AAPL` 这类被补零的代码，入库前应规范化为 `NVDA`、`AAPL`，市场标记为 `US`。
+
+## 基金持仓备用数据源
+
+`HoldingService` 会把普通持仓和 ETF 联接基金的目标 ETF 映射分开处理：
+
+- 普通持仓：`akshare` -> 天天基金 / 东方财富 `FundArchivesDatas.aspx` -> 新浪基金公开接口。
+- ETF 联接 / QDII 目标 ETF：易天富 ETF88 移动/PC 持基页 -> 东方财富基金页文本 -> 基金公司官网产品页 -> 新浪基金 -> 基金速查网 / 理杏仁 / Investing 等公开网页文本。
+
+这些来源都不是正式付费 API，页面结构可能变化。各站点解析逻辑应放在 `backend/app/data_sources/` 下的独立 adapter 中，业务服务只负责按优先级尝试和入库。
+
+## 已发现的典型问题
+
+### 515450 缺少官方净值
+
+`515450` 是场内 ETF，不在开放式基金净值接口中。应使用 ETF 行情接口作为参考基准：
+
+- `ak.fund_etf_spot_em()`
+- 优先使用 `昨收`
+- 缺失时 fallback 到 `IOPV实时估值` / `最新价`
+- 来源标记为 `akshare:etf_spot_prev_close`，fallback 时为 `akshare:etf_spot`
+
+### 008163 目标 ETF 识别错误
+
+`008163` 是 ETF 联接基金。公开页面文本解析可能误把页面编号或基金自身资产配置代码识别为目标 ETF，例如 `130026`、`187381`。
+
+处理建议：
+
+- 对已确认的联接基金增加保守映射，例如 `008163 -> 515450`。
+- 对东方财富文本 hint 解析增加校验，避免把页面编号、基金吧编号、基金自身代码识别为 ETF。
+- 目标 ETF 必须能在 ETF 行情源中查到，才应作为估算持仓使用。
+
+### 017436 美股 QDII 无估算
+
+`017436` 的持仓是美股，如 `NFLX`、`NVDA`、`AAPL`、`MSFT`。此前持仓代码被处理成 `00NFLX`、`00NVDA`，并误判为 A 股市场，导致无法获取行情。
+
+处理建议：
+
+- 保留美股 ticker 字母代码，不做数字补零。
+- market 标记为 `US`。
+- 使用美股日线收盘价估算，而不是 A 股/港股实时行情。
 
 ## 数据滞后说明
 

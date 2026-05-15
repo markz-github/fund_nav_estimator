@@ -5,15 +5,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import estimates, funds, market
 from app.config import get_settings
+from app.logging_config import configure_logging
 from app.scheduler.jobs import create_scheduler
 
 
 settings = get_settings()
+configure_logging(settings.log_dir, settings.log_backup_days)
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.cors_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

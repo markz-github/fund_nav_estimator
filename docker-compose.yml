@@ -1,0 +1,25 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    image: fund-nav-estimator-backend:${DEPLOY_ENV:-prod}
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      APP_ENV: ${DEPLOY_ENV:-local}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - /share/Container/fund-nav-estimator/test/backend/logs:/app/logs
+
+  frontend:
+    build:
+      context: ./frontend
+      target: build
+    image: fund-nav-estimator-frontend:${DEPLOY_ENV:-prod}
+    command: sh -c "rm -rf /dist/* && cp -a /app/dist/. /dist/"
+    volumes:
+      - /share/Container/fund-nav-estimator/test/frontend/dist:/dist
+    profiles:
+      - build
