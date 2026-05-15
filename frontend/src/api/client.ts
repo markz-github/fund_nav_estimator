@@ -1,8 +1,13 @@
 import axios from 'axios'
 
+function defaultApiBaseURL() {
+  const basePath = import.meta.env.BASE_URL || '/'
+  return `${basePath.replace(/\/$/, '')}/api`
+}
+
 export const apiClient = axios.create({
-  baseURL: '/api',
-  timeout: 30000,
+  baseURL: import.meta.env.VITE_API_BASE_URL || defaultApiBaseURL(),
+  timeout: 15000,
 })
 
 export function apiErrorMessage(error: unknown, fallback: string) {
