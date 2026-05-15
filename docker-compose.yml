@@ -7,7 +7,7 @@ services:
         PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.mirrors.ustc.edu.cn}
     image: fund-nav-estimator-backend:${DEPLOY_ENV:-prod}
     restart: unless-stopped
-    newwork_mode: bridge
+    network_mode: bridge
     env_file:
       - ./backend/.env
     environment:
