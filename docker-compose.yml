@@ -7,6 +7,7 @@ services:
         PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.mirrors.ustc.edu.cn}
     image: fund-nav-estimator-backend:${DEPLOY_ENV:-prod}
     restart: unless-stopped
+    newwork_mode: bridge
     env_file:
       - ./backend/.env
     environment:
@@ -20,6 +21,9 @@ services:
     build:
       context: ./frontend
       target: build
+      args:
+        VITE_APP_BASE_PATH: ${VITE_APP_BASE_PATH:-/fund-nav-estimator/}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     image: fund-nav-estimator-frontend:${DEPLOY_ENV:-prod}
     command: sh -c "rm -rf /dist/* && cp -a /app/dist/. /dist/"
     volumes:
