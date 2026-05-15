@@ -74,6 +74,7 @@ jobs:
             echo "No frontend changes detected; skipping frontend deployment."
           fi
 
+
           if [[ "$deploy_backend" == "true" ]]; then
             echo "Deploying backend service."
             mkdir -p backend
