@@ -11,12 +11,14 @@ from app.models.fund_estimate import FundEstimate
 from app.models.fund_holding import FundHolding
 from app.models.fund_nav import FundNav
 from app.models.market_quote import MarketQuote
+from app.utils.performance import timed
 
 
 class EstimateService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
+    @timed()
     def latest_all(self) -> list[FundEstimate]:
         subquery = (
             select(
@@ -34,6 +36,7 @@ class EstimateService:
             )
         ).all()
 
+    @timed()
     def history(self, fund_code: str, limit: int = 100) -> list[FundEstimate]:
         return self.db.scalars(
             select(FundEstimate)
@@ -42,8 +45,12 @@ class EstimateService:
             .limit(limit)
         ).all()
 
-    def run_estimates(self) -> dict:
-        funds = self.db.scalars(select(Fund).where(Fund.enabled == 1)).all()
+    @timed()
+    def run_estimates(self, fund_codes: list[str] | None = None) -> dict:
+        statement = select(Fund).where(Fund.enabled == 1)
+        if fund_codes:
+            statement = statement.where(Fund.fund_code.in_(fund_codes))
+        funds = self.db.scalars(statement).all()
         estimates: list[FundEstimate] = []
         skipped: list[dict] = []
         estimate_time = datetime.now().replace(microsecond=0)
@@ -122,10 +129,17 @@ class EstimateService:
 
     def _latest_holdings(self, fund_code: str) -> list[FundHolding]:
         latest_period = self.db.scalar(
-            select(func.max(FundHolding.report_period)).where(FundHolding.fund_code == fund_code)
+            select(func.max(FundHolding.report_period)).where(
+                FundHolding.fund_code == fund_code,
+                FundHolding.holding_ratio > 0,
+            )
         )
         if latest_period is None:
-            return []
+            latest_period = self.db.scalar(
+                select(func.max(FundHolding.report_period)).where(FundHolding.fund_code == fund_code)
+            )
+            if latest_period is None:
+                return []
         return self.db.scalars(
             select(FundHolding)
             .where(
