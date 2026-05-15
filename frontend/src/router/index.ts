@@ -12,6 +12,10 @@ const router = createRouter({
       component: FundListView,
     },
     {
+      path: '/index.html',
+      redirect: '/',
+    },
+    {
       path: '/funds/:fundCode',
       name: 'fund-detail',
       component: FundDetailView,
@@ -20,6 +24,10 @@ const router = createRouter({
       path: '/operations',
       name: 'operations',
       component: OperationsView,
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: '/',
     },
   ],
 })
