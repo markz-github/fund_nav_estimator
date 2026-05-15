@@ -31,10 +31,10 @@ jobs:
           deploy_frontend=false
           deploy_backend=false
 
-          if [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" ]]; then
+          if [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" || "${GITHUB_RUN_ATTEMPT:-1}" != "1" ]]; then
             deploy_frontend=true
             deploy_backend=true
-            echo "Manual deployment requested; deploying frontend and backend."
+            echo "Manual or rerun deployment requested; deploying frontend and backend."
           else
             if git rev-parse HEAD~1 >/dev/null 2>&1; then
               changed_files="$(git diff --name-only HEAD~1 HEAD)"
