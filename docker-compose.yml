@@ -2,6 +2,9 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.mirrors.ustc.edu.cn/simple/}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.mirrors.ustc.edu.cn}
     image: fund-nav-estimator-backend:${DEPLOY_ENV:-prod}
     restart: unless-stopped
     env_file:

@@ -25,6 +25,8 @@ jobs:
           DEPLOY_ENV: test
           BACKEND_ENV_FILE: ${{ secrets.TEST_ENV }}
           BACKEND_PORT: 18000
+          PIP_INDEX_URL: https://pypi.mirrors.ustc.edu.cn/simple/
+          PIP_TRUSTED_HOST: pypi.mirrors.ustc.edu.cn
         run: |
           deploy_frontend=false
           deploy_backend=false
