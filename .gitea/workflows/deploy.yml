@@ -20,15 +20,9 @@ jobs:
           docker --version
           docker compose version
 
-      - name: Deploy changed parts
+      - name: Detect changed parts
         env:
           DEPLOY_ENV: test
-          BACKEND_ENV_FILE: ${{ secrets.TEST_ENV }}
-          BACKEND_PORT: 18000
-          PIP_INDEX_URL: https://pypi.mirrors.ustc.edu.cn/simple/
-          PIP_TRUSTED_HOST: pypi.mirrors.ustc.edu.cn
-          VITE_APP_BASE_PATH: /fund-nav-estimator/
-          VITE_API_BASE_URL: /fund-nav-estimator/api
         run: |
           deploy_frontend=false
           deploy_backend=false
@@ -56,9 +50,23 @@ jobs:
             fi
           fi
 
+          echo "DEPLOY_FRONTEND=${deploy_frontend}"
+          echo "DEPLOY_BACKEND=${deploy_backend}"
+          echo "DEPLOY_FRONTEND=${deploy_frontend}" >> "$GITHUB_ENV"
+          echo "DEPLOY_BACKEND=${deploy_backend}" >> "$GITHUB_ENV"
+          echo "COMPOSE_PROJECT_NAME=fund-nav-estimator-${DEPLOY_ENV}" >> "$GITHUB_ENV"
+
+      - name: Deploy frontend
+        env:
+          DEPLOY_ENV: test
+          VITE_APP_BASE_PATH: /fund-nav-estimator/
+          VITE_API_BASE_URL: /fund-nav-estimator/api
+        run: |
+          echo "DEPLOY_FRONTEND=${DEPLOY_FRONTEND}"
+
           export COMPOSE_PROJECT_NAME="fund-nav-estimator-${DEPLOY_ENV}"
 
-          if [[ "$deploy_frontend" == "true" ]]; then
+          if [[ "$DEPLOY_FRONTEND" == "true" ]]; then
             echo "Deploying frontend static assets."
             docker compose -f docker-compose.yml --profile build build frontend
             docker compose -f docker-compose.yml --profile build run --rm frontend
@@ -66,8 +74,19 @@ jobs:
             echo "No frontend changes detected; skipping frontend deployment."
           fi
 
+      - name: Deploy backend
+        env:
+          DEPLOY_ENV: test
+          BACKEND_ENV_FILE: ${{ secrets.TEST_ENV }}
+          BACKEND_PORT: 18000
+          PIP_INDEX_URL: https://pypi.mirrors.ustc.edu.cn/simple/
+          PIP_TRUSTED_HOST: pypi.mirrors.ustc.edu.cn
+        run: |
+          echo "DEPLOY_BACKEND=${DEPLOY_BACKEND}"
 
-          if [[ "$deploy_backend" == "true" ]]; then
+          export COMPOSE_PROJECT_NAME="fund-nav-estimator-${DEPLOY_ENV}"
+
+          if [[ "$DEPLOY_BACKEND" == "true" ]]; then
             echo "Deploying backend service."
             mkdir -p backend
             umask 077
