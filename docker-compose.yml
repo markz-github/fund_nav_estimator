@@ -15,7 +15,7 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
-      - /share/Container/fund-nav-estimator/test/backend/logs:/app/logs
+      - /share/Container/fund-nav-estimator/test/backend/logs:/data/test/logs
 
   frontend:
     build:
