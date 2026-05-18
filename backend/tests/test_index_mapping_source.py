@@ -9,7 +9,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.data_sources.index_mapping_source import FundIndexMappingSource
+from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMappingSource
 
 
 class FundIndexMappingSourceTests(unittest.TestCase):

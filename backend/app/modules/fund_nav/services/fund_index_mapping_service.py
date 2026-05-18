@@ -3,8 +3,8 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.data_sources.index_mapping_source import FundIndexMappingSource
-from app.models.fund_index_mapping import FundIndexMapping
+from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMappingSource
+from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.utils.performance import timed
 
 

@@ -6,11 +6,11 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.fund import Fund
-from app.models.fund_estimate import FundEstimate
-from app.models.fund_holding import FundHolding
-from app.models.fund_nav import FundNav
-from app.models.market_quote import MarketQuote
+from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.models.fund_estimate import FundEstimate
+from app.modules.fund_nav.models.fund_holding import FundHolding
+from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.utils.performance import timed
 
 

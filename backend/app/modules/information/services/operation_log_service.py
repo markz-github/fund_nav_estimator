@@ -4,8 +4,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.models.data_fetch_error import DataFetchError
-from app.models.task_log import TaskLog
+from app.modules.information.models.data_fetch_error import DataFetchError
+from app.modules.information.models.task_log import TaskLog
 
 
 def log_fetch_error(

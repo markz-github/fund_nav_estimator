@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.database import SessionLocal
-from app.services.estimate_service import EstimateService
-from app.services.fund_index_mapping_service import FundIndexMappingService
-from app.services.fund_profile_service import FundProfileService
-from app.services.fund_service import FundService
-from app.services.holding_service import HoldingService
-from app.services.market_service import MarketService
-from app.services.operation_log_service import log_fetch_error, log_task
+from app.modules.fund_nav.services.estimate_service import EstimateService
+from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
+from app.modules.fund_nav.services.fund_profile_service import FundProfileService
+from app.modules.fund_nav.services.fund_service import FundService
+from app.modules.fund_nav.services.holding_service import HoldingService
+from app.modules.fund_nav.services.market_service import MarketService
+from app.modules.information.services.operation_log_service import log_fetch_error, log_task
 from app.utils.performance import timed
 
 

@@ -7,11 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.fund import Fund
-from app.schemas.estimate import FundEstimateOut, RefreshAndEstimateRequest
-from app.services.estimate_service import EstimateService
-from app.services.market_service import MarketService
-from app.services.operation_log_service import finish_task, log_fetch_error, start_task
+from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.schemas.estimate import FundEstimateOut, RefreshAndEstimateRequest
+from app.modules.fund_nav.services.estimate_service import EstimateService
+from app.modules.fund_nav.services.market_service import MarketService
+from app.modules.information.services.operation_log_service import finish_task, log_fetch_error, start_task
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 

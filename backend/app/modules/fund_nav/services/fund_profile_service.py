@@ -5,8 +5,8 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.data_sources.akshare_source import AkshareSource
-from app.models.fund_profile import FundProfile
+from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
+from app.modules.fund_nav.models.fund_profile import FundProfile
 from app.utils.performance import timed
 
 

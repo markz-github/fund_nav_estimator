@@ -15,10 +15,10 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.data_sources.akshare_source import AkshareSource, FundNavSnapshot
+from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, FundNavSnapshot
 from app.database import Base
-from app.models.fund_nav import FundNav
-from app.services.fund_service import FundService
+from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.services.fund_service import FundService
 
 
 class FundNavRefreshTests(unittest.TestCase):
@@ -180,9 +180,9 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with (
-            patch("app.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df),
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df),
             patch(
-                "app.data_sources.akshare_source.ak.fund_open_fund_daily_em",
+                "app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em",
                 side_effect=AssertionError("open fund daily table should not be loaded for 5-prefix ETFs"),
             ),
         ):
@@ -211,7 +211,7 @@ class FundNavRefreshTests(unittest.TestCase):
             ]
         )
 
-        with patch("app.data_sources.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df) as daily:
+        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df) as daily:
             source = AkshareSource()
             first = source.get_latest_fund_nav("000001")
             second = source.get_latest_fund_nav("000002")

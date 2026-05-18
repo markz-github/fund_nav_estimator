@@ -5,13 +5,13 @@ from datetime import date, timedelta
 from sqlalchemy import Select, asc, desc, func, select
 from sqlalchemy.orm import Session
 
-from app.data_sources.akshare_source import AkshareSource
-from app.models.fund import Fund
-from app.models.fund_estimate import FundEstimate
-from app.models.fund_index_mapping import FundIndexMapping
-from app.models.fund_nav import FundNav
-from app.schemas.fund import FundCreate
-from app.services.fund_profile_service import FundProfileService
+from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
+from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.models.fund_estimate import FundEstimate
+from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
+from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.schemas.fund import FundCreate
+from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
 
 

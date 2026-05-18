@@ -7,14 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.fund import Fund
-from app.schemas.fund import FundCreate, FundOut, RefreshFundNavsRequest
-from app.schemas.holding import FundHoldingOut
-from app.services.fund_service import FundService
-from app.services.fund_sync_service import sync_new_fund_data
-from app.services.fund_index_mapping_service import FundIndexMappingService
-from app.services.holding_service import HoldingService
-from app.services.operation_log_service import finish_task, log_fetch_error, log_task, start_task
+from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.schemas.fund import FundCreate, FundOut, RefreshFundNavsRequest
+from app.modules.fund_nav.schemas.holding import FundHoldingOut
+from app.modules.fund_nav.services.fund_service import FundService
+from app.modules.fund_nav.services.fund_sync_service import sync_new_fund_data
+from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
+from app.modules.fund_nav.services.holding_service import HoldingService
+from app.modules.information.services.operation_log_service import finish_task, log_fetch_error, log_task, start_task
 
 router = APIRouter(prefix="/funds", tags=["funds"])
 

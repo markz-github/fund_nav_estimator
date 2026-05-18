@@ -3,9 +3,9 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.data_sources.akshare_source import AkshareSource
-from app.models.fund_holding import FundHolding
-from app.models.market_quote import MarketQuote
+from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
+from app.modules.fund_nav.models.fund_holding import FundHolding
+from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.utils.performance import timed
 
 

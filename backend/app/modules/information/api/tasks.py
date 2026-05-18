@@ -5,8 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.task_log import TaskLog
-from app.schemas.task import TaskLogOut
+from app.modules.information.models.task_log import TaskLog
+from app.modules.information.schemas.task import TaskLogOut
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 

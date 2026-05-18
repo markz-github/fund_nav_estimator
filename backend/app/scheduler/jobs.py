@@ -8,13 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models.fund import Fund
-from app.services.estimate_service import EstimateService
-from app.services.fund_profile_service import FundProfileService
-from app.services.fund_service import FundService
-from app.services.holding_service import HoldingService
-from app.services.market_service import MarketService
-from app.services.operation_log_service import log_fetch_error, log_task
+from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.services.estimate_service import EstimateService
+from app.modules.fund_nav.services.fund_profile_service import FundProfileService
+from app.modules.fund_nav.services.fund_service import FundService
+from app.modules.fund_nav.services.holding_service import HoldingService
+from app.modules.fund_nav.services.market_service import MarketService
+from app.modules.information.services.operation_log_service import log_fetch_error, log_task
 
 
 def _run_task(task_name: str, task_type: str, handler) -> None:
