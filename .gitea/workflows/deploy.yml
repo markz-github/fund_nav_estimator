@@ -180,27 +180,22 @@ jobs:
 
           if [ "${{ job.status }}" = "success" ]; then
             STATUS_TEXT="成功"
-            MESSAGE=$(cat <<EOF
-              服务：${DEPLOY_SERVICE}
-              部署结果：${STATUS_TEXT}
-              环境：${DEPLOY_ENV}
-              前端：${FRONTEND_TEXT}
-              后端：${BACKEND_TEXT}
-              EOF
-                          )
-                        else
-                          STATUS_TEXT="失败"
-                          FAILURE_LOG=$(tail -n 40 .deploy.log 2>/dev/null || echo "未找到失败日志")
-                          MESSAGE=$(cat <<EOF
-              服务：${DEPLOY_SERVICE}
-              部署结果：${STATUS_TEXT}
-              环境：${DEPLOY_ENV}
-              前端：${FRONTEND_TEXT}
-              后端：${BACKEND_TEXT}
-              失败日志：
-              ${FAILURE_LOG}
-              EOF
-            )
+            MESSAGE=$(printf '服务：%s\n部署结果：%s\n环境：%s\n前端：%s\n后端：%s\n' \
+              "$DEPLOY_SERVICE" \
+              "$STATUS_TEXT" \
+              "$DEPLOY_ENV" \
+              "$FRONTEND_TEXT" \
+              "$BACKEND_TEXT")
+          else
+            STATUS_TEXT="失败"
+            FAILURE_LOG=$(tail -n 40 .deploy.log 2>/dev/null || echo "未找到失败日志")
+            MESSAGE=$(printf '服务：%s\n部署结果：%s\n环境：%s\n前端：%s\n后端：%s\n失败日志：\n%s\n' \
+              "$DEPLOY_SERVICE" \
+              "$STATUS_TEXT" \
+              "$DEPLOY_ENV" \
+              "$FRONTEND_TEXT" \
+              "$BACKEND_TEXT" \
+              "$FAILURE_LOG")
           fi
 
           curl --fail-with-body --silent --show-error \
