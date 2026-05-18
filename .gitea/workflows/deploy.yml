@@ -181,25 +181,25 @@ jobs:
           if [ "${{ job.status }}" = "success" ]; then
             STATUS_TEXT="成功"
             MESSAGE=$(cat <<EOF
-服务：${DEPLOY_SERVICE}
-部署结果：${STATUS_TEXT}
-环境：${DEPLOY_ENV}
-前端：${FRONTEND_TEXT}
-后端：${BACKEND_TEXT}
-EOF
-            )
-          else
-            STATUS_TEXT="失败"
-            FAILURE_LOG=$(tail -n 40 .deploy.log 2>/dev/null || echo "未找到失败日志")
-            MESSAGE=$(cat <<EOF
-服务：${DEPLOY_SERVICE}
-部署结果：${STATUS_TEXT}
-环境：${DEPLOY_ENV}
-前端：${FRONTEND_TEXT}
-后端：${BACKEND_TEXT}
-失败日志：
-${FAILURE_LOG}
-EOF
+              服务：${DEPLOY_SERVICE}
+              部署结果：${STATUS_TEXT}
+              环境：${DEPLOY_ENV}
+              前端：${FRONTEND_TEXT}
+              后端：${BACKEND_TEXT}
+              EOF
+                          )
+                        else
+                          STATUS_TEXT="失败"
+                          FAILURE_LOG=$(tail -n 40 .deploy.log 2>/dev/null || echo "未找到失败日志")
+                          MESSAGE=$(cat <<EOF
+              服务：${DEPLOY_SERVICE}
+              部署结果：${STATUS_TEXT}
+              环境：${DEPLOY_ENV}
+              前端：${FRONTEND_TEXT}
+              后端：${BACKEND_TEXT}
+              失败日志：
+              ${FAILURE_LOG}
+              EOF
             )
           fi
 
