@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { apiErrorMessage } from '../api/client'
+import { apiErrorMessage } from '../../../api/client'
 import {
   getFund,
   listFundHoldings,
