@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import AppLogo from '../components/AppLogo.vue'
 import FundTable from '../components/FundTable.vue'
-import { apiErrorMessage, isRequestTimeout } from '../api/client'
+import { apiErrorMessage, isRequestTimeout } from '../../../api/client'
 import { refreshQuotesAndRunEstimates } from '../api/estimates'
 import {
   createFund,

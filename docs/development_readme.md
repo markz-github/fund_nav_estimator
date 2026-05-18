@@ -179,9 +179,17 @@ SCHEDULER_ESTIMATE_NAV_CRON=5,35 9-15 * * mon-fri
 ├─ frontend/
 │  ├─ src/
 │  │  ├─ api/
-│  │  ├─ components/
+│  │  │  └─ client.ts
+│  │  ├─ modules/
+│  │  │  ├─ fund_nav/
+│  │  │  │  ├─ api/
+│  │  │  │  ├─ components/
+│  │  │  │  └─ views/
+│  │  │  └─ information/
+│  │  │     ├─ api/
+│  │  │     └─ views/
 │  │  ├─ router/
-│  │  └─ views/
+│  │  └─ main.ts
 │  └─ package.json
 ├─ docs/
 └─ README.md
