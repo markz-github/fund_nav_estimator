@@ -24,6 +24,7 @@ jobs:
         env:
           DEPLOY_ENV: test
         run: |
+          : > .deploy.log
           deploy_frontend=false
           deploy_backend=false
 
@@ -52,8 +53,16 @@ jobs:
 
           echo "DEPLOY_FRONTEND=${deploy_frontend}"
           echo "DEPLOY_BACKEND=${deploy_backend}"
+          {
+            echo "DEPLOY_FRONTEND=${deploy_frontend}"
+            echo "DEPLOY_BACKEND=${deploy_backend}"
+            echo "FRONTEND_DEPLOY_RESULT=未执行"
+            echo "BACKEND_DEPLOY_RESULT=未执行"
+          } >> .deploy.log
           echo "DEPLOY_FRONTEND=${deploy_frontend}" >> "$GITHUB_ENV"
           echo "DEPLOY_BACKEND=${deploy_backend}" >> "$GITHUB_ENV"
+          echo "FRONTEND_DEPLOY_RESULT=未执行" >> "$GITHUB_ENV"
+          echo "BACKEND_DEPLOY_RESULT=未执行" >> "$GITHUB_ENV"
           echo "COMPOSE_PROJECT_NAME=fund-nav-estimator-${DEPLOY_ENV}" >> "$GITHUB_ENV"
 
       - name: Deploy frontend
@@ -62,16 +71,35 @@ jobs:
           VITE_APP_BASE_PATH: /fund-nav-estimator/
           VITE_API_BASE_URL: /fund-nav-estimator/api
         run: |
-          echo "DEPLOY_FRONTEND=${DEPLOY_FRONTEND}"
+          set -o pipefail
+
+          run_with_retry() {
+            label="$1"
+            shift
+            echo "Running: ${label}" | tee -a .deploy.log
+            if "$@" 2>&1 | tee -a .deploy.log; then
+              return 0
+            fi
+
+            echo "First attempt failed: ${label}; retrying once in 10 seconds..." | tee -a .deploy.log
+            sleep 10
+            "$@" 2>&1 | tee -a .deploy.log
+          }
+
+          echo "DEPLOY_FRONTEND=${DEPLOY_FRONTEND}" | tee -a .deploy.log
 
           export COMPOSE_PROJECT_NAME="fund-nav-estimator-${DEPLOY_ENV}"
 
           if [[ "$DEPLOY_FRONTEND" == "true" ]]; then
-            echo "Deploying frontend static assets."
-            docker compose -f docker-compose.yml --profile build build frontend
-            docker compose -f docker-compose.yml --profile build run --rm frontend
+            echo "Deploying frontend static assets." | tee -a .deploy.log
+            run_with_retry "Build frontend image" docker compose -f docker-compose.yml --profile build build frontend
+            run_with_retry "Export frontend dist" docker compose -f docker-compose.yml --profile build run --rm frontend
+            echo "FRONTEND_DEPLOY_RESULT=成功" >> "$GITHUB_ENV"
+            echo "FRONTEND_DEPLOY_RESULT=成功" >> .deploy.log
           else
-            echo "No frontend changes detected; skipping frontend deployment."
+            echo "No frontend changes detected; skipping frontend deployment." | tee -a .deploy.log
+            echo "FRONTEND_DEPLOY_RESULT=无需部署" >> "$GITHUB_ENV"
+            echo "FRONTEND_DEPLOY_RESULT=无需部署" >> .deploy.log
           fi
 
       - name: Deploy backend
@@ -82,24 +110,100 @@ jobs:
           PIP_INDEX_URL: https://pypi.mirrors.ustc.edu.cn/simple/
           PIP_TRUSTED_HOST: pypi.mirrors.ustc.edu.cn
         run: |
-          echo "DEPLOY_BACKEND=${DEPLOY_BACKEND}"
+          set -o pipefail
+
+          run_with_retry() {
+            label="$1"
+            shift
+            echo "Running: ${label}" | tee -a .deploy.log
+            if "$@" 2>&1 | tee -a .deploy.log; then
+              return 0
+            fi
+
+            echo "First attempt failed: ${label}; retrying once in 10 seconds..." | tee -a .deploy.log
+            sleep 10
+            "$@" 2>&1 | tee -a .deploy.log
+          }
+
+          echo "DEPLOY_BACKEND=${DEPLOY_BACKEND}" | tee -a .deploy.log
 
           export COMPOSE_PROJECT_NAME="fund-nav-estimator-${DEPLOY_ENV}"
 
           if [[ "$DEPLOY_BACKEND" == "true" ]]; then
-            echo "Deploying backend service."
+            echo "Deploying backend service." | tee -a .deploy.log
             mkdir -p backend
             umask 077
             printf '%s\n' "$BACKEND_ENV_FILE" > backend/.env
 
             if [[ ! -s backend/.env ]]; then
-              echo "backend/.env is required for backend deployment. Set the environment-specific Gitea secret TEST_ENV." >&2
+              echo "backend/.env is required for backend deployment. Set the environment-specific Gitea secret TEST_ENV." | tee -a .deploy.log >&2
               exit 1
             fi
 
-            docker compose -f docker-compose.yml up -d --build --remove-orphans backend
+            run_with_retry "Deploy backend service" docker compose -f docker-compose.yml up -d --build --remove-orphans backend
+            echo "BACKEND_DEPLOY_RESULT=成功" >> "$GITHUB_ENV"
+            echo "BACKEND_DEPLOY_RESULT=成功" >> .deploy.log
           else
-            echo "No backend changes detected; skipping backend deployment."
+            echo "No backend changes detected; skipping backend deployment." | tee -a .deploy.log
+            echo "BACKEND_DEPLOY_RESULT=无需部署" >> "$GITHUB_ENV"
+            echo "BACKEND_DEPLOY_RESULT=无需部署" >> .deploy.log
           fi
 
-          docker compose -f docker-compose.yml ps
+          docker compose -f docker-compose.yml ps 2>&1 | tee -a .deploy.log
+
+      - name: Notify WeChat deploy result
+        if: always()
+        env:
+          DEPLOY_SERVICE: 基金当日净值预测
+          DEPLOY_ENV: test
+          WECHAT_PUSH_URL: http://192.168.50.50:18765/api/wechat/push
+        run: |
+          if [ "${DEPLOY_FRONTEND:-false}" = "true" ]; then
+            FRONTEND_RESULT="${FRONTEND_DEPLOY_RESULT:-失败}"
+            if [ "$FRONTEND_RESULT" = "未执行" ]; then
+              FRONTEND_RESULT="失败"
+            fi
+            FRONTEND_TEXT="需要部署——${FRONTEND_RESULT}"
+          else
+            FRONTEND_TEXT="无需部署"
+          fi
+
+          if [ "${DEPLOY_BACKEND:-false}" = "true" ]; then
+            BACKEND_RESULT="${BACKEND_DEPLOY_RESULT:-失败}"
+            if [ "$BACKEND_RESULT" = "未执行" ]; then
+              BACKEND_RESULT="失败"
+            fi
+            BACKEND_TEXT="需要部署——${BACKEND_RESULT}"
+          else
+            BACKEND_TEXT="无需部署"
+          fi
+
+          if [ "${{ job.status }}" = "success" ]; then
+            STATUS_TEXT="成功"
+            MESSAGE=$(cat <<EOF
+服务：${DEPLOY_SERVICE}
+部署结果：${STATUS_TEXT}
+环境：${DEPLOY_ENV}
+前端：${FRONTEND_TEXT}
+后端：${BACKEND_TEXT}
+EOF
+            )
+          else
+            STATUS_TEXT="失败"
+            FAILURE_LOG=$(tail -n 40 .deploy.log 2>/dev/null || echo "未找到失败日志")
+            MESSAGE=$(cat <<EOF
+服务：${DEPLOY_SERVICE}
+部署结果：${STATUS_TEXT}
+环境：${DEPLOY_ENV}
+前端：${FRONTEND_TEXT}
+后端：${BACKEND_TEXT}
+失败日志：
+${FAILURE_LOG}
+EOF
+            )
+          fi
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "$WECHAT_PUSH_URL" \
+            -H "Content-Type: text/plain; charset=utf-8" \
+            --data-binary "$MESSAGE" || echo "Wechat deploy notification failed"
