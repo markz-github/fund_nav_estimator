@@ -8,6 +8,10 @@
 - Node.js：建议使用当前 LTS 或较新版本。
 - 数据库：MySQL。
 
+## 开发约束
+
+- 禁止生成 Python `__pycache__` 目录和 `.pyc` 文件。运行后端脚本、测试或服务时，应设置 `PYTHONDONTWRITEBYTECODE=1`，或使用 `python -B`。
+
 ## 后端启动
 
 ```powershell
@@ -162,12 +166,11 @@ SCHEDULER_ESTIMATE_NAV_CRON=5,35 9-15 * * mon-fri
 基金当日净值预测/
 ├─ backend/
 │  ├─ app/
-│  │  ├─ api/
-│  │  ├─ data_sources/
 │  │  ├─ models/
 │  │  ├─ scheduler/
-│  │  ├─ schemas/
-│  │  ├─ services/
+│  │  ├─ modules/
+│  │  │  ├─ fund_nav/
+│  │  │  └─ information/
 │  │  ├─ config.py
 │  │  ├─ database.py
 │  │  └─ main.py
