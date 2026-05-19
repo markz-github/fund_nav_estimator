@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -17,7 +17,9 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, FundNavSnapshot
 from app.database import Base
+from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.services.fund_service import FundService
 
 
@@ -55,6 +57,30 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIsNotNone(nav)
         self.assertEqual(nav.fund_code, "515450")
         source.get_latest_fund_nav.assert_not_called()
+
+    def test_delete_fund_soft_deletes_and_create_restores_existing_row(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        service = FundService(db, source)
+
+        try:
+            created = Fund(id=1, fund_code="000001", fund_name="000001", remark="first")
+            db.add(created)
+            db.commit()
+            self.assertTrue(service.delete_fund("000001"))
+            self.assertIsNone(db.scalar(select(Fund).where(Fund.fund_code == "000001")))
+
+            restored = service.create_fund(FundCreate(fund_code="000001", remark="restored"))
+        finally:
+            db.close()
+
+        self.assertEqual(restored.id, created.id)
+        self.assertEqual(restored.is_deleted, 0)
+        self.assertEqual(restored.remark, "restored")
 
     def test_refresh_nav_replaces_legacy_today_etf_spot_cache(self) -> None:
         engine = create_engine("sqlite:///:memory:")

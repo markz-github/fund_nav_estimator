@@ -11,7 +11,12 @@
             "type": "debugpy",
             "request": "launch",
             "module": "uvicorn",
+            "python": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
             "cwd": "${workspaceFolder}/backend",
+            "env": {
+                "APP_ENV": "local",
+                "PYTHONDONTWRITEBYTECODE": "1"
+            },
             "args": [
                 "app.main:app",
                 "--reload"

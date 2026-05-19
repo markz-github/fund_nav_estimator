@@ -2,6 +2,16 @@
 
 数据库使用 MySQL，字符集建议使用 `utf8mb4`。
 
+## 通用字段
+
+系统所有数据表都应包含软删除字段：
+
+```sql
+is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除标记：0未删除，1已删除'
+```
+
+业务查询默认只返回 `is_deleted = 0` 的数据；删除业务数据时应将 `is_deleted` 更新为 `1`，不做物理删除。现有数据库可执行 `docs/add_is_deleted_columns.sql` 补齐字段。
+
 ## funds
 
 自选基金表，保存用户关注的基金基础信息。
@@ -159,7 +169,10 @@ CREATE TABLE task_logs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_name VARCHAR(100) NOT NULL COMMENT '任务名称',
     task_type VARCHAR(50) NOT NULL COMMENT '任务类型，如 refresh_nav、refresh_holding、refresh_quote、estimate_nav',
-    status VARCHAR(20) NOT NULL COMMENT '状态：success、failed、partial',
+    target_type VARCHAR(50) NULL COMMENT '任务目标类型，如 video、fund、bilinote_task',
+    target_id VARCHAR(100) NULL COMMENT '任务目标 ID，如视频 ID、基金代码',
+    external_task_id VARCHAR(100) NULL COMMENT '外部任务 ID，如 Bilinote taskid',
+    status VARCHAR(20) NOT NULL COMMENT '状态：running、success、failed、partial、skipped',
     started_at DATETIME NOT NULL,
     finished_at DATETIME NULL,
     duration_ms BIGINT NULL COMMENT '耗时毫秒',
@@ -184,5 +197,143 @@ CREATE TABLE data_fetch_errors (
     resolved TINYINT NOT NULL DEFAULT 0 COMMENT '是否已解决',
     INDEX idx_fetch_errors_target (target_code),
     INDEX idx_fetch_errors_time (occurred_at)
+);
+```
+
+## information_video_sources
+
+信息流视频来源账号表，第一版用于维护 B站 UID 或 space 主页 URL。
+
+```sql
+CREATE TABLE information_video_sources (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    platform VARCHAR(30) NOT NULL COMMENT '视频平台，如 bilibili',
+    source_name VARCHAR(100) NOT NULL COMMENT '来源账号名称',
+    source_url VARCHAR(500) NULL COMMENT '来源主页 URL',
+    external_source_id VARCHAR(100) NOT NULL COMMENT '平台账号 ID，如 B站 UID',
+    enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用扫描',
+    last_scanned_at DATETIME NULL COMMENT '最近扫描时间',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    raw_response LONGTEXT NULL COMMENT '最近扫描原始响应',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_information_video_source_platform_external (platform, external_source_id),
+    INDEX idx_information_video_sources_enabled (enabled)
+);
+```
+
+## information_videos
+
+信息流视频表，保存扫描到的视频基础信息和处理状态。
+
+```sql
+CREATE TABLE information_videos (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    source_id BIGINT NOT NULL COMMENT '来源账号 ID',
+    platform VARCHAR(30) NOT NULL COMMENT '视频平台',
+    external_video_id VARCHAR(100) NOT NULL COMMENT '平台视频 ID，如 BVID',
+    title VARCHAR(300) NOT NULL COMMENT '视频标题',
+    video_url VARCHAR(500) NOT NULL COMMENT '视频链接',
+    author_name VARCHAR(100) NULL COMMENT '作者名称',
+    published_at DATETIME NULL COMMENT '发布时间',
+    status VARCHAR(30) NOT NULL DEFAULT 'discovered' COMMENT '处理状态',
+    raw_response LONGTEXT NULL COMMENT '扫描原始响应',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_information_videos_platform_external (platform, external_video_id),
+    INDEX idx_information_videos_source (source_id),
+    INDEX idx_information_videos_status (status),
+    INDEX idx_information_videos_published_at (published_at)
+);
+```
+
+## information_video_notes
+
+Bilinote 视频文字总结表。
+
+```sql
+CREATE TABLE information_video_notes (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    video_id BIGINT NOT NULL COMMENT '视频 ID',
+    provider VARCHAR(50) NOT NULL DEFAULT 'bilinote' COMMENT '总结提供方',
+    external_task_id VARCHAR(100) NULL COMMENT '外部任务 ID',
+    status VARCHAR(30) NOT NULL DEFAULT 'pending' COMMENT '生成状态：pending/running/done/failed',
+    note_text LONGTEXT NULL COMMENT '文字版总结',
+    error_message TEXT NULL COMMENT '错误信息',
+    raw_response LONGTEXT NULL COMMENT '外部接口原始响应',
+    generated_at DATETIME NULL COMMENT '生成时间',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_information_video_notes_video_provider (video_id, provider),
+    INDEX idx_information_video_notes_status (status)
+);
+```
+
+## information_summary_documents
+
+Hermes 二次汇总文档表，第一版按每日和平台聚合。
+
+```sql
+CREATE TABLE information_summary_documents (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    platform VARCHAR(30) NOT NULL COMMENT '视频平台',
+    summary_date DATE NOT NULL COMMENT '汇总日期',
+    title VARCHAR(200) NOT NULL COMMENT '文档标题',
+    status VARCHAR(30) NOT NULL DEFAULT 'pending' COMMENT '生成状态',
+    hermes_run_id VARCHAR(100) NULL COMMENT 'Hermes 异步 run ID',
+    document_text LONGTEXT NULL COMMENT '汇总文档正文',
+    error_message TEXT NULL COMMENT '错误信息',
+    raw_response LONGTEXT NULL COMMENT 'Hermes 原始响应',
+    generated_at DATETIME NULL COMMENT '生成时间',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_information_summary_documents_platform_date (platform, summary_date),
+    INDEX idx_information_summary_documents_status (status)
+);
+```
+
+## information_summary_document_items
+
+汇总文档与 Bilinote 总结的关联表。
+
+```sql
+CREATE TABLE information_summary_document_items (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    document_id BIGINT NOT NULL COMMENT '汇总文档 ID',
+    note_id BIGINT NOT NULL COMMENT '视频总结 ID',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_information_summary_document_items_doc_note (document_id, note_id)
+);
+```
+
+## information_settings
+
+信息流功能设置表，用于保存 Bilinote 和 Hermes 默认参数。
+
+当前使用的设置键包括：
+
+- `bilibili_cookie`：B站扫描请求使用的 Cookie，可为空。
+- `bilinote_base_url`
+- `bilinote_provider_id`
+- `bilinote_model_name`
+- `bilinote_quality`
+- `hermes_base_url`
+- `hermes_auth_header_name`：Hermes 鉴权请求头名，默认 `Authorization`，也可配置为 `X-API-Key` 等接口要求的头名。
+- `hermes_api_key`：Hermes 接口鉴权令牌。鉴权头名为 `Authorization` 且值未包含认证方案时，后端会以 `Bearer <token>` 形式发送；其他鉴权头名会原样发送该值。
+- `hermes_model`：Hermes Runs API 使用的模型名，默认 `hermes-agent`。
+- `hermes_run_path`：Hermes Runs API 路径，按 Hermes Agent 当前文档默认使用 `/v1/runs`。
+- `hermes_status_path_template`：Hermes Runs 状态轮询路径，按 Hermes Agent 当前文档默认使用 `/v1/runs/{run_id}`。
+- `wechat_push_webhook_url`：微信推送接口地址，每天 08:00 推送昨天的已完成每日汇总。
+- `wechat_push_token`：微信推送接口可选鉴权令牌。若填写值未包含认证方案，后端会以 `Bearer <token>` 形式发送 `Authorization` 请求头。
+- `video_note_recent_days`：Bilinote 总结任务只处理最近 N 天内发布或入库的视频，默认 3 天；设置为 0 表示不限制。
+
+```sql
+CREATE TABLE information_settings (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    setting_key VARCHAR(100) NOT NULL COMMENT '配置键',
+    setting_value TEXT NOT NULL COMMENT '配置值',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_information_settings_key (setting_key)
 );
 ```

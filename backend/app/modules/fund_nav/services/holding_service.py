@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import delete, select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
@@ -59,16 +59,19 @@ class HoldingService:
 
         for snapshot in snapshots:
             holding = self.db.scalar(
-                select(FundHolding).where(
+                select(FundHolding)
+                .where(
                     FundHolding.fund_code == snapshot["fund_code"],
                     FundHolding.report_period == snapshot["report_period"],
                     FundHolding.asset_code == snapshot["asset_code"],
                 )
+                .execution_options(include_deleted=True)
             )
             if holding is None:
                 holding = FundHolding(**snapshot)
                 self.db.add(holding)
             else:
+                holding.is_deleted = 0
                 holding.asset_name = snapshot["asset_name"]
                 holding.asset_type = snapshot["asset_type"]
                 holding.market = snapshot["market"]
@@ -91,11 +94,13 @@ class HoldingService:
             if not asset_codes:
                 continue
             self.db.execute(
-                delete(FundHolding).where(
+                update(FundHolding)
+                .where(
                     FundHolding.fund_code == fund_code,
                     FundHolding.report_period == report_period,
                     FundHolding.asset_code.not_in(asset_codes),
                 )
+                .values(is_deleted=1)
             )
 
     @timed()

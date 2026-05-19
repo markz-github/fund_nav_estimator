@@ -33,7 +33,7 @@ def refresh_market_quotes(db: Session = Depends(get_db)) -> dict:
     if not quotes:
         message = "no market quotes refreshed for current holdings"
         log_fetch_error(db, "akshare", "quote", "holdings", message)
-        finish_task(db, task_log, "partial", message)
+        finish_task(db, task_log, "skipped", message)
     else:
         finish_task(
             db,

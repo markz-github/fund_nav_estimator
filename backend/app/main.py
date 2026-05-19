@@ -8,14 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 
 from app.modules.fund_nav.api import estimates, funds, market
-from app.modules.information.api import errors, tasks
+from app.modules.information.api import errors, tasks, videos
 from app.config import get_settings
 from app.logging_config import configure_logging
 from app.scheduler.jobs import create_scheduler
 
 
 settings = get_settings()
-configure_logging(settings.log_dir, settings.log_backup_days)
+configure_logging(settings.log_dir, settings.log_backup_days, settings.log_level)
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
 app.add_middleware(
@@ -31,7 +31,8 @@ app.include_router(estimates.router, prefix="/api")
 app.include_router(market.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(errors.router, prefix="/api")
-scheduler = create_scheduler() if settings.scheduler_enabled else None
+app.include_router(videos.router, prefix="/api")
+scheduler = create_scheduler() if settings.scheduler_fund_enabled or settings.scheduler_information_enabled else None
 
 
 @app.middleware("http")

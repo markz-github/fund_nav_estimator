@@ -210,7 +210,6 @@ onMounted(loadFunds)
                   : '批量更新官方净值'
             }}
           </button>
-          <RouterLink class="link-button" to="/operations">查看运行状态</RouterLink>
         </div>
         <form class="inline-add-form" @submit.prevent="submitFund">
           <input v-model="fundCode" class="code-input" placeholder="基金代码" />

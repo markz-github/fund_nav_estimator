@@ -27,7 +27,11 @@ class FundIndexMappingService:
         if snapshot is None:
             return None
 
-        mapping = self.get_mapping(normalized_code)
+        mapping = self.db.scalar(
+            select(FundIndexMapping)
+            .where(FundIndexMapping.fund_code == normalized_code)
+            .execution_options(include_deleted=True)
+        )
         if mapping is None:
             mapping = FundIndexMapping(
                 fund_code=normalized_code,
@@ -39,6 +43,7 @@ class FundIndexMappingService:
             )
             self.db.add(mapping)
         else:
+            mapping.is_deleted = 0
             mapping.index_code = snapshot.index_code
             mapping.index_name = snapshot.index_name
             mapping.benchmark_text = snapshot.benchmark_text

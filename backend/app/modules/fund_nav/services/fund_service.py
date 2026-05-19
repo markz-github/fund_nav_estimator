@@ -70,17 +70,29 @@ class FundService:
     @timed()
     def create_fund(self, payload: FundCreate) -> Fund:
         fund_code = self.source._normalize_fund_code(payload.fund_code)
-        existing = self.db.scalar(select(Fund).where(Fund.fund_code == fund_code))
-        if existing:
+        existing = self.db.scalar(
+            select(Fund)
+            .where(Fund.fund_code == fund_code)
+            .execution_options(include_deleted=True)
+        )
+        if existing and existing.is_deleted == 0:
             raise ValueError("基金已在自选基金池中")
         profile = FundProfileService(self.db, self.source).get_profile(fund_code)
-        fund = Fund(
-            fund_code=fund_code,
-            fund_name=profile.fund_name if profile else fund_code,
-            fund_type=profile.fund_type if profile else None,
-            remark=payload.remark,
-        )
-        self.db.add(fund)
+        if existing:
+            fund = existing
+            fund.is_deleted = 0
+            fund.enabled = 1
+            fund.fund_name = profile.fund_name if profile else fund_code
+            fund.fund_type = profile.fund_type if profile else None
+            fund.remark = payload.remark
+        else:
+            fund = Fund(
+                fund_code=fund_code,
+                fund_name=profile.fund_name if profile else fund_code,
+                fund_type=profile.fund_type if profile else None,
+                remark=payload.remark,
+            )
+            self.db.add(fund)
         self.db.commit()
         self.db.refresh(fund)
         return fund
@@ -124,10 +136,12 @@ class FundService:
             return latest_nav
 
         nav = self.db.scalar(
-            select(FundNav).where(
+            select(FundNav)
+            .where(
                 FundNav.fund_code == normalized_code,
                 FundNav.nav_date == snapshot.nav_date,
             )
+            .execution_options(include_deleted=True)
         )
         if nav is None:
             if self._should_replace_legacy_etf_nav(latest_nav, snapshot.source):
@@ -151,6 +165,7 @@ class FundService:
             ):
                 self.db.delete(latest_nav)
 
+        nav.is_deleted = 0
         nav.unit_nav = snapshot.unit_nav
         nav.accumulated_nav = snapshot.accumulated_nav
         nav.daily_growth_rate = snapshot.daily_growth_rate

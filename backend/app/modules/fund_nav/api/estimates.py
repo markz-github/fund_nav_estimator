@@ -11,7 +11,7 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.schemas.estimate import FundEstimateOut, RefreshAndEstimateRequest
 from app.modules.fund_nav.services.estimate_service import EstimateService
 from app.modules.fund_nav.services.market_service import MarketService
-from app.modules.information.services.operation_log_service import finish_task, log_fetch_error, start_task
+from app.modules.information.services.operation_log_service import finish_task, log_fetch_error, start_task, task_status_from_counts
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 
@@ -46,7 +46,7 @@ def run_estimates(db: Session = Depends(get_db)) -> dict:
             skipped["fund_code"],
             skipped["reason"],
         )
-    status = "success" if result["skipped_count"] == 0 else "partial"
+    status = task_status_from_counts(success=result["estimated_count"], skipped=result["skipped_count"])
     finish_task(
         db,
         task_log,
@@ -102,9 +102,10 @@ def refresh_quotes_and_run_estimates(
             skipped["reason"],
         )
 
-    status = "success"
-    if not quotes or result["skipped_count"] > 0:
-        status = "partial"
+    status = task_status_from_counts(
+        success=result["estimated_count"],
+        skipped=(0 if quotes else 1) + result["skipped_count"],
+    )
     finish_task(
         db,
         task_log,

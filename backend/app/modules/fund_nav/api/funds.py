@@ -14,7 +14,13 @@ from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.fund_sync_service import sync_new_fund_data
 from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
 from app.modules.fund_nav.services.holding_service import HoldingService
-from app.modules.information.services.operation_log_service import finish_task, log_fetch_error, log_task, start_task
+from app.modules.information.services.operation_log_service import (
+    finish_task,
+    log_fetch_error,
+    log_task,
+    start_task,
+    task_status_from_counts,
+)
 
 router = APIRouter(prefix="/funds", tags=["funds"])
 
@@ -40,7 +46,7 @@ def create_fund(
         fund = service.create_fund(payload)
     except ValueError as exc:
         db.rollback()
-        log_task(db, "新增自选基金", "create_fund", "duplicate", started_at, str(exc))
+        log_task(db, "新增自选基金", "create_fund", "skipped", started_at, f"duplicate;{exc}")
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         db.rollback()
@@ -105,7 +111,7 @@ def refresh_navs(
             }
         )
 
-    status_text = "success" if failed_count == 0 else "partial"
+    status_text = task_status_from_counts(success=refreshed_count + from_cache_count, failed=failed_count)
     finish_task(
         db,
         task_log,
@@ -178,7 +184,7 @@ def refresh_nav(fund_code: str, db: Session = Depends(get_db)) -> dict:
     if nav is None:
         message = "akshare returned no latest fund nav"
         log_fetch_error(db, "akshare", "fund_nav", fund_code, message)
-        finish_task(db, task_log, "partial", message)
+        finish_task(db, task_log, "skipped", message)
     else:
         finish_task(db, task_log, "success", fund_code)
     return {
@@ -210,7 +216,7 @@ def refresh_holdings(fund_code: str, db: Session = Depends(get_db)) -> dict:
     if not holdings:
         message = "akshare returned no fund holdings"
         log_fetch_error(db, "akshare", "holding", fund_code, message)
-        finish_task(db, task_log, "partial", message)
+        finish_task(db, task_log, "skipped", message)
     else:
         finish_task(
             db,

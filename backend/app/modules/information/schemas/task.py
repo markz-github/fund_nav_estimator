@@ -9,6 +9,9 @@ class TaskLogOut(BaseModel):
     id: int
     task_name: str
     task_type: str
+    target_type: str | None = None
+    target_id: str | None = None
+    external_task_id: str | None = None
     status: str
     started_at: datetime
     finished_at: datetime | None = None

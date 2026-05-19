@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import {
   getFund,
@@ -108,8 +108,6 @@ onMounted(loadDetail)
 
 <template>
   <main class="page-shell">
-    <RouterLink class="back-link" to="/">返回基金池</RouterLink>
-
     <section class="detail-hero">
       <div>
         <p class="eyebrow">Fund Detail</p>

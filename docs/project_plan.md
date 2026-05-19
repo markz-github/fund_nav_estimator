@@ -295,7 +295,8 @@ coverage_ratio = 72% / 85%
 ### 相关配置
 
 ```env
-SCHEDULER_ENABLED=true
+SCHEDULER_FUND_ENABLED=true
+SCHEDULER_INFORMATION_ENABLED=true
 ```
 
 ### 相关表
