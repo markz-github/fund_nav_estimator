@@ -352,11 +352,15 @@ class VideoInformationService:
             self._validate_bilinote_settings(settings)
         client = BilinoteClient(settings["bilinote_base_url"])
         for video in videos:
-            note = self._create_note(video)
+            note = self._note_for_submit(video)
             try:
                 video.status = "note_running"
                 note.status = "running"
                 note.error_message = None
+                note.note_text = None
+                note.external_task_id = None
+                note.raw_response = None
+                note.generated_at = None
                 self.db.commit()
                 task = client.generate_note(
                     video.video_url,
@@ -453,11 +457,15 @@ class VideoInformationService:
         if article is None:
             return result
         result["total"] = 1
-        note = self._create_note(article, provider="hermes")
+        note = self._note_for_submit(article, provider="hermes")
         try:
             article.status = "note_running"
             note.status = "running"
             note.error_message = None
+            note.note_text = None
+            note.external_task_id = None
+            note.raw_response = None
+            note.generated_at = None
             self.db.commit()
             run = client.start_run(self._build_article_summary_prompt(article), f"图文总结：{article.title}"[:200])
             note.external_task_id = run.run_id
@@ -530,7 +538,7 @@ class VideoInformationService:
         self.db.commit()
         return len(videos)
 
-    def poll_running_notes(self, video_ids: list[int] | None = None) -> dict[str, int]:
+    def poll_running_notes(self, video_ids: list[int] | None = None) -> dict[str, int | str | None]:
         settings = InformationSettingsService(self.db).get_settings()
         bilinote_client = BilinoteClient(settings["bilinote_base_url"])
         hermes_client = self._hermes_client(settings)
@@ -541,7 +549,7 @@ class VideoInformationService:
         bilinote_client: BilinoteClient,
         hermes_client: HermesClient,
         video_ids: list[int] | None = None,
-    ) -> dict[str, int]:
+    ) -> dict[str, int | str | None]:
         result = {
             "total": 0,
             "completed": 0,
@@ -549,6 +557,7 @@ class VideoInformationService:
             "running": 0,
             "started": 0,
             "expired": 0,
+            "error_message": None,
         }
         statement = (
             select(InformationVideoNote)
@@ -566,6 +575,7 @@ class VideoInformationService:
             if started_at and now - started_at > VIDEO_NOTE_EXPIRY:
                 note.status = "failed"
                 note.error_message = f"{note.provider} task expired after 1 day without result"
+                result["error_message"] = self._append_result_error(result.get("error_message"), note.error_message)
                 if video is not None:
                     video.status = "note_failed"
                 result["failed"] += 1
@@ -575,6 +585,7 @@ class VideoInformationService:
             if not note.external_task_id:
                 note.status = "failed"
                 note.error_message = f"{note.provider} running note does not have external_task_id"
+                result["error_message"] = self._append_result_error(result.get("error_message"), note.error_message)
                 if video is not None:
                     video.status = "note_failed"
                 result["failed"] += 1
@@ -605,6 +616,7 @@ class VideoInformationService:
                 elif poll_status == "failed":
                     note.status = "failed"
                     note.error_message = note.error_message or f"{note.provider} note generation failed"
+                    result["error_message"] = self._append_result_error(result.get("error_message"), note.error_message)
                     if video is not None:
                         video.status = "note_failed"
                     result["failed"] += 1
@@ -634,6 +646,7 @@ class VideoInformationService:
                 if note is not None:
                     note.status = "failed"
                     note.error_message = repr(exc)[:2000]
+                    result["error_message"] = self._append_result_error(result.get("error_message"), note.error_message)
                 if video is not None:
                     video.status = "note_failed"
                 provider = note.provider if note is not None else "note"
@@ -1156,6 +1169,27 @@ class VideoInformationService:
         self.db.commit()
         self.db.refresh(note)
         return note
+
+    def _note_for_submit(self, video: InformationVideo, provider: str | None = None) -> InformationVideoNote:
+        note_provider = provider or ("hermes" if video.content_type == "article" else "bilinote")
+        note = self.db.scalar(
+            select(InformationVideoNote)
+            .where(
+                InformationVideoNote.video_id == video.id,
+                InformationVideoNote.provider == note_provider,
+                InformationVideoNote.status.in_(["failed", "pending"]),
+            )
+            .order_by(InformationVideoNote.created_at.desc(), InformationVideoNote.id.desc())
+        )
+        return note or self._create_note(video, provider=note_provider)
+
+    @staticmethod
+    def _append_result_error(existing: object, error_message: str | None) -> str | None:
+        if not error_message:
+            return str(existing) if existing else None
+        if not existing:
+            return error_message
+        return f"{existing};{error_message}"
 
     @staticmethod
     def _hermes_client(settings: dict[str, str]) -> HermesClient:

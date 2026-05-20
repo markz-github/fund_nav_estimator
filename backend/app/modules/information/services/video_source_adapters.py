@@ -10,6 +10,9 @@ from typing import Protocol
 import requests
 
 from app.modules.information.models.video_source import InformationVideoSource
+from app.modules.information.services.external_call_logging import external_log_json
+from app.modules.information.services.external_call_logging import response_log_body
+from app.modules.information.services.external_call_logging import sanitize_external_url
 
 
 logger = logging.getLogger(__name__)
@@ -73,15 +76,18 @@ class BilibiliVideoSourceAdapter:
             page_size,
         )
         headers = self._build_headers(mid, bilibili_cookie)
+        url = "https://api.bilibili.com/x/space/arc/search"
+        params = {
+            "mid": mid,
+            "pn": 1,
+            "ps": page_size,
+            "order": "pubdate",
+            "jsonp": "jsonp",
+        }
+        logger.info("external request system=bilibili method=GET url=%s params=%s", sanitize_external_url(url), external_log_json(params))
         response = requests.get(
-            "https://api.bilibili.com/x/space/arc/search",
-            params={
-                "mid": mid,
-                "pn": 1,
-                "ps": page_size,
-                "order": "pubdate",
-                "jsonp": "jsonp",
-            },
+            url,
+            params=params,
             headers=headers,
             timeout=20,
         )
@@ -91,8 +97,16 @@ class BilibiliVideoSourceAdapter:
             mid,
             response.status_code,
         )
+        payload = response_log_body(response)
+        logger.info(
+            "external response system=bilibili method=GET url=%s status=%s body=%s",
+            sanitize_external_url(url),
+            response.status_code,
+            external_log_json(payload),
+        )
         response.raise_for_status()
-        payload = response.json()
+        if not isinstance(payload, dict):
+            payload = {"data": payload}
         code = payload.get("code")
         if code not in (None, 0):
             message = str(payload.get("message") or "unknown bilibili api error")
@@ -136,13 +150,16 @@ class BilibiliVideoSourceAdapter:
         headers: dict[str, str],
     ) -> list[VideoSnapshot]:
         try:
+            url = "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space"
+            params = {
+                "host_mid": mid,
+                "features": "itemOpusStyle",
+                "offset": "",
+            }
+            logger.info("external request system=bilibili method=GET url=%s params=%s", sanitize_external_url(url), external_log_json(params))
             response = requests.get(
-                "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space",
-                params={
-                    "host_mid": mid,
-                    "features": "itemOpusStyle",
-                    "offset": "",
-                },
+                url,
+                params=params,
                 headers={**headers, "Referer": f"https://space.bilibili.com/{mid}/dynamic"},
                 timeout=20,
             )
@@ -152,8 +169,16 @@ class BilibiliVideoSourceAdapter:
                 mid,
                 response.status_code,
             )
+            payload = response_log_body(response)
+            logger.info(
+                "external response system=bilibili method=GET url=%s status=%s body=%s",
+                sanitize_external_url(url),
+                response.status_code,
+                external_log_json(payload),
+            )
             response.raise_for_status()
-            payload = response.json()
+            if not isinstance(payload, dict):
+                payload = {"data": payload}
         except Exception as exc:
             logger.warning("bilibili fetch latest articles skipped source_id=%s mid=%s error=%r", source.id, mid, exc)
             return []

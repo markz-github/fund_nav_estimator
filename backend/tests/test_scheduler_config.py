@@ -150,6 +150,42 @@ class SchedulerConfigTests(unittest.TestCase):
         self.assertEqual(logs[0].status, "success")
         service.submit_pending_note_task.assert_not_called()
 
+    def test_scheduled_video_notes_job_logs_poll_error_message(self) -> None:
+        service = Mock()
+        service.poll_running_notes.return_value = {
+            "total": 1,
+            "completed": 0,
+            "failed": 1,
+            "running": 0,
+            "started": 0,
+            "expired": 0,
+            "error_message": "Bilinote task failed in external service",
+        }
+        service.submit_pending_note_task.return_value = {
+            "total": 0,
+            "completed": 0,
+            "failed": 0,
+            "running": 0,
+            "started": 0,
+            "expired": 0,
+            "video_id": None,
+            "note_id": None,
+            "external_task_id": None,
+            "error_message": None,
+        }
+
+        with (
+            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+        ):
+            generate_information_video_notes_job()
+
+        logs = self.task_logs()
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].task_type, "poll_information_video_notes")
+        self.assertEqual(logs[0].status, "failed")
+        self.assertIn("external service", logs[0].message or "")
+
     def test_scheduled_video_notes_job_logs_actual_submit(self) -> None:
         service = Mock()
         service.poll_running_notes.return_value = {
@@ -220,6 +256,41 @@ class SchedulerConfigTests(unittest.TestCase):
         self.assertEqual(logs[0].task_type, "submit_information_video_note_task")
         self.assertEqual(logs[0].status, "failed")
         self.assertIn("bilinote unavailable", logs[0].message or "")
+
+    def test_scheduled_video_notes_job_marks_mixed_submit_result_partial(self) -> None:
+        service = Mock()
+        service.poll_running_notes.return_value = {
+            "total": 0,
+            "completed": 0,
+            "failed": 0,
+            "running": 0,
+            "started": 0,
+            "expired": 0,
+        }
+        service.submit_pending_note_task.return_value = {
+            "total": 2,
+            "completed": 0,
+            "failed": 1,
+            "running": 1,
+            "started": 1,
+            "expired": 0,
+            "video_id": 42,
+            "note_id": 7,
+            "external_task_id": "task-42",
+            "error_message": "one note failed",
+        }
+
+        with (
+            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+        ):
+            generate_information_video_notes_job()
+
+        logs = self.task_logs()
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].task_type, "submit_information_video_note_task")
+        self.assertEqual(logs[0].status, "partial")
+        self.assertIn("one note failed", logs[0].message or "")
 
     def test_scheduled_scan_job_does_not_log_when_no_video_created(self) -> None:
         service = Mock()

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any
 import time
 
 import requests
 
 from app.modules.information.services.bilinote_client import compact_json
+from app.modules.information.services.external_call_logging import external_log_json
+from app.modules.information.services.external_call_logging import response_log_body
+from app.modules.information.services.external_call_logging import sanitize_external_url
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -42,9 +49,19 @@ class HermesClient:
             "input": prompt,
             "instructions": title,
         }
-        response = requests.post(self._url(self.run_path), json=payload, headers=self._headers(), timeout=self.timeout)
+        url = self._url(self.run_path)
+        logger.info("external request system=hermes method=POST url=%s payload=%s", sanitize_external_url(url), external_log_json(payload))
+        response = requests.post(url, json=payload, headers=self._headers(), timeout=self.timeout)
+        data = response_log_body(response)
+        logger.info(
+            "external response system=hermes method=POST url=%s status=%s body=%s",
+            sanitize_external_url(url),
+            response.status_code,
+            external_log_json(data),
+        )
         response.raise_for_status()
-        data = response.json()
+        if not isinstance(data, dict):
+            data = {"data": data}
         return HermesRunResult(
             run_id=self._first_string(data, ("run_id", "id", "task_id", "data.run_id", "data.id")),
             status=self._status(data) or "started",
@@ -68,9 +85,19 @@ class HermesClient:
 
     def poll_run_once(self, run_id: str) -> HermesRunResult:
         path = self.status_path_template.replace("{run_id}", run_id)
-        response = requests.get(self._url(path), headers=self._headers(), timeout=self.timeout)
+        url = self._url(path)
+        logger.info("external request system=hermes method=GET url=%s params=%s", sanitize_external_url(url), external_log_json({"run_id": run_id}))
+        response = requests.get(url, headers=self._headers(), timeout=self.timeout)
+        data = response_log_body(response)
+        logger.info(
+            "external response system=hermes method=GET url=%s status=%s body=%s",
+            sanitize_external_url(url),
+            response.status_code,
+            external_log_json(data),
+        )
         response.raise_for_status()
-        data = response.json()
+        if not isinstance(data, dict):
+            data = {"data": data}
         status = self._status(data) or "running"
         document_text = self._document_text(data)
         if document_text and status not in {"failed", "error", "cancelled"}:

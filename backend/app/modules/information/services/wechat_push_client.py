@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 import requests
 
+from app.modules.information.services.external_call_logging import external_log_json
+from app.modules.information.services.external_call_logging import response_log_body
+from app.modules.information.services.external_call_logging import sanitize_external_url
+
+
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class WechatPushResult:
@@ -33,9 +40,22 @@ class WechatPushClient:
             "text": f"# {title}\n\n{content}".strip(),
             "format_markdown": True,
         }
+        logger.info(
+            "external request system=wechat_push method=POST url=%s payload=%s",
+            sanitize_external_url(self.webhook_url),
+            external_log_json(payload),
+        )
         response = requests.post(self.webhook_url, json=payload, headers=self._headers(), timeout=self.timeout)
+        data = response_log_body(response)
+        if not isinstance(data, dict):
+            data = {"data": data}
+        logger.info(
+            "external response system=wechat_push method=POST url=%s status=%s body=%s",
+            sanitize_external_url(self.webhook_url),
+            response.status_code,
+            external_log_json(data),
+        )
         response.raise_for_status()
-        data = self._json_or_text(response)
         return WechatPushResult(ok=self._is_success(data), raw_response=data)
 
     def _headers(self) -> dict[str, str]:
