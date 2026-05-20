@@ -195,7 +195,7 @@ onMounted(loadSources)
                 {{ source.note_count }}
               </RouterLink>
             </td>
-            <td><span class="status-pill" :class="statusClass(source.enabled ? 'enabled' : 'disabled')">{{ source.enabled ? 'enabled' : 'disabled' }}</span></td>
+            <td><span class="status-pill" :class="statusClass(source.status)">{{ source.status_label }}</span></td>
             <td>{{ source.last_scanned_at ?? '-' }}</td>
             <td>
               <button class="ghost" type="button" @click="toggleSource(source)">{{ source.enabled ? '停用' : '启用' }}</button>

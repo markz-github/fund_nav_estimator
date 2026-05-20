@@ -2,7 +2,15 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
-import { generateSummaryFromNotes, listVideoNotes, listVideoSources, type VideoNote, type VideoSource } from '../api/videos'
+import {
+  generateSummaryFromNotes,
+  getInformationStatusOptions,
+  listVideoNotes,
+  listVideoSources,
+  type StatusOption,
+  type VideoNote,
+  type VideoSource,
+} from '../api/videos'
 import DateField from '../components/DateField.vue'
 import { statusClass } from '../utils/status'
 
@@ -10,6 +18,7 @@ const route = useRoute()
 const router = useRouter()
 const sources = ref<VideoSource[]>([])
 const notes = ref<VideoNote[]>([])
+const noteStatusOptions = ref<StatusOption[]>([])
 const selectedStatus = ref('')
 const selectedVideoId = ref('')
 const selectedSourceId = ref('')
@@ -40,7 +49,6 @@ const sortedNotes = computed(() => {
   return items
 })
 
-const statusOptions = computed(() => Array.from(new Set(notes.value.map((note) => note.status))).sort())
 const selectableNotes = computed(() => sortedNotes.value.filter((note) => note.status === 'done' && note.note_text))
 const hasActiveFilters = computed(
   () =>
@@ -76,6 +84,15 @@ async function loadSources() {
     sources.value = await listVideoSources()
   } catch (error) {
     message.value = apiErrorMessage(error, '视频来源加载失败。')
+  }
+}
+
+async function loadStatusOptions() {
+  try {
+    const result = await getInformationStatusOptions()
+    noteStatusOptions.value = result.note_statuses
+  } catch (error) {
+    message.value = apiErrorMessage(error, '状态枚举加载失败。')
   }
 }
 
@@ -148,7 +165,7 @@ function noteSortValue(note: VideoNote, key: typeof sortBy.value) {
   if (key === 'published_at') return note.video_published_at || ''
   if (key === 'title') return note.video_title || ''
   if (key === 'source') return note.source_name || ''
-  if (key === 'status') return note.status || ''
+  if (key === 'status') return note.status_label || note.status || ''
   return note.generated_at || ''
 }
 
@@ -198,6 +215,7 @@ async function runCustomSummary() {
 
 onMounted(() => {
   applyQueryFilters()
+  loadStatusOptions()
   loadSources()
   loadNotes()
 })
@@ -270,7 +288,7 @@ watch(
           状态
           <select v-model="selectedStatus">
             <option value="">全部状态</option>
-            <option v-for="status in statusOptions" :key="status" :value="status">{{ status }}</option>
+            <option v-for="status in noteStatusOptions" :key="status.value" :value="status.value">{{ status.label }}</option>
           </select>
         </label>
         <label>
@@ -349,7 +367,7 @@ watch(
             </td>
             <td>{{ note.video_published_at ?? '-' }}</td>
             <td>
-              <span class="status-pill" :class="statusClass(note.status)">{{ note.status }}</span>
+              <span class="status-pill" :class="statusClass(note.status)">{{ note.status_label }}</span>
             </td>
             <td>{{ note.provider }}</td>
             <td class="mono">{{ note.external_task_id ?? '-' }}</td>

@@ -119,7 +119,7 @@ onMounted(loadDocuments)
                 {{ document.title }}
               </RouterLink>
             </td>
-            <td><span class="status-pill" :class="statusClass(document.status)">{{ document.status }}</span></td>
+            <td><span class="status-pill" :class="statusClass(document.status)">{{ document.status_label }}</span></td>
             <td>{{ document.summary_date }}</td>
             <td>{{ document.platform }}</td>
             <td class="mono">{{ document.hermes_run_id ?? '-' }}</td>

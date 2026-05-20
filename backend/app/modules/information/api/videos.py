@@ -10,10 +10,11 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.modules.information.schemas.video import (
     ActionResult,
-    InformationSettingsOut,
-    InformationSettingsUpdate,
     GenerateSummaryFromNotesRequest,
     GenerateVideoNotesRequest,
+    InformationStatusOptionsOut,
+    InformationSettingsOut,
+    InformationSettingsUpdate,
     MarkVideoNotesFailedRequest,
     ScanVideosRequest,
     SummaryDocumentOut,
@@ -25,12 +26,31 @@ from app.modules.information.schemas.video import (
     VideoSourceOut,
     VideoSourceUpdate,
 )
+from app.modules.information.status_enums import (
+    NOTE_STATUSES,
+    SOURCE_STATUSES,
+    SUMMARY_DOCUMENT_STATUSES,
+    TASK_STATUSES,
+    VIDEO_STATUSES,
+    status_options,
+)
 from app.modules.information.services.operation_log_service import finish_task, log_fetch_error, start_task, task_status_from_counts
 from app.modules.information.services.information_settings_service import InformationSettingsService
 from app.modules.information.services.video_information_service import VideoInformationService
 
 router = APIRouter(prefix="/information", tags=["information"])
 logger = logging.getLogger(__name__)
+
+
+@router.get("/status-options", response_model=InformationStatusOptionsOut)
+def get_status_options():
+    return {
+        "source_statuses": status_options(SOURCE_STATUSES),
+        "video_statuses": status_options(VIDEO_STATUSES),
+        "note_statuses": status_options(NOTE_STATUSES),
+        "summary_document_statuses": status_options(SUMMARY_DOCUMENT_STATUSES),
+        "task_statuses": status_options(TASK_STATUSES),
+    }
 
 
 def _video_note_task_status(result: dict[str, int | str | None]) -> str:

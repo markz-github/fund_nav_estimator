@@ -11,6 +11,8 @@ export interface VideoSource {
   remark?: string | null
   video_count: number
   note_count: number
+  status: string
+  status_label: string
 }
 
 export interface InformationSettings {
@@ -43,6 +45,7 @@ export interface InformationVideo {
   author_name?: string | null
   published_at?: string | null
   status: string
+  status_label: string
 }
 
 export interface VideoNote {
@@ -57,6 +60,7 @@ export interface VideoNote {
   provider: string
   external_task_id?: string | null
   status: string
+  status_label: string
   note_text?: string | null
   error_message?: string | null
   generated_at?: string | null
@@ -80,6 +84,7 @@ export interface SummaryDocument {
   summary_date: string
   title: string
   status: string
+  status_label: string
   hermes_run_id?: string | null
   document_text?: string | null
   error_message?: string | null
@@ -97,7 +102,21 @@ export interface SummaryDocumentNote {
   source_name?: string | null
   source_url?: string | null
   status: string
+  status_label: string
   generated_at?: string | null
+}
+
+export interface StatusOption {
+  value: string
+  label: string
+}
+
+export interface InformationStatusOptions {
+  source_statuses: StatusOption[]
+  video_statuses: StatusOption[]
+  note_statuses: StatusOption[]
+  summary_document_statuses: StatusOption[]
+  task_statuses: StatusOption[]
 }
 
 export interface InformationVideoFilters {
@@ -117,6 +136,11 @@ function apiDate(value?: string) {
 
 export async function listVideoSources() {
   const { data } = await apiClient.get<VideoSource[]>('/information/video-sources')
+  return data
+}
+
+export async function getInformationStatusOptions() {
+  const { data } = await apiClient.get<InformationStatusOptions>('/information/status-options')
   return data
 }
 
