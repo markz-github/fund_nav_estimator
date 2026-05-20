@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import logging
 import re
 import time
 from typing import Any
 
 import requests
+
+from app.modules.information.services.external_call_logging import external_log_json
+from app.modules.information.services.external_call_logging import response_log_body
+from app.modules.information.services.external_call_logging import sanitize_external_url
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -46,9 +54,19 @@ class BilinoteClient:
             "video_interval": 0,
             "grid_size": [],
         }
-        response = requests.post(f"{self.base_url}/api/generate_note", json=payload, timeout=self.timeout)
+        url = f"{self.base_url}/api/generate_note"
+        logger.info("external request system=bilinote method=POST url=%s payload=%s", sanitize_external_url(url), external_log_json(payload))
+        response = requests.post(url, json=payload, timeout=self.timeout)
+        data = response_log_body(response)
+        logger.info(
+            "external response system=bilinote method=POST url=%s status=%s body=%s",
+            sanitize_external_url(url),
+            response.status_code,
+            external_log_json(data),
+        )
         response.raise_for_status()
-        data = response.json()
+        if not isinstance(data, dict):
+            data = {"data": data}
         return BilinoteTaskResult(
             task_id=self._first_string(
                 data,
@@ -74,9 +92,19 @@ class BilinoteClient:
         )
 
     def poll_task_once(self, task_id: str) -> BilinoteTaskResult:
-        response = requests.get(f"{self.base_url}/api/task_status/{task_id}", timeout=self.timeout)
+        url = f"{self.base_url}/api/task_status/{task_id}"
+        logger.info("external request system=bilinote method=GET url=%s params=%s", sanitize_external_url(url), external_log_json({"task_id": task_id}))
+        response = requests.get(url, timeout=self.timeout)
+        data = response_log_body(response)
+        logger.info(
+            "external response system=bilinote method=GET url=%s status=%s body=%s",
+            sanitize_external_url(url),
+            response.status_code,
+            external_log_json(data),
+        )
         response.raise_for_status()
-        data = response.json()
+        if not isinstance(data, dict):
+            data = {"data": data}
         status = self._status(data) or "running"
         note_text = self._note_text(data)
         error_message = self._error_message(data)

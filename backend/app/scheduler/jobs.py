@@ -19,11 +19,16 @@ from app.modules.information.services.operation_log_service import log_fetch_err
 from app.modules.information.services.video_information_service import VideoInformationService
 
 
-def _video_note_task_status(result: dict[str, int]) -> str:
+def _video_note_task_status(result: dict[str, int | str | None]) -> str:
+    if result.get("error_message") or int(result["failed"]) > 0:
+        if int(result["completed"]) > 0 or int(result["running"]) > 0 or int(result["started"]) > 0:
+            return "partial"
+        return "failed"
+    if int(result["running"]) > 0 or int(result["started"]) > 0:
+        return "success"
     return task_status_from_counts(
-        success=result["completed"],
-        failed=result["failed"],
-        skipped=1 if result["total"] == 0 else 0,
+        success=int(result["completed"]),
+        skipped=1 if int(result["total"]) == 0 else 0,
     )
 
 
@@ -40,6 +45,10 @@ def _video_note_task_message(result: dict[str, int | str | None]) -> str:
 
 
 def _summary_document_poll_status(result: dict[str, int]) -> str:
+    if result["failed"] > 0:
+        if result["completed"] > 0 or result["running"] > 0:
+            return "partial"
+        return "failed"
     if result["running"] > 0:
         return "success"
     return task_status_from_counts(
@@ -219,7 +228,7 @@ def generate_information_video_notes_job() -> None:
         service = VideoInformationService(db)
         poll_started_at = datetime.now()
         poll_result = service.poll_running_notes()
-        poll_status = "success" if poll_result["running"] > 0 else _video_note_task_status(poll_result)
+        poll_status = _video_note_task_status(poll_result)
         if poll_status != "skipped":
             log_task(
                 db,
@@ -236,7 +245,7 @@ def generate_information_video_notes_job() -> None:
         try:
             submit_result = service.submit_pending_note_task()
             status = _video_note_task_status(submit_result)
-            if submit_result["started"] > 0 or submit_result["running"] > 0:
+            if status != "failed" and submit_result["failed"] == 0 and (submit_result["started"] > 0 or submit_result["running"] > 0):
                 status = "success"
             message = _video_note_task_message(submit_result)
             if status != "skipped":

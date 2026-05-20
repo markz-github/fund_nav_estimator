@@ -33,11 +33,16 @@ router = APIRouter(prefix="/information", tags=["information"])
 logger = logging.getLogger(__name__)
 
 
-def _video_note_task_status(result: dict[str, int]) -> str:
+def _video_note_task_status(result: dict[str, int | str | None]) -> str:
+    if result.get("error_message") or int(result["failed"]) > 0:
+        if int(result["completed"]) > 0 or int(result["running"]) > 0 or int(result["started"]) > 0:
+            return "partial"
+        return "failed"
+    if int(result["running"]) > 0 or int(result["started"]) > 0:
+        return "success"
     return task_status_from_counts(
-        success=result["completed"],
-        failed=result["failed"],
-        skipped=1 if result["total"] == 0 else 0,
+        success=int(result["completed"]),
+        skipped=1 if int(result["total"]) == 0 else 0,
     )
 
 
@@ -226,7 +231,7 @@ def generate_video_notes(
         raise
     status = _video_note_task_status(result)
     message = _video_note_task_message(result, target)
-    if result["started"] > 0:
+    if status != "failed" and result["failed"] == 0 and result["started"] > 0:
         status = "success"
     finish_task(db, task_log, status, message, external_task_id=result.get("external_task_id"))
     return ActionResult(status=status, message=message, count=result["started"])
