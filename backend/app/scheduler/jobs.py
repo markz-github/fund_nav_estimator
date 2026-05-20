@@ -27,12 +27,16 @@ def _video_note_task_status(result: dict[str, int]) -> str:
     )
 
 
-def _video_note_task_message(result: dict[str, int]) -> str:
-    return (
+def _video_note_task_message(result: dict[str, int | str | None]) -> str:
+    message = (
         f"total={result['total']};completed={result['completed']};"
         f"failed={result['failed']};running={result['running']};"
         f"started={result['started']};expired={result['expired']}"
     )
+    error_message = result.get("error_message")
+    if error_message:
+        message = f"{message};error={error_message}"
+    return message
 
 
 def _summary_document_poll_status(result: dict[str, int]) -> str:
@@ -200,6 +204,8 @@ def scan_information_videos_job() -> None:
         result = VideoInformationService(db).scan_next_source()
         if result["source_id"] is None:
             return "skipped", "no enabled video source"
+        if result.get("error_message"):
+            return "failed", str(result["error_message"])
         if result["created"] == 0:
             return "skipped", f"source_id={result['source_id']};created=0"
         return "success", f"source_id={result['source_id']};created={result['created']}"

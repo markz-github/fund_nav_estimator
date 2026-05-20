@@ -32,6 +32,7 @@ SUMMARY_DOCUMENT_EXPIRY = timedelta(days=1)
 class VideoInformationService:
     def __init__(self, db: Session) -> None:
         self.db = db
+        self.last_scan_errors: list[str] = []
 
     def list_sources(self, enabled_only: bool = False) -> list[dict[str, object]]:
         statement = select(InformationVideoSource).order_by(InformationVideoSource.created_at.desc())
@@ -135,6 +136,7 @@ class VideoInformationService:
         source_ids: list[int] | None = None,
         limit: int = 20,
     ) -> int:
+        self.last_scan_errors = []
         statement = select(InformationVideoSource).where(InformationVideoSource.enabled == 1)
         if source_ids:
             statement = statement.where(InformationVideoSource.id.in_(source_ids))
@@ -247,6 +249,7 @@ class VideoInformationService:
                 )
             except Exception as exc:
                 self.db.rollback()
+                error_message = repr(exc)
                 logger.error(
                     "video source scan failed source_id=%s platform=%s external_source_id=%s error=%r",
                     source.id,
@@ -261,12 +264,16 @@ class VideoInformationService:
                     source.external_source_id,
                     exc_info=True,
                 )
-                log_fetch_error(self.db, source.platform, "video_scan", source.external_source_id, repr(exc))
+                failed_source = self.db.get(InformationVideoSource, source.id)
+                if failed_source is not None:
+                    failed_source.last_scanned_at = datetime.now()
+                self.last_scan_errors.append(f"source_id={source.id};error={error_message}")
+                log_fetch_error(self.db, source.platform, "video_scan", source.external_source_id, error_message)
                 self.db.commit()
         logger.info("video scan finished source_id=%s source_ids=%s limit=%s created=%s", source_id, source_ids, limit, created)
         return created
 
-    def scan_next_source(self, limit: int = 20) -> dict[str, int | None]:
+    def scan_next_source(self, limit: int = 20) -> dict[str, int | str | None]:
         source = self.db.scalar(
             select(InformationVideoSource)
             .where(InformationVideoSource.enabled == 1)
@@ -276,7 +283,10 @@ class VideoInformationService:
             logger.info("scheduled video scan skipped no enabled source")
             return {"source_id": None, "created": 0}
         created = self.scan_sources(source_id=source.id, limit=limit)
-        return {"source_id": source.id, "created": created}
+        result: dict[str, int | str | None] = {"source_id": source.id, "created": created}
+        if self.last_scan_errors:
+            result["error_message"] = ";".join(self.last_scan_errors)
+        return result
 
     def generate_pending_notes(self, limit: int = 5, video_ids: list[int] | None = None) -> dict[str, int]:
         poll_result = self.poll_running_notes(video_ids=video_ids)
@@ -306,6 +316,7 @@ class VideoInformationService:
             "video_id": None,
             "note_id": None,
             "external_task_id": None,
+            "error_message": None,
         }
         running_note = self.db.scalar(select(InformationVideoNote).where(InformationVideoNote.status == "running"))
         if running_note is not None:
@@ -372,6 +383,7 @@ class VideoInformationService:
                     note.status = "failed"
                     note.error_message = task.error_message or "Bilinote response did not include task_id or note text"
                     video.status = "note_failed"
+                    result["error_message"] = note.error_message
                     result["failed"] += 1
                 result["video_id"] = video.id
                 result["note_id"] = note.id
@@ -385,6 +397,7 @@ class VideoInformationService:
                 note.error_message = repr(exc)[:2000]
                 log_fetch_error(self.db, "bilinote", "video_note", video.external_video_id, repr(exc))
                 self.db.commit()
+                result["error_message"] = note.error_message
                 result["failed"] += 1
         if result["total"] == 0:
             article_result = self.submit_pending_article_note_task(limit=limit, video_ids=video_ids)
@@ -404,6 +417,7 @@ class VideoInformationService:
             "video_id": None,
             "note_id": None,
             "external_task_id": None,
+            "error_message": None,
         }
         statement = (
             select(InformationVideo)
@@ -449,6 +463,7 @@ class VideoInformationService:
                 note.status = "failed"
                 note.error_message = "Hermes response did not include run_id or summary text"
                 article.status = "note_failed"
+                result["error_message"] = note.error_message
                 result["failed"] += 1
             result["video_id"] = article.id
             result["note_id"] = note.id
@@ -462,6 +477,7 @@ class VideoInformationService:
             note.error_message = repr(exc)[:2000]
             log_fetch_error(self.db, "hermes", "article_note", article.external_video_id, repr(exc))
             self.db.commit()
+            result["error_message"] = note.error_message
             result["failed"] += 1
         return result
 
