@@ -44,6 +44,15 @@ def _video_note_task_message(result: dict[str, int | str | None]) -> str:
     return message
 
 
+def _video_note_poll_should_log(result: dict[str, int | str | None]) -> bool:
+    return (
+        bool(result.get("error_message"))
+        or int(result["completed"]) > 0
+        or int(result["failed"]) > 0
+        or int(result["expired"]) > 0
+    )
+
+
 def _summary_document_poll_status(result: dict[str, int]) -> str:
     if result["failed"] > 0:
         if result["completed"] > 0 or result["running"] > 0:
@@ -63,6 +72,10 @@ def _summary_document_poll_message(result: dict[str, int]) -> str:
         f"total={result['total']};completed={result['completed']};"
         f"failed={result['failed']};running={result['running']};expired={result['expired']}"
     )
+
+
+def _summary_document_poll_should_log(result: dict[str, int]) -> bool:
+    return result["completed"] > 0 or result["failed"] > 0 or result["expired"] > 0
 
 
 def _run_task(task_name: str, task_type: str, handler, persist_skipped: bool = True) -> None:
@@ -229,7 +242,7 @@ def generate_information_video_notes_job() -> None:
         poll_started_at = datetime.now()
         poll_result = service.poll_running_notes()
         poll_status = _video_note_task_status(poll_result)
-        if poll_status != "skipped":
+        if _video_note_poll_should_log(poll_result):
             log_task(
                 db,
                 "轮询信息源笔记任务",
@@ -299,6 +312,8 @@ def generate_information_summary_documents_job() -> None:
 def poll_information_summary_documents_job() -> None:
     def handler(db: Session) -> tuple[str, str]:
         result = VideoInformationService(db).poll_running_summary_documents()
+        if not _summary_document_poll_should_log(result):
+            return "skipped", _summary_document_poll_message(result)
         return _summary_document_poll_status(result), _summary_document_poll_message(result)
 
     _run_task("轮询 Hermes 信息流汇总任务", "poll_information_summary_documents", handler, persist_skipped=False)
