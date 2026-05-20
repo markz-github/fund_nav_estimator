@@ -4,11 +4,13 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import {
   generateVideoNotes,
+  getInformationStatusOptions,
   listInformationVideos,
   listVideoNotes,
   listVideoSources,
   markVideoNotesFailed,
   type InformationVideo,
+  type StatusOption,
   type VideoNote,
   type VideoSource,
 } from '../api/videos'
@@ -20,6 +22,7 @@ const router = useRouter()
 const sources = ref<VideoSource[]>([])
 const videos = ref<InformationVideo[]>([])
 const notes = ref<VideoNote[]>([])
+const videoStatusOptions = ref<StatusOption[]>([])
 const loading = ref(false)
 const runningAction = ref('')
 const message = ref('')
@@ -101,6 +104,15 @@ async function loadAll(options?: { keepMessage?: boolean }) {
     message.value = apiErrorMessage(error, '信息源数据加载失败，请确认后端服务和数据库。')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadStatusOptions() {
+  try {
+    const result = await getInformationStatusOptions()
+    videoStatusOptions.value = result.video_statuses
+  } catch (error) {
+    message.value = apiErrorMessage(error, '状态枚举加载失败。')
   }
 }
 
@@ -192,7 +204,7 @@ function videoSortValue(video: InformationVideo, key: typeof sortBy.value) {
   if (key === 'published_at') return video.published_at || ''
   if (key === 'title') return video.title || ''
   if (key === 'source') return video.source_name || video.author_name || ''
-  return video.status || ''
+  return video.status_label || video.status || ''
 }
 
 function toggleSort(key: typeof sortBy.value) {
@@ -211,6 +223,7 @@ function sortIndicator(key: typeof sortBy.value) {
 
 onMounted(() => {
   applyQueryFilters()
+  loadStatusOptions()
   loadAll()
 })
 
@@ -270,10 +283,9 @@ watch(
           状态
           <select v-model="videoFilters.status">
             <option value="">全部状态</option>
-            <option value="note_pending">note_pending</option>
-            <option value="note_running">note_running</option>
-            <option value="note_done">note_done</option>
-            <option value="note_failed">note_failed</option>
+            <option v-for="status in videoStatusOptions" :key="status.value" :value="status.value">
+              {{ status.label }}
+            </option>
           </select>
         </label>
         <label>
@@ -353,7 +365,7 @@ watch(
             <td><a :href="video.video_url" target="_blank" rel="noreferrer">{{ video.title }}</a></td>
             <td>{{ video.source_name ?? video.author_name ?? '-' }}</td>
             <td>
-              <span class="status-pill" :class="statusClass(video.status)">{{ video.status }}</span>
+              <span class="status-pill" :class="statusClass(video.status)">{{ video.status_label }}</span>
             </td>
             <td>{{ video.published_at ?? '-' }}</td>
             <td>

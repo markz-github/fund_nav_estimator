@@ -44,7 +44,7 @@ watch(documentId, loadDocument)
       <div class="section-actions">
         <RouterLink class="link-button" :to="{ name: 'information-summaries' }">返回列表</RouterLink>
       </div>
-      <span class="status-pill" :class="statusClass(document.status)">{{ document.status }}</span>
+      <span class="status-pill" :class="statusClass(document.status)">{{ document.status_label }}</span>
     </section>
 
     <p v-if="message" class="message">{{ message }}</p>

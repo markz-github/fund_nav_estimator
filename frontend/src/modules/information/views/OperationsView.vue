@@ -200,7 +200,7 @@ watch(
               <span v-else>{{ log.target_type && log.target_id ? `${log.target_type}:${log.target_id}` : '-' }}</span>
             </td>
             <td class="mono">{{ log.external_task_id ?? '-' }}</td>
-            <td><span class="status-pill" :class="statusClass(log.status)">{{ log.status }}</span></td>
+            <td><span class="status-pill" :class="statusClass(log.status)">{{ log.status_label }}</span></td>
             <td>{{ log.started_at }}</td>
             <td>{{ durationText(log.duration_ms) }}</td>
             <td>{{ log.message ?? '-' }}</td>

@@ -2,7 +2,30 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+
+from app.modules.information.status_enums import (
+    NOTE_STATUSES,
+    SOURCE_STATUSES,
+    SUMMARY_DOCUMENT_STATUSES,
+    TASK_STATUSES,
+    VIDEO_STATUSES,
+    source_status,
+    status_label,
+)
+
+
+class StatusOptionOut(BaseModel):
+    value: str
+    label: str
+
+
+class InformationStatusOptionsOut(BaseModel):
+    source_statuses: list[StatusOptionOut]
+    video_statuses: list[StatusOptionOut]
+    note_statuses: list[StatusOptionOut]
+    summary_document_statuses: list[StatusOptionOut]
+    task_statuses: list[StatusOptionOut]
 
 
 class VideoSourceCreate(BaseModel):
@@ -36,6 +59,16 @@ class VideoSourceOut(BaseModel):
     note_count: int = 0
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def status(self) -> str:
+        return source_status(self.enabled)
+
+    @computed_field
+    @property
+    def status_label(self) -> str:
+        return status_label(SOURCE_STATUSES, self.status)
 
 
 class InformationSettingsOut(BaseModel):
@@ -98,6 +131,11 @@ class VideoOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @computed_field
+    @property
+    def status_label(self) -> str:
+        return status_label(VIDEO_STATUSES, self.status)
+
 
 class ScanVideosRequest(BaseModel):
     source_ids: list[int] | None = None
@@ -139,6 +177,11 @@ class VideoNoteOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @computed_field
+    @property
+    def status_label(self) -> str:
+        return status_label(NOTE_STATUSES, self.status)
+
 
 class VideoNoteDetailOut(VideoNoteOut):
     video_title: str | None = None
@@ -168,6 +211,11 @@ class SummaryDocumentNoteOut(BaseModel):
     status: str
     generated_at: datetime | None = None
 
+    @computed_field
+    @property
+    def status_label(self) -> str:
+        return status_label(NOTE_STATUSES, self.status)
+
 
 class SummaryDocumentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -185,8 +233,18 @@ class SummaryDocumentOut(BaseModel):
     updated_at: datetime
     notes: list[SummaryDocumentNoteOut] = Field(default_factory=list)
 
+    @computed_field
+    @property
+    def status_label(self) -> str:
+        return status_label(SUMMARY_DOCUMENT_STATUSES, self.status)
+
 
 class ActionResult(BaseModel):
     status: str
     message: str
     count: int = 0
+
+    @computed_field
+    @property
+    def status_label(self) -> str:
+        return status_label(TASK_STATUSES, self.status)
