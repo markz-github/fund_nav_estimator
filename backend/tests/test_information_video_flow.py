@@ -123,7 +123,35 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(snapshots[0].content_type, "article")
         self.assertEqual(snapshots[0].external_video_id, "article_987654")
         self.assertEqual(snapshots[0].video_url, "https://www.bilibili.com/opus/987654")
+        self.assertEqual(snapshots[0].published_at, datetime.fromtimestamp(1779252000))
         self.assertIn("控制仓位", snapshots[0].content_text or "")
+
+    def test_bilibili_adapter_uses_article_ctime_as_publish_time_fallback(self) -> None:
+        adapter = BilibiliVideoSourceAdapter()
+        source = InformationVideoSource(source_name="测试账号", external_source_id="12345")
+
+        snapshot = adapter._article_snapshot_from_dynamic_item(
+            source,
+            {
+                "id_str": "123456",
+                "ctime": 1779252100,
+                "modules": {
+                    "module_dynamic": {
+                        "major": {
+                            "type": "MAJOR_TYPE_OPUS",
+                            "opus": {
+                                "opus_id": "987654",
+                                "title": "图文标题",
+                                "summary": {"text": "图文正文"},
+                            },
+                        },
+                    },
+                },
+            },
+        )
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.published_at, datetime.fromtimestamp(1779252100))
 
     def test_scan_sources_inserts_new_videos_once(self) -> None:
         service = VideoInformationService(self.db)

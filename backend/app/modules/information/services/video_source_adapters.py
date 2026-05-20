@@ -215,10 +215,7 @@ class BilibiliVideoSourceAdapter:
         if not content_text:
             return None
 
-        published_at = None
-        timestamp = author.get("pub_ts") or item.get("pub_ts")
-        if isinstance(timestamp, (int, float)):
-            published_at = datetime.fromtimestamp(timestamp)
+        published_at = self._published_at_from_article_item(item, author, opus, article, draw)
         url = str(opus.get("jump_url") or article.get("jump_url") or item.get("jump_url") or "").strip()
         if url.startswith("//"):
             url = f"https:{url}"
@@ -255,6 +252,32 @@ class BilibiliVideoSourceAdapter:
         elif isinstance(value, list):
             for item in value:
                 cls._collect_text_values(item, values)
+
+    @staticmethod
+    def _published_at_from_article_item(
+        item: dict,
+        author: dict,
+        opus: dict,
+        article: dict,
+        draw: dict,
+    ) -> datetime | None:
+        candidates = (
+            author.get("pub_ts"),
+            item.get("pub_ts"),
+            (item.get("basic") or {}).get("pub_ts"),
+            opus.get("pub_ts"),
+            article.get("pub_ts"),
+            draw.get("pub_ts"),
+            item.get("ctime"),
+            (item.get("basic") or {}).get("ctime"),
+            opus.get("ctime"),
+            article.get("ctime"),
+            draw.get("ctime"),
+        )
+        for timestamp in candidates:
+            if isinstance(timestamp, (int, float)):
+                return datetime.fromtimestamp(timestamp)
+        return None
 
     @staticmethod
     def _build_headers(mid: str, bilibili_cookie: str | None = None) -> dict[str, str]:
