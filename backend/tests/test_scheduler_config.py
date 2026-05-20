@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -18,7 +18,11 @@ if str(BACKEND_DIR) not in sys.path:
 
 import app.models  # noqa: F401
 from app.database import Base
+from app.modules.information.api.tasks import list_task_logs
 from app.modules.information.models.task_log import TaskLog
+from app.modules.information.models.video import InformationVideo
+from app.modules.information.models.video_note import InformationVideoNote
+from app.modules.information.models.video_source import InformationVideoSource
 from app.scheduler.jobs import (
     create_scheduler,
     generate_information_summary_documents_job,
@@ -248,6 +252,54 @@ class SchedulerConfigTests(unittest.TestCase):
         self.assertEqual(logs[0].task_type, "scan_information_videos")
         self.assertEqual(logs[0].status, "failed")
         self.assertIn("code=-799", logs[0].message or "")
+
+    def test_task_log_list_enriches_submit_note_error_message(self) -> None:
+        db = self.SessionLocal()
+        try:
+            source = InformationVideoSource(
+                platform="bilibili",
+                source_name="测试账号",
+                external_source_id="12345",
+                enabled=1,
+            )
+            db.add(source)
+            db.commit()
+            video = InformationVideo(
+                source_id=source.id,
+                platform="bilibili",
+                external_video_id="BV-error",
+                title="失败视频",
+                video_url="https://www.bilibili.com/video/BV-error",
+                status="note_failed",
+            )
+            db.add(video)
+            db.commit()
+            db.add(
+                InformationVideoNote(
+                    video_id=video.id,
+                    provider="bilinote",
+                    status="failed",
+                    error_message="Bilinote 服务不可用",
+                )
+            )
+            db.add(
+                TaskLog(
+                    task_name="提交信息源笔记任务",
+                    task_type="submit_information_video_note_task",
+                    target_type="video",
+                    target_id=str(video.id),
+                    status="failed",
+                    started_at=datetime.now(),
+                    message="total=1;completed=0;failed=1;running=0;started=0;expired=0",
+                )
+            )
+            db.commit()
+
+            logs = list_task_logs(module="information", db=db)
+        finally:
+            db.close()
+
+        self.assertEqual(logs[0]["error_message"], "Bilinote 服务不可用")
 
     def test_scheduled_summary_job_does_not_log_when_no_document_created(self) -> None:
         service = Mock()

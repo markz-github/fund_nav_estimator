@@ -14,6 +14,7 @@ export interface TaskLog {
   finished_at?: string | null
   duration_ms?: number | null
   message?: string | null
+  error_message?: string | null
 }
 
 export interface DataFetchError {

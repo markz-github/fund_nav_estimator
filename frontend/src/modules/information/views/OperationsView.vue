@@ -160,6 +160,7 @@ watch(
           <col class="col-time" />
           <col class="col-duration" />
           <col class="col-message" />
+          <col class="col-message" />
         </colgroup>
         <thead>
           <tr>
@@ -172,11 +173,12 @@ watch(
             <th>开始时间</th>
             <th>耗时</th>
             <th>摘要</th>
+            <th>错误信息</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="taskLogs.length === 0">
-            <td colspan="9">暂无任务日志。</td>
+            <td colspan="10">暂无任务日志。</td>
           </tr>
           <tr v-for="log in taskLogs" :key="log.id">
             <td class="mono">{{ log.id }}</td>
@@ -202,6 +204,7 @@ watch(
             <td>{{ log.started_at }}</td>
             <td>{{ durationText(log.duration_ms) }}</td>
             <td>{{ log.message ?? '-' }}</td>
+            <td>{{ log.error_message ?? '-' }}</td>
           </tr>
         </tbody>
       </table>
