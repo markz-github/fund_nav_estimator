@@ -42,6 +42,11 @@ const sortedNotes = computed(() => {
 
 const statusOptions = computed(() => Array.from(new Set(notes.value.map((note) => note.status))).sort())
 const selectableNotes = computed(() => sortedNotes.value.filter((note) => note.status === 'done' && note.note_text))
+const hasActiveFilters = computed(
+  () =>
+    Boolean(selectedStatus.value || selectedVideoId.value || selectedSourceId.value || publishedTo.value) ||
+    publishedFrom.value !== defaultPublishedFrom(),
+)
 const allSelectableNotesSelected = computed(
   () =>
     selectableNotes.value.length > 0 &&
@@ -79,27 +84,33 @@ function applyQueryFilters() {
   selectedVideoId.value = typeof route.query.video_id === 'string' ? route.query.video_id : ''
   selectedSourceId.value = typeof route.query.source_id === 'string' ? route.query.source_id : ''
   const hasQueryFilter = Boolean(route.query.video_id || route.query.source_id || route.query.status)
+  const allDatesSelected = route.query.date_range === 'all'
   publishedFrom.value =
-    typeof route.query.published_from === 'string'
+    allDatesSelected
+      ? ''
+      : typeof route.query.published_from === 'string'
       ? displayDateValue(route.query.published_from)
       : hasQueryFilter
         ? ''
         : defaultPublishedFrom()
-  publishedTo.value = displayDateValue(route.query.published_to)
+  publishedTo.value = allDatesSelected ? '' : displayDateValue(route.query.published_to)
 }
 
 function filterQuery() {
+  const hasDateFilter = Boolean(publishedFrom.value || publishedTo.value)
   return {
     status: selectedStatus.value || undefined,
     video_id: selectedVideoId.value || undefined,
     source_id: selectedSourceId.value || undefined,
     published_from: publishedFrom.value || undefined,
     published_to: publishedTo.value || undefined,
+    date_range: hasDateFilter ? undefined : 'all',
   }
 }
 
 async function applyFilters() {
   await router.replace({ name: 'information-notes', query: filterQuery() })
+  await loadNotes()
 }
 
 async function resetFilter() {
@@ -109,6 +120,7 @@ async function resetFilter() {
   publishedFrom.value = defaultPublishedFrom()
   publishedTo.value = ''
   await router.replace({ name: 'information-notes' })
+  await loadNotes()
 }
 
 function dateInputValue(date: Date) {
@@ -271,7 +283,7 @@ watch(
         </label>
         <div class="filter-actions">
           <button class="ghost" type="submit" :disabled="loading">应用筛选</button>
-          <button class="ghost" type="button" :disabled="!selectedStatus && !selectedVideoId && !selectedSourceId" @click="resetFilter">重置</button>
+          <button class="ghost" type="button" :disabled="!hasActiveFilters" @click="resetFilter">重置</button>
         </div>
       </div>
     </form>

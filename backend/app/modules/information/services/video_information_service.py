@@ -652,8 +652,6 @@ class VideoInformationService:
                     document.status = "done"
                     document.error_message = None
                     document.generated_at = now
-                    if not document.platform.startswith("custom_"):
-                        self._mark_summary_document_videos_summarized(document.id)
                     result["completed"] += 1
                 elif poll_result.status == "failed":
                     document.status = "failed"
@@ -787,17 +785,6 @@ class VideoInformationService:
             log_fetch_error(self.db, "hermes", "summary_document", str(document.id if document else "new"), repr(exc))
             self.db.commit()
             return document
-
-    def _mark_summary_document_videos_summarized(self, document_id: int) -> None:
-        notes = self.db.scalars(
-            select(InformationVideoNote)
-            .join(InformationSummaryDocumentItem, InformationSummaryDocumentItem.note_id == InformationVideoNote.id)
-            .where(InformationSummaryDocumentItem.document_id == document_id)
-        ).all()
-        for note in notes:
-            video = self.db.get(InformationVideo, note.video_id)
-            if video is not None:
-                video.status = "summarized"
 
     def list_videos(
         self,

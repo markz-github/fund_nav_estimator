@@ -1,4 +1,4 @@
-const successStatuses = new Set(['done', 'success', 'summarized', 'enabled', 'note_done', '正常'])
+const successStatuses = new Set(['done', 'success', 'enabled', 'note_done', '正常'])
 const failedStatuses = new Set(['failed', 'fail', 'error', 'cancelled', 'canceled', 'note_failed', '异常'])
 const runningStatuses = new Set([
   'running',

@@ -1110,7 +1110,7 @@ class InformationVideoFlowTests(unittest.TestCase):
             1,
         )
 
-    def test_poll_running_summary_document_saves_result_and_marks_daily_videos_summarized(self) -> None:
+    def test_poll_running_summary_document_saves_result_without_changing_video_status(self) -> None:
         source = InformationVideoSource(
             platform="bilibili",
             source_name="测试账号",
@@ -1168,7 +1168,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.refresh(video)
         self.assertEqual(document.status, "done")
         self.assertEqual(document.document_text, "轮询得到的汇总文档")
-        self.assertEqual(video.status, "summarized")
+        self.assertEqual(video.status, "note_done")
 
     def test_summary_prompt_includes_configured_instruction(self) -> None:
         source = InformationVideoSource(

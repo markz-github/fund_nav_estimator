@@ -19,7 +19,6 @@ note_pending
 note_running
 note_done
 note_failed
-summarized
 ```
 
 `information_video_notes.status` 记录 Bilinote 笔记状态：

@@ -72,6 +72,7 @@ def ensure_schema_columns() -> None:
             connection.execute(text("ALTER TABLE information_video_sources MODIFY COLUMN raw_response LONGTEXT NULL COMMENT '最近扫描原始响应'"))
         if "information_videos" in table_names:
             connection.execute(text("ALTER TABLE information_videos MODIFY COLUMN raw_response LONGTEXT NULL COMMENT '扫描原始响应'"))
+            connection.execute(text("UPDATE information_videos SET status = 'note_done' WHERE status = 'summarized'"))
         if "information_summary_documents" in table_names:
             connection.execute(text("ALTER TABLE information_summary_documents MODIFY COLUMN document_text LONGTEXT NULL COMMENT '汇总文档正文'"))
             connection.execute(text("ALTER TABLE information_summary_documents MODIFY COLUMN raw_response LONGTEXT NULL COMMENT 'Hermes 原始响应'"))

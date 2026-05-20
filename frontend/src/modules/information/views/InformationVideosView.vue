@@ -106,27 +106,32 @@ async function loadAll(options?: { keepMessage?: boolean }) {
 
 function applyQueryFilters() {
   const hasQueryFilter = Boolean(route.query.video_id || route.query.source_id || route.query.status)
+  const allDatesSelected = route.query.date_range === 'all'
   videoFilters.value = {
     videoId: typeof route.query.video_id === 'string' ? route.query.video_id : '',
     sourceId: typeof route.query.source_id === 'string' ? route.query.source_id : '',
     status: typeof route.query.status === 'string' ? route.query.status : '',
     publishedFrom:
-      typeof route.query.published_from === 'string'
+      allDatesSelected
+        ? ''
+        : typeof route.query.published_from === 'string'
         ? displayDateValue(route.query.published_from)
         : hasQueryFilter
           ? ''
           : defaultPublishedFrom(),
-    publishedTo: displayDateValue(route.query.published_to),
+    publishedTo: allDatesSelected ? '' : displayDateValue(route.query.published_to),
   }
 }
 
 function filterQuery() {
+  const hasDateFilter = Boolean(videoFilters.value.publishedFrom || videoFilters.value.publishedTo)
   return {
     video_id: videoFilters.value.videoId || undefined,
     source_id: videoFilters.value.sourceId || undefined,
     status: videoFilters.value.status || undefined,
     published_from: videoFilters.value.publishedFrom || undefined,
     published_to: videoFilters.value.publishedTo || undefined,
+    date_range: hasDateFilter ? undefined : 'all',
   }
 }
 
@@ -230,7 +235,7 @@ watch(
 
     <p v-if="message" class="message">{{ message }}</p>
 
-    <!-- <section class="section-title">
+    <section class="section-title">
       <div>
         <p class="eyebrow">List</p>
         <h2>视频与总结</h2>
@@ -244,7 +249,7 @@ watch(
           {{ runningAction === 'markFailed' ? '处理中...' : selectedVideoIds.length ? `置为失败 ${selectedVideoIds.length} 条` : '置为失败' }}
         </button>
       </div>
-    </section> -->
+    </section>
 
     <form class="filter-bar video-filter-bar" @submit.prevent="applyVideoFilters">
       <div class="filter-row">
@@ -269,7 +274,6 @@ watch(
             <option value="note_running">note_running</option>
             <option value="note_done">note_done</option>
             <option value="note_failed">note_failed</option>
-            <option value="summarized">summarized</option>
           </select>
         </label>
         <label>

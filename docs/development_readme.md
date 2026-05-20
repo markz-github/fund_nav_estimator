@@ -211,7 +211,6 @@ Bilinote 总结任务还会读取 `information_settings.video_note_recent_days`�
 - `note_running`：已提交 Bilinote 任务，正在等待生成结果。
 - `note_done`：Bilinote 总结已生成。
 - `note_failed`：Bilinote 总结生成失败，失败原因见对应 `information_video_notes.error_message`。
-- `summarized`：该视频总结已被纳入 Hermes 每日汇总。
 
 ### Bilinote 总结状态
 
