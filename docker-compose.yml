@@ -1,5 +1,6 @@
 services:
   backend:
+    container_name: fund-nav-estimator-${DEPLOY_ENV:-prod}-backend
     build:
       context: ./backend
       args:
@@ -18,6 +19,7 @@ services:
       - /share/Container/fund-nav-estimator/test/backend/logs:/data/test/logs
 
   frontend:
+    container_name: fund-nav-estimator-${DEPLOY_ENV:-prod}-backend
     build:
       context: ./frontend
       target: build
