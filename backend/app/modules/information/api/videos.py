@@ -41,12 +41,16 @@ def _video_note_task_status(result: dict[str, int]) -> str:
     )
 
 
-def _video_note_task_message(result: dict[str, int], target: str) -> str:
-    return (
+def _video_note_task_message(result: dict[str, int | str | None], target: str) -> str:
+    message = (
         f"target={target};total={result['total']};completed={result['completed']};"
         f"failed={result['failed']};running={result['running']};"
         f"started={result['started']};expired={result['expired']}"
     )
+    error_message = result.get("error_message")
+    if error_message:
+        message = f"{message};error={error_message}"
+    return message
 
 
 @router.get("/video-sources", response_model=list[VideoSourceOut])
@@ -173,8 +177,9 @@ def scan_videos(
     target = ",".join(str(item) for item in source_ids) if source_ids else str(source_id) if source_id is not None else "all"
     logger.debug("manual video scan requested target=%s limit=%s", target, scan_limit)
     task_log = start_task(db, "手动扫描信息流视频", "scan_information_videos", datetime.now(), target)
+    service = VideoInformationService(db)
     try:
-        count = VideoInformationService(db).scan_sources(source_id=source_id, source_ids=source_ids, limit=scan_limit)
+        count = service.scan_sources(source_id=source_id, source_ids=source_ids, limit=scan_limit)
     except Exception as exc:
         logger.error("manual video scan failed target=%s limit=%s error=%r", target, scan_limit, exc)
         logger.debug("manual video scan failed traceback target=%s limit=%s", target, scan_limit, exc_info=True)
@@ -182,9 +187,13 @@ def scan_videos(
         finish_task(db, task_log, "failed", repr(exc))
         raise
     message = f"created={count};target={target}"
-    logger.info("manual video scan finished target=%s limit=%s created=%s", target, scan_limit, count)
-    finish_task(db, task_log, "success", message)
-    return ActionResult(status="success", message=message, count=count)
+    status = "success"
+    if service.last_scan_errors:
+        status = "partial" if count > 0 else "failed"
+        message = f"{message};errors={';'.join(service.last_scan_errors)}"
+    logger.info("manual video scan finished target=%s limit=%s created=%s status=%s", target, scan_limit, count, status)
+    finish_task(db, task_log, status, message)
+    return ActionResult(status=status, message=message, count=count)
 
 
 @router.post("/actions/generate-video-notes", response_model=ActionResult)

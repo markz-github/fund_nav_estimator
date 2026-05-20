@@ -182,6 +182,41 @@ class SchedulerConfigTests(unittest.TestCase):
         self.assertEqual(logs[0].target_id, "42")
         self.assertEqual(logs[0].external_task_id, "task-42")
 
+    def test_scheduled_video_notes_job_logs_submit_error_message(self) -> None:
+        service = Mock()
+        service.poll_running_notes.return_value = {
+            "total": 0,
+            "completed": 0,
+            "failed": 0,
+            "running": 0,
+            "started": 0,
+            "expired": 0,
+        }
+        service.submit_pending_note_task.return_value = {
+            "total": 1,
+            "completed": 0,
+            "failed": 1,
+            "running": 0,
+            "started": 0,
+            "expired": 0,
+            "video_id": 42,
+            "note_id": 7,
+            "external_task_id": None,
+            "error_message": "ConnectionError('bilinote unavailable')",
+        }
+
+        with (
+            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+        ):
+            generate_information_video_notes_job()
+
+        logs = self.task_logs()
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].task_type, "submit_information_video_note_task")
+        self.assertEqual(logs[0].status, "failed")
+        self.assertIn("bilinote unavailable", logs[0].message or "")
+
     def test_scheduled_scan_job_does_not_log_when_no_video_created(self) -> None:
         service = Mock()
         service.scan_next_source.return_value = {"source_id": 3, "created": 0}
@@ -193,6 +228,26 @@ class SchedulerConfigTests(unittest.TestCase):
             scan_information_videos_job()
 
         self.assertEqual(self.task_logs(), [])
+
+    def test_scheduled_scan_job_logs_error_message_when_scan_fails(self) -> None:
+        service = Mock()
+        service.scan_next_source.return_value = {
+            "source_id": 3,
+            "created": 0,
+            "error_message": "source_id=3;error=RuntimeError('Bilibili API returned code=-799')",
+        }
+
+        with (
+            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+        ):
+            scan_information_videos_job()
+
+        logs = self.task_logs()
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].task_type, "scan_information_videos")
+        self.assertEqual(logs[0].status, "failed")
+        self.assertIn("code=-799", logs[0].message or "")
 
     def test_scheduled_summary_job_does_not_log_when_no_document_created(self) -> None:
         service = Mock()

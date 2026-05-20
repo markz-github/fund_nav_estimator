@@ -340,6 +340,31 @@ class InformationVideoFlowTests(unittest.TestCase):
         adapter.fetch_latest_videos.assert_called_once()
         self.assertEqual(adapter.fetch_latest_videos.call_args.args[0].id, second_source.id)
 
+    def test_failed_scan_updates_last_scanned_at_to_avoid_immediate_retry_loop(self) -> None:
+        service = VideoInformationService(self.db)
+        source = service.create_source(
+            VideoSourceCreate(
+                platform="bilibili",
+                source_name="风控账号",
+                external_source_id="333",
+            )
+        )
+        adapter = Mock()
+        adapter.normalize_source_id.side_effect = lambda value: value
+        adapter.fetch_latest_videos.side_effect = RuntimeError("Bilibili API returned code=-799")
+
+        with patch(
+            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            return_value=adapter,
+        ), patch(
+            "app.modules.information.services.video_information_service.log_fetch_error",
+        ):
+            created = service.scan_sources(source_id=source.id)
+
+        self.assertEqual(created, 0)
+        self.db.refresh(source)
+        self.assertIsNotNone(source.last_scanned_at)
+
     def test_generate_notes_requires_bilinote_provider_and_model(self) -> None:
         source = InformationVideoSource(
             platform="bilibili",
@@ -363,6 +388,46 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             VideoInformationService(self.db).generate_pending_notes()
+
+    def test_submit_pending_note_task_returns_error_message_when_bilinote_fails(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "bilinote_provider_id": "provider-1",
+                "bilinote_model_name": "model-1",
+            }
+        )
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        self.db.add(
+            InformationVideo(
+                source_id=source.id,
+                platform="bilibili",
+                external_video_id="BV-error-message",
+                title="失败信息视频",
+                video_url="https://www.bilibili.com/video/BV-error-message",
+                status="note_pending",
+            )
+        )
+        self.db.commit()
+        client = Mock()
+        client.generate_note.side_effect = RuntimeError("bilinote unavailable")
+
+        with patch(
+            "app.modules.information.services.video_information_service.BilinoteClient",
+            return_value=client,
+        ), patch(
+            "app.modules.information.services.video_information_service.log_fetch_error",
+        ):
+            result = VideoInformationService(self.db).submit_pending_note_task()
+
+        self.assertEqual(result["failed"], 1)
+        self.assertIn("bilinote unavailable", str(result["error_message"]))
 
     def test_bilinote_client_reads_nested_taskid_from_generate_response(self) -> None:
         response = Mock()
