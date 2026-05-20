@@ -39,7 +39,7 @@ const pageTitle = computed(() => (operationModule.value === 'fund_nav' ? '基金
 const pageSubtitle = computed(() =>
   operationModule.value === 'fund_nav'
     ? '查看基金净值、持仓、行情和估算相关任务日志与未处理异常。'
-    : '查看信息流扫描、视频总结和笔记汇总相关任务日志与未处理异常。',
+    : '查看信息流扫描、信息源笔记和笔记汇总相关任务日志与未处理异常。',
 )
 const currentTaskTypes = computed(() => taskTypeOptions[operationModule.value])
 

@@ -217,7 +217,7 @@ def generate_information_video_notes_job() -> None:
         if poll_status != "skipped":
             log_task(
                 db,
-                "轮询 Bilinote 视频总结任务",
+                "轮询信息源笔记任务",
                 "poll_information_video_notes",
                 poll_status,
                 poll_started_at,
@@ -236,7 +236,7 @@ def generate_information_video_notes_job() -> None:
             if status != "skipped":
                 log_task(
                     db,
-                    "提交 Bilinote 视频总结任务",
+                    "提交信息源笔记任务",
                     "submit_information_video_note_task",
                     status,
                     submit_started_at,
@@ -249,7 +249,7 @@ def generate_information_video_notes_job() -> None:
             db.rollback()
             log_task(
                 db,
-                "提交 Bilinote 视频总结任务",
+                "提交信息源笔记任务",
                 "submit_information_video_note_task",
                 "failed",
                 submit_started_at,
@@ -259,7 +259,7 @@ def generate_information_video_notes_job() -> None:
         db.rollback()
         log_task(
             db,
-            "轮询 Bilinote 视频总结任务",
+            "轮询信息源笔记任务",
             "poll_information_video_notes",
             "failed",
             datetime.now(),
