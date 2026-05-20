@@ -277,6 +277,8 @@ class BilibiliVideoSourceAdapter:
         for timestamp in candidates:
             if isinstance(timestamp, (int, float)):
                 return datetime.fromtimestamp(timestamp)
+            if isinstance(timestamp, str) and timestamp.strip().isdigit():
+                return datetime.fromtimestamp(int(timestamp.strip()))
         return None
 
     @staticmethod
