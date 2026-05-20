@@ -391,6 +391,20 @@ class VideoInformationService:
                 self.db.commit()
             except Exception as exc:
                 self.db.rollback()
+                logger.error(
+                    "video note submit failed video_id=%s platform=%s external_video_id=%s error=%r",
+                    video.id,
+                    video.platform,
+                    video.external_video_id,
+                    exc,
+                )
+                logger.debug(
+                    "video note submit failed traceback video_id=%s platform=%s external_video_id=%s",
+                    video.id,
+                    video.platform,
+                    video.external_video_id,
+                    exc_info=True,
+                )
                 note = self.db.get(InformationVideoNote, note.id) or self._create_note(video)
                 video.status = "note_failed"
                 note.status = "failed"
@@ -471,6 +485,20 @@ class VideoInformationService:
             self.db.commit()
         except Exception as exc:
             self.db.rollback()
+            logger.error(
+                "article note submit failed video_id=%s platform=%s external_video_id=%s error=%r",
+                article.id,
+                article.platform,
+                article.external_video_id,
+                exc,
+            )
+            logger.debug(
+                "article note submit failed traceback video_id=%s platform=%s external_video_id=%s",
+                article.id,
+                article.platform,
+                article.external_video_id,
+                exc_info=True,
+            )
             note = self.db.get(InformationVideoNote, note.id) or self._create_note(article, provider="hermes")
             article.status = "note_failed"
             note.status = "failed"
@@ -588,6 +616,20 @@ class VideoInformationService:
                 self.db.commit()
             except Exception as exc:
                 self.db.rollback()
+                logger.error(
+                    "video note poll failed note_id=%s provider=%s external_task_id=%s error=%r",
+                    note.id,
+                    note.provider,
+                    note.external_task_id,
+                    exc,
+                )
+                logger.debug(
+                    "video note poll failed traceback note_id=%s provider=%s external_task_id=%s",
+                    note.id,
+                    note.provider,
+                    note.external_task_id,
+                    exc_info=True,
+                )
                 note = self.db.get(InformationVideoNote, note.id)
                 if note is not None:
                     note.status = "failed"

@@ -17,5 +17,6 @@ class TaskLogOut(BaseModel):
     finished_at: datetime | None = None
     duration_ms: int | None = None
     message: str | None = None
+    error_message: str | None = None
 
     model_config = {"from_attributes": True}
