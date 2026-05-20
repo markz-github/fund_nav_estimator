@@ -153,6 +153,17 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertIsNotNone(snapshot)
         self.assertEqual(snapshot.published_at, datetime.fromtimestamp(1779252100))
 
+    def test_bilibili_adapter_accepts_string_article_publish_timestamp(self) -> None:
+        published_at = BilibiliVideoSourceAdapter._published_at_from_article_item(
+            {"basic": {"pub_ts": "1779252200"}},
+            {},
+            {},
+            {},
+            {},
+        )
+
+        self.assertEqual(published_at, datetime.fromtimestamp(1779252200))
+
     def test_scan_sources_inserts_new_videos_once(self) -> None:
         service = VideoInformationService(self.db)
         source = service.create_source(
