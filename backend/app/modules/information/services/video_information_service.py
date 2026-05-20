@@ -191,9 +191,11 @@ class VideoInformationService:
                             existing.source_id = source.id
                             existing.title = snapshot.title[:300]
                             existing.video_url = snapshot.video_url
+                            existing.content_type = snapshot.content_type
+                            existing.content_text = snapshot.content_text
                             existing.author_name = snapshot.author_name
                             existing.published_at = snapshot.published_at
-                            existing.status = "note_pending"
+                            existing.status = "article_pending" if snapshot.content_type == "article" else "note_pending"
                             existing.raw_response = json.dumps(snapshot.raw_response, ensure_ascii=False)
                             created += 1
                             source_created += 1
@@ -214,9 +216,11 @@ class VideoInformationService:
                             external_video_id=snapshot.external_video_id,
                             title=snapshot.title[:300],
                             video_url=snapshot.video_url,
+                            content_type=snapshot.content_type,
+                            content_text=snapshot.content_text,
                             author_name=snapshot.author_name,
                             published_at=snapshot.published_at,
-                            status="note_pending",
+                            status="article_pending" if snapshot.content_type == "article" else "note_pending",
                             raw_response=json.dumps(snapshot.raw_response, ensure_ascii=False),
                         )
                     )
@@ -232,6 +236,7 @@ class VideoInformationService:
                     )
                 source.last_scanned_at = datetime.now()
                 self.db.commit()
+                self.submit_pending_article_summaries(limit=limit)
                 logger.info(
                     "video source scan succeeded source_id=%s platform=%s external_source_id=%s fetched=%s created=%s duplicates=%s",
                     source.id,
@@ -316,7 +321,10 @@ class VideoInformationService:
 
         statement = (
             select(InformationVideo)
-            .where(InformationVideo.status.in_(["note_pending", "discovered", "note_failed"]))
+            .where(
+                InformationVideo.content_type == "video",
+                InformationVideo.status.in_(["note_pending", "discovered", "note_failed"]),
+            )
             .order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
         )
         cutoff = self._video_note_cutoff(settings)
@@ -569,11 +577,64 @@ class VideoInformationService:
         )
         return self._submit_summary_document(document, notes, prompt)
 
+    def submit_pending_article_summaries(self, limit: int = 5) -> dict[str, int]:
+        result = {"total": 0, "started": 0, "failed": 0, "skipped": 0}
+        articles = self.db.scalars(
+            select(InformationVideo)
+            .where(
+                InformationVideo.content_type == "article",
+                InformationVideo.status.in_(["article_pending", "article_summary_failed"]),
+                InformationVideo.content_text.is_not(None),
+            )
+            .order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
+            .limit(limit)
+        ).all()
+        result["total"] = len(articles)
+        for article in articles:
+            existing = self.db.scalar(
+                select(InformationSummaryDocument)
+                .where(InformationSummaryDocument.platform == self._article_summary_platform(article.id))
+                .execution_options(include_deleted=True)
+            )
+            if existing is not None:
+                existing.is_deleted = 0
+            if existing and existing.status in {"done", "running"}:
+                article.status = "article_summary_done" if existing.status == "done" else "article_summary_running"
+                result["skipped"] += 1
+                self.db.commit()
+                continue
+
+            document = existing or InformationSummaryDocument(
+                platform=self._article_summary_platform(article.id),
+                summary_date=(article.published_at or article.created_at).date(),
+                title=f"图文总结：{article.title}"[:200],
+                status="pending",
+            )
+            prompt = self._build_article_summary_prompt(article)
+            document = self._submit_summary_document(document, [], prompt)
+            article.status = "article_summary_running" if document.status == "running" else "article_summary_failed"
+            if document.status == "running":
+                result["started"] += 1
+            else:
+                result["failed"] += 1
+            self.db.commit()
+        return result
+
     def retry_summary_document(self, document_id: int) -> InformationSummaryDocument | None:
         document = self.db.get(InformationSummaryDocument, document_id)
         if document is None:
             return None
         if document.status in {"done", "running"}:
+            return document
+        if document.platform.startswith("article_"):
+            article_id = self._article_id_from_summary_platform(document.platform)
+            article = self.db.get(InformationVideo, article_id) if article_id is not None else None
+            if article is None or article.content_type != "article" or not article.content_text:
+                raise ValueError("Failed article summary has no article content to retry")
+            prompt = self._build_article_summary_prompt(article)
+            document = self._submit_summary_document(document, [], prompt)
+            article.status = "article_summary_running" if document.status == "running" else "article_summary_failed"
+            self.db.commit()
             return document
 
         notes = self.db.scalars(
@@ -652,10 +713,12 @@ class VideoInformationService:
                     document.status = "done"
                     document.error_message = None
                     document.generated_at = now
+                    self._sync_article_summary_status(document, "article_summary_done")
                     result["completed"] += 1
                 elif poll_result.status == "failed":
                     document.status = "failed"
                     document.error_message = "Hermes summary generation failed"
+                    self._sync_article_summary_status(document, "article_summary_failed")
                     result["failed"] += 1
                 else:
                     document.status = "running"
@@ -667,6 +730,7 @@ class VideoInformationService:
                 if document is not None:
                     document.status = "failed"
                     document.error_message = repr(exc)[:2000]
+                    self._sync_article_summary_status(document, "article_summary_failed")
                 log_fetch_error(self.db, "hermes", "summary_document", str(document.id if document else "running"), repr(exc))
                 self.db.commit()
                 result["failed"] += 1
@@ -1056,4 +1120,47 @@ class VideoInformationService:
             "使用有序列表和无序列表归纳要点；重要观点使用 **加粗**；"
             "不要输出 HTML；不要把正文包裹在 ```markdown 代码块中。\n\n"
             + "\n\n".join(blocks)
+        )
+
+    @staticmethod
+    def _article_summary_platform(article_id: int) -> str:
+        return f"article_{article_id}"
+
+    @staticmethod
+    def _article_id_from_summary_platform(platform: str) -> int | None:
+        prefix = "article_"
+        if not platform.startswith(prefix):
+            return None
+        value = platform[len(prefix) :]
+        return int(value) if value.isdigit() else None
+
+    def _sync_article_summary_status(self, document: InformationSummaryDocument, status: str) -> None:
+        article_id = self._article_id_from_summary_platform(document.platform)
+        if article_id is None:
+            return
+        article = self.db.get(InformationVideo, article_id)
+        if article is not None and article.content_type == "article":
+            article.status = status
+
+    def _build_article_summary_prompt(self, article: InformationVideo) -> str:
+        source = self.db.get(InformationVideoSource, article.source_id)
+        author = source.source_name if source is not None and source.source_name else article.author_name or "未知作者"
+        published_at = article.published_at.isoformat(sep=" ") if article.published_at else "未知"
+        url = article.video_url or ""
+        metadata = [
+            f"作者：{author}",
+            f"标题：{article.title}",
+            f"发布时间：{published_at}",
+        ]
+        if url:
+            metadata.append(f"链接：{url}")
+        return (
+            "请将以下 B站图文投稿整理成一篇中文 Markdown 摘要。\n"
+            "这是单条图文投稿的直接总结任务，不要合并其他视频笔记，也不要假设存在 Bilinote 总结。\n"
+            "要求：提炼核心观点、重要依据、风险信号、分歧观点和可跟进行动；保留作者和发布时间背景。\n"
+            "输出格式要求：使用 #、##、### 组织标题层级；使用列表归纳要点；重要观点使用 **加粗**；"
+            "不要输出 HTML；不要把正文包裹在 ```markdown 代码块中。\n\n"
+            + "\n".join(metadata)
+            + "\n\n正文：\n"
+            + (article.content_text or "")
         )

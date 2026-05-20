@@ -26,6 +26,8 @@ class InformationVideo(Base):
     external_video_id: Mapped[str] = mapped_column(String(100), nullable=False)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     video_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(30), nullable=False, default="video", server_default="video")
+    content_text: Mapped[Optional[str]] = mapped_column(Text().with_variant(LONGTEXT, "mysql"))
     author_name: Mapped[Optional[str]] = mapped_column(String(100))
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="discovered")

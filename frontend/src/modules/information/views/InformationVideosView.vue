@@ -274,6 +274,10 @@ watch(
             <option value="note_running">note_running</option>
             <option value="note_done">note_done</option>
             <option value="note_failed">note_failed</option>
+            <option value="article_pending">article_pending</option>
+            <option value="article_summary_running">article_summary_running</option>
+            <option value="article_summary_done">article_summary_done</option>
+            <option value="article_summary_failed">article_summary_failed</option>
           </select>
         </label>
         <label>
@@ -296,6 +300,7 @@ watch(
         <colgroup>
           <col class="col-check" />
           <col class="col-id" />
+          <col class="col-type" />
           <col class="col-title" />
           <col class="col-source" />
           <col class="col-status" />
@@ -314,6 +319,7 @@ watch(
               />
             </th>
             <th>ID</th>
+            <th>类型</th>
             <th>
               <button class="sort-header" type="button" @click="toggleSort('title')">标题 <span>{{ sortIndicator('title') }}</span></button>
             </th>
@@ -331,7 +337,7 @@ watch(
         </thead>
         <tbody>
           <tr v-if="sortedVideos.length === 0">
-            <td colspan="7">暂无视频。</td>
+            <td colspan="8">暂无视频。</td>
           </tr>
           <tr v-for="video in sortedVideos" :key="video.id">
             <td>
@@ -343,6 +349,11 @@ watch(
               />
             </td>
             <td class="mono">{{ video.id }}</td>
+            <td>
+              <span class="status-pill" :class="video.content_type === 'article' ? 'status-muted' : 'status-ok'">
+                {{ video.content_type === 'article' ? '图文' : '视频' }}
+              </span>
+            </td>
             <td><a :href="video.video_url" target="_blank" rel="noreferrer">{{ video.title }}</a></td>
             <td>{{ video.source_name ?? video.author_name ?? '-' }}</td>
             <td>
