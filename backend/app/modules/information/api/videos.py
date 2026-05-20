@@ -193,7 +193,7 @@ def generate_video_notes(
     target = ",".join(str(item) for item in video_ids) if video_ids else f"limit={note_limit}"
     task_log = start_task(
         db,
-        "手动提交 Bilinote 视频总结任务",
+        "手动提交信息源笔记任务",
         "submit_information_video_note_task",
         datetime.now(),
         target,
@@ -226,7 +226,7 @@ def mark_video_notes_failed(
     target = ",".join(str(item) for item in payload.video_ids)
     task_log = start_task(
         db,
-        "手动标记信息流视频总结失败",
+        "手动标记信息源笔记失败",
         "generate_information_video_notes",
         datetime.now(),
         target,

@@ -187,7 +187,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(second_count, 0)
         self.assertEqual(self.db.query(InformationVideo).count(), 1)
 
-    def test_scan_sources_submits_article_summary_without_settings_instruction(self) -> None:
+    def test_article_note_uses_hermes_without_settings_instruction(self) -> None:
         service = VideoInformationService(self.db)
         InformationSettingsService(self.db).update_settings({"hermes_summary_instruction": "系统设置里的笔记汇总说明"})
         source = service.create_source(
@@ -228,14 +228,18 @@ class InformationVideoFlowTests(unittest.TestCase):
             return_value=hermes,
         ):
             created = service.scan_sources(source_id=source.id)
+            result = service.submit_pending_note_task()
 
         self.assertEqual(created, 1)
+        self.assertEqual(result["started"], 1)
         article = self.db.query(InformationVideo).one()
         self.assertEqual(article.content_type, "article")
-        self.assertEqual(article.status, "article_summary_running")
-        document = self.db.query(InformationSummaryDocument).one()
-        self.assertEqual(document.platform, f"article_{article.id}")
-        self.assertEqual(document.status, "running")
+        self.assertEqual(article.status, "note_running")
+        self.assertEqual(self.db.query(InformationSummaryDocument).count(), 0)
+        note = self.db.query(InformationVideoNote).one()
+        self.assertEqual(note.provider, "hermes")
+        self.assertEqual(note.status, "running")
+        self.assertEqual(note.external_task_id, "run-article")
         prompt = hermes.start_run.call_args.args[0]
         self.assertIn("B站图文投稿", prompt)
         self.assertIn("核心观点：控制仓位。", prompt)

@@ -98,7 +98,7 @@ async function loadAll(options?: { keepMessage?: boolean }) {
     const videoIdSet = new Set(videoResult.map((video) => video.id))
     selectedVideoIds.value = selectedVideoIds.value.filter((videoId) => videoIdSet.has(videoId))
   } catch (error) {
-    message.value = apiErrorMessage(error, '视频数据加载失败，请确认后端服务和数据库。')
+    message.value = apiErrorMessage(error, '信息源数据加载失败，请确认后端服务和数据库。')
   } finally {
     loading.value = false
   }
@@ -141,15 +141,15 @@ async function runAction(action: 'notes' | 'markFailed') {
     if (action === 'notes') {
       const targetVideoIds = selectedVideoIds.value.length > 0 ? selectedVideoIds.value : undefined
       const result = await generateVideoNotes(targetVideoIds)
-      const targetText = targetVideoIds ? `选中 ${targetVideoIds.length} 条视频` : '待处理视频'
-      message.value = `Bilinote 提交任务已触发，${targetText}本次提交 ${result.count} 条；结果会由定时任务自动轮询。`
+      const targetText = targetVideoIds ? `选中 ${targetVideoIds.length} 条内容` : '待处理内容'
+      message.value = `笔记任务已触发，${targetText}本次提交 ${result.count} 条；结果会由定时任务自动轮询。`
     } else {
       if (selectedVideoIds.value.length === 0) {
-        message.value = '请先选择要置为失败的视频。'
+        message.value = '请先选择要置为失败的内容。'
         return
       }
       const result = await markVideoNotesFailed(selectedVideoIds.value)
-      message.value = `已将 ${result.count} 条视频总结任务置为失败。`
+      message.value = `已将 ${result.count} 条笔记任务置为失败。`
     }
     await loadAll({ keepMessage: true })
   } catch (error) {
@@ -227,9 +227,9 @@ watch(
   <main class="page-shell">
     <section class="detail-hero">
       <div>
-        <p class="eyebrow">Videos</p>
-        <h1>视频管理</h1>
-        <p class="subtitle">查看已扫描视频，提交 Bilinote 笔记任务，并跟踪最新笔记状态。</p>
+        <p class="eyebrow">Feeds</p>
+        <h1>信息源管理</h1>
+        <p class="subtitle">查看已扫描视频和图文投稿，提交对应笔记任务，并跟踪最新笔记状态。</p>
       </div>
     </section>
 
@@ -238,12 +238,12 @@ watch(
     <section class="section-title">
       <div>
         <p class="eyebrow">List</p>
-        <h2>视频与总结</h2>
+        <h2>信息源与笔记</h2>
       </div>
       <div class="section-actions">
         <span>{{ sortedVideos.length }} 条</span>
         <button class="ghost" :disabled="runningAction === 'notes'" @click="runAction('notes')">
-          {{ runningAction === 'notes' ? '生成中...' : selectedVideoIds.length ? `生成选中 ${selectedVideoIds.length} 条总结` : '生成待处理总结' }}
+          {{ runningAction === 'notes' ? '生成中...' : selectedVideoIds.length ? `生成选中 ${selectedVideoIds.length} 条笔记` : '生成待处理笔记' }}
         </button>
         <button class="danger" :disabled="runningAction === 'markFailed' || selectedVideoIds.length === 0" @click="runAction('markFailed')">
           {{ runningAction === 'markFailed' ? '处理中...' : selectedVideoIds.length ? `置为失败 ${selectedVideoIds.length} 条` : '置为失败' }}
@@ -254,8 +254,8 @@ watch(
     <form class="filter-bar video-filter-bar" @submit.prevent="applyVideoFilters">
       <div class="filter-row">
         <!-- <label>
-          视频 ID
-          <input v-model="videoFilters.videoId" type="number" min="1" placeholder="全部视频" />
+          内容 ID
+          <input v-model="videoFilters.videoId" type="number" min="1" placeholder="全部内容" />
         </label> -->
         <label>
           账号
@@ -274,10 +274,6 @@ watch(
             <option value="note_running">note_running</option>
             <option value="note_done">note_done</option>
             <option value="note_failed">note_failed</option>
-            <option value="article_pending">article_pending</option>
-            <option value="article_summary_running">article_summary_running</option>
-            <option value="article_summary_done">article_summary_done</option>
-            <option value="article_summary_failed">article_summary_failed</option>
           </select>
         </label>
         <label>
@@ -337,7 +333,7 @@ watch(
         </thead>
         <tbody>
           <tr v-if="sortedVideos.length === 0">
-            <td colspan="8">暂无视频。</td>
+            <td colspan="8">暂无内容。</td>
           </tr>
           <tr v-for="video in sortedVideos" :key="video.id">
             <td>

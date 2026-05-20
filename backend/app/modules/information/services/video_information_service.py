@@ -195,7 +195,7 @@ class VideoInformationService:
                             existing.content_text = snapshot.content_text
                             existing.author_name = snapshot.author_name
                             existing.published_at = snapshot.published_at
-                            existing.status = "article_pending" if snapshot.content_type == "article" else "note_pending"
+                            existing.status = "note_pending"
                             existing.raw_response = json.dumps(snapshot.raw_response, ensure_ascii=False)
                             created += 1
                             source_created += 1
@@ -220,7 +220,7 @@ class VideoInformationService:
                             content_text=snapshot.content_text,
                             author_name=snapshot.author_name,
                             published_at=snapshot.published_at,
-                            status="article_pending" if snapshot.content_type == "article" else "note_pending",
+                            status="note_pending",
                             raw_response=json.dumps(snapshot.raw_response, ensure_ascii=False),
                         )
                     )
@@ -236,7 +236,6 @@ class VideoInformationService:
                     )
                 source.last_scanned_at = datetime.now()
                 self.db.commit()
-                self.submit_pending_article_summaries(limit=limit)
                 logger.info(
                     "video source scan succeeded source_id=%s platform=%s external_source_id=%s fetched=%s created=%s duplicates=%s",
                     source.id,
@@ -297,8 +296,6 @@ class VideoInformationService:
 
     def submit_pending_note_task(self, limit: int = 1, video_ids: list[int] | None = None) -> dict[str, int | str | None]:
         settings = InformationSettingsService(self.db).get_settings()
-        self._validate_bilinote_settings(settings)
-        client = BilinoteClient(settings["bilinote_base_url"])
         result = {
             "total": 0,
             "completed": 0,
@@ -340,6 +337,9 @@ class VideoInformationService:
         statement = statement.limit(1)
         videos = self.db.scalars(statement).all()
         result["total"] += len(videos)
+        if videos:
+            self._validate_bilinote_settings(settings)
+        client = BilinoteClient(settings["bilinote_base_url"])
         for video in videos:
             note = self._create_note(video)
             try:
@@ -386,6 +386,83 @@ class VideoInformationService:
                 log_fetch_error(self.db, "bilinote", "video_note", video.external_video_id, repr(exc))
                 self.db.commit()
                 result["failed"] += 1
+        if result["total"] == 0:
+            article_result = self.submit_pending_article_note_task(limit=limit, video_ids=video_ids)
+            result.update(article_result)
+        return result
+
+    def submit_pending_article_note_task(self, limit: int = 1, video_ids: list[int] | None = None) -> dict[str, int | str | None]:
+        settings = InformationSettingsService(self.db).get_settings()
+        client = self._hermes_client(settings)
+        result = {
+            "total": 0,
+            "completed": 0,
+            "failed": 0,
+            "running": 0,
+            "started": 0,
+            "expired": 0,
+            "video_id": None,
+            "note_id": None,
+            "external_task_id": None,
+        }
+        statement = (
+            select(InformationVideo)
+            .where(
+                InformationVideo.content_type == "article",
+                InformationVideo.status.in_(["note_pending", "note_failed"]),
+                InformationVideo.content_text.is_not(None),
+            )
+            .order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
+        )
+        if video_ids:
+            statement = statement.where(InformationVideo.id.in_(video_ids))
+        else:
+            handled_video_ids = select(InformationVideoNote.video_id).where(
+                InformationVideoNote.status.in_(["running", "done"])
+            )
+            statement = statement.where(~InformationVideo.id.in_(handled_video_ids)).limit(limit)
+        article = self.db.scalar(statement.limit(1))
+        if article is None:
+            return result
+        result["total"] = 1
+        note = self._create_note(article, provider="hermes")
+        try:
+            article.status = "note_running"
+            note.status = "running"
+            note.error_message = None
+            self.db.commit()
+            run = client.start_run(self._build_article_summary_prompt(article), f"图文总结：{article.title}"[:200])
+            note.external_task_id = run.run_id
+            note.raw_response = compact_json(run.raw_response)
+            if run.document_text:
+                note.note_text = run.document_text
+                note.status = "done"
+                note.generated_at = datetime.now()
+                article.status = "note_done"
+                result["completed"] += 1
+            elif run.run_id:
+                note.status = "running"
+                article.status = "note_running"
+                result["running"] += 1
+                result["started"] += 1
+            else:
+                note.status = "failed"
+                note.error_message = "Hermes response did not include run_id or summary text"
+                article.status = "note_failed"
+                result["failed"] += 1
+            result["video_id"] = article.id
+            result["note_id"] = note.id
+            result["external_task_id"] = note.external_task_id
+            self.db.commit()
+        except Exception as exc:
+            self.db.rollback()
+            note = self.db.get(InformationVideoNote, note.id) or self._create_note(article, provider="hermes")
+            article.status = "note_failed"
+            note.status = "failed"
+            note.error_message = repr(exc)[:2000]
+            log_fetch_error(self.db, "hermes", "article_note", article.external_video_id, repr(exc))
+            self.db.commit()
+            result["failed"] += 1
         return result
 
     def mark_video_notes_failed(
@@ -411,10 +488,16 @@ class VideoInformationService:
 
     def poll_running_notes(self, video_ids: list[int] | None = None) -> dict[str, int]:
         settings = InformationSettingsService(self.db).get_settings()
-        client = BilinoteClient(settings["bilinote_base_url"])
-        return self._check_running_notes(client, video_ids=video_ids)
+        bilinote_client = BilinoteClient(settings["bilinote_base_url"])
+        hermes_client = self._hermes_client(settings)
+        return self._check_running_notes(bilinote_client, hermes_client, video_ids=video_ids)
 
-    def _check_running_notes(self, client: BilinoteClient, video_ids: list[int] | None = None) -> dict[str, int]:
+    def _check_running_notes(
+        self,
+        bilinote_client: BilinoteClient,
+        hermes_client: HermesClient,
+        video_ids: list[int] | None = None,
+    ) -> dict[str, int]:
         result = {
             "total": 0,
             "completed": 0,
@@ -438,7 +521,7 @@ class VideoInformationService:
             started_at = note.updated_at or note.created_at
             if started_at and now - started_at > VIDEO_NOTE_EXPIRY:
                 note.status = "failed"
-                note.error_message = "Bilinote task expired after 1 day without result"
+                note.error_message = f"{note.provider} task expired after 1 day without result"
                 if video is not None:
                     video.status = "note_failed"
                 result["failed"] += 1
@@ -447,26 +530,37 @@ class VideoInformationService:
                 continue
             if not note.external_task_id:
                 note.status = "failed"
-                note.error_message = "Bilinote running note does not have external_task_id"
+                note.error_message = f"{note.provider} running note does not have external_task_id"
                 if video is not None:
                     video.status = "note_failed"
                 result["failed"] += 1
                 self.db.commit()
                 continue
             try:
-                poll_result = client.poll_task_once(note.external_task_id)
-                note.raw_response = compact_json(poll_result.raw_response)
-                note.note_text = poll_result.note_text
-                note.error_message = poll_result.error_message
-                if poll_result.status == "done" and poll_result.note_text:
+                if note.provider == "hermes":
+                    hermes_result = hermes_client.poll_run_once(note.external_task_id)
+                    poll_status = hermes_result.status
+                    note_text = hermes_result.document_text
+                    error_message = None
+                    raw_response = hermes_result.raw_response
+                else:
+                    bilinote_result = bilinote_client.poll_task_once(note.external_task_id)
+                    poll_status = bilinote_result.status
+                    note_text = bilinote_result.note_text
+                    error_message = bilinote_result.error_message
+                    raw_response = bilinote_result.raw_response
+                note.raw_response = compact_json(raw_response)
+                note.note_text = note_text
+                note.error_message = error_message
+                if poll_status == "done" and note_text:
                     note.status = "done"
                     note.generated_at = now
                     if video is not None:
                         video.status = "note_done"
                     result["completed"] += 1
-                elif poll_result.status == "failed":
+                elif poll_status == "failed":
                     note.status = "failed"
-                    note.error_message = note.error_message or "Bilinote note generation failed"
+                    note.error_message = note.error_message or f"{note.provider} note generation failed"
                     if video is not None:
                         video.status = "note_failed"
                     result["failed"] += 1
@@ -484,7 +578,8 @@ class VideoInformationService:
                     note.error_message = repr(exc)[:2000]
                 if video is not None:
                     video.status = "note_failed"
-                log_fetch_error(self.db, "bilinote", "video_note", str(note.video_id if note else "running"), repr(exc))
+                provider = note.provider if note is not None else "note"
+                log_fetch_error(self.db, provider, "video_note", str(note.video_id if note else "running"), repr(exc))
                 self.db.commit()
                 result["failed"] += 1
         return result
@@ -577,64 +672,11 @@ class VideoInformationService:
         )
         return self._submit_summary_document(document, notes, prompt)
 
-    def submit_pending_article_summaries(self, limit: int = 5) -> dict[str, int]:
-        result = {"total": 0, "started": 0, "failed": 0, "skipped": 0}
-        articles = self.db.scalars(
-            select(InformationVideo)
-            .where(
-                InformationVideo.content_type == "article",
-                InformationVideo.status.in_(["article_pending", "article_summary_failed"]),
-                InformationVideo.content_text.is_not(None),
-            )
-            .order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
-            .limit(limit)
-        ).all()
-        result["total"] = len(articles)
-        for article in articles:
-            existing = self.db.scalar(
-                select(InformationSummaryDocument)
-                .where(InformationSummaryDocument.platform == self._article_summary_platform(article.id))
-                .execution_options(include_deleted=True)
-            )
-            if existing is not None:
-                existing.is_deleted = 0
-            if existing and existing.status in {"done", "running"}:
-                article.status = "article_summary_done" if existing.status == "done" else "article_summary_running"
-                result["skipped"] += 1
-                self.db.commit()
-                continue
-
-            document = existing or InformationSummaryDocument(
-                platform=self._article_summary_platform(article.id),
-                summary_date=(article.published_at or article.created_at).date(),
-                title=f"图文总结：{article.title}"[:200],
-                status="pending",
-            )
-            prompt = self._build_article_summary_prompt(article)
-            document = self._submit_summary_document(document, [], prompt)
-            article.status = "article_summary_running" if document.status == "running" else "article_summary_failed"
-            if document.status == "running":
-                result["started"] += 1
-            else:
-                result["failed"] += 1
-            self.db.commit()
-        return result
-
     def retry_summary_document(self, document_id: int) -> InformationSummaryDocument | None:
         document = self.db.get(InformationSummaryDocument, document_id)
         if document is None:
             return None
         if document.status in {"done", "running"}:
-            return document
-        if document.platform.startswith("article_"):
-            article_id = self._article_id_from_summary_platform(document.platform)
-            article = self.db.get(InformationVideo, article_id) if article_id is not None else None
-            if article is None or article.content_type != "article" or not article.content_text:
-                raise ValueError("Failed article summary has no article content to retry")
-            prompt = self._build_article_summary_prompt(article)
-            document = self._submit_summary_document(document, [], prompt)
-            article.status = "article_summary_running" if document.status == "running" else "article_summary_failed"
-            self.db.commit()
             return document
 
         notes = self.db.scalars(
@@ -713,12 +755,10 @@ class VideoInformationService:
                     document.status = "done"
                     document.error_message = None
                     document.generated_at = now
-                    self._sync_article_summary_status(document, "article_summary_done")
                     result["completed"] += 1
                 elif poll_result.status == "failed":
                     document.status = "failed"
                     document.error_message = "Hermes summary generation failed"
-                    self._sync_article_summary_status(document, "article_summary_failed")
                     result["failed"] += 1
                 else:
                     document.status = "running"
@@ -730,7 +770,6 @@ class VideoInformationService:
                 if document is not None:
                     document.status = "failed"
                     document.error_message = repr(exc)[:2000]
-                    self._sync_article_summary_status(document, "article_summary_failed")
                 log_fetch_error(self.db, "hermes", "summary_document", str(document.id if document else "running"), repr(exc))
                 self.db.commit()
                 result["failed"] += 1
@@ -1042,21 +1081,34 @@ class VideoInformationService:
         ]
 
     def _get_latest_note(self, video: InformationVideo) -> InformationVideoNote | None:
+        provider = "hermes" if video.content_type == "article" else "bilinote"
         return self.db.scalar(
             select(InformationVideoNote)
             .where(
                 InformationVideoNote.video_id == video.id,
-                InformationVideoNote.provider == "bilinote",
+                InformationVideoNote.provider == provider,
             )
             .order_by(InformationVideoNote.created_at.desc(), InformationVideoNote.id.desc())
         )
 
-    def _create_note(self, video: InformationVideo) -> InformationVideoNote:
-        note = InformationVideoNote(video_id=video.id, provider="bilinote", status="pending")
+    def _create_note(self, video: InformationVideo, provider: str | None = None) -> InformationVideoNote:
+        note_provider = provider or ("hermes" if video.content_type == "article" else "bilinote")
+        note = InformationVideoNote(video_id=video.id, provider=note_provider, status="pending")
         self.db.add(note)
         self.db.commit()
         self.db.refresh(note)
         return note
+
+    @staticmethod
+    def _hermes_client(settings: dict[str, str]) -> HermesClient:
+        return HermesClient(
+            settings["hermes_base_url"],
+            settings["hermes_run_path"],
+            settings["hermes_status_path_template"],
+            settings.get("hermes_api_key", ""),
+            settings.get("hermes_auth_header_name", "Authorization"),
+            settings.get("hermes_model", "hermes-agent"),
+        )
 
     @staticmethod
     def _validate_bilinote_settings(settings: dict[str, str]) -> None:
@@ -1121,26 +1173,6 @@ class VideoInformationService:
             "不要输出 HTML；不要把正文包裹在 ```markdown 代码块中。\n\n"
             + "\n\n".join(blocks)
         )
-
-    @staticmethod
-    def _article_summary_platform(article_id: int) -> str:
-        return f"article_{article_id}"
-
-    @staticmethod
-    def _article_id_from_summary_platform(platform: str) -> int | None:
-        prefix = "article_"
-        if not platform.startswith(prefix):
-            return None
-        value = platform[len(prefix) :]
-        return int(value) if value.isdigit() else None
-
-    def _sync_article_summary_status(self, document: InformationSummaryDocument, status: str) -> None:
-        article_id = self._article_id_from_summary_platform(document.platform)
-        if article_id is None:
-            return
-        article = self.db.get(InformationVideo, article_id)
-        if article is not None and article.content_type == "article":
-            article.status = status
 
     def _build_article_summary_prompt(self, article: InformationVideo) -> str:
         source = self.db.get(InformationVideoSource, article.source_id)
