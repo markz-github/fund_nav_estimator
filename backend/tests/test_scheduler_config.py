@@ -127,7 +127,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         self.assertEqual(self.task_logs(), [])
 
-    def test_scheduled_video_notes_job_logs_poll_when_running_task_exists(self) -> None:
+    def test_scheduled_video_notes_job_does_not_log_poll_when_only_running_task_exists(self) -> None:
         service = Mock()
         service.poll_running_notes.return_value = {
             "total": 1,
@@ -144,10 +144,7 @@ class SchedulerConfigTests(unittest.TestCase):
         ):
             generate_information_video_notes_job()
 
-        logs = self.task_logs()
-        self.assertEqual(len(logs), 1)
-        self.assertEqual(logs[0].task_type, "poll_information_video_notes")
-        self.assertEqual(logs[0].status, "success")
+        self.assertEqual(self.task_logs(), [])
         service.submit_pending_note_task.assert_not_called()
 
     def test_scheduled_video_notes_job_logs_poll_error_message(self) -> None:
@@ -372,6 +369,55 @@ class SchedulerConfigTests(unittest.TestCase):
 
         self.assertEqual(logs[0]["error_message"], "Bilinote 服务不可用")
 
+    def test_task_log_list_does_not_enrich_success_submit_with_old_note_error(self) -> None:
+        db = self.SessionLocal()
+        try:
+            source = InformationVideoSource(
+                platform="bilibili",
+                source_name="测试账号",
+                external_source_id="12345",
+                enabled=1,
+            )
+            db.add(source)
+            db.commit()
+            video = InformationVideo(
+                source_id=source.id,
+                platform="bilibili",
+                external_video_id="BV-running",
+                title="运行中视频",
+                video_url="https://www.bilibili.com/video/BV-running",
+                status="note_running",
+            )
+            db.add(video)
+            db.commit()
+            db.add(
+                InformationVideoNote(
+                    video_id=video.id,
+                    provider="bilinote",
+                    status="failed",
+                    error_message="InvalidSchema('Missing dependencies for SOCKS support.')",
+                )
+            )
+            db.add(
+                TaskLog(
+                    task_name="提交信息源笔记任务",
+                    task_type="submit_information_video_note_task",
+                    target_type="video",
+                    target_id=str(video.id),
+                    external_task_id="task-running",
+                    status="success",
+                    started_at=datetime.now(),
+                    message="total=1;completed=0;failed=0;running=1;started=1;expired=0",
+                )
+            )
+            db.commit()
+
+            logs = list_task_logs(module="information", db=db)
+        finally:
+            db.close()
+
+        self.assertIsNone(logs[0]["error_message"])
+
     def test_scheduled_summary_job_does_not_log_when_no_document_created(self) -> None:
         service = Mock()
         service.create_daily_summary.return_value = None
@@ -435,6 +481,24 @@ class SchedulerConfigTests(unittest.TestCase):
         self.assertEqual(len(logs), 1)
         self.assertEqual(logs[0].task_type, "poll_information_summary_documents")
         self.assertEqual(logs[0].status, "success")
+
+    def test_scheduled_summary_poll_job_does_not_log_when_only_running_document_exists(self) -> None:
+        service = Mock()
+        service.poll_running_summary_documents.return_value = {
+            "total": 1,
+            "completed": 0,
+            "failed": 0,
+            "running": 1,
+            "expired": 0,
+        }
+
+        with (
+            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+        ):
+            poll_information_summary_documents_job()
+
+        self.assertEqual(self.task_logs(), [])
 
     def test_scheduled_wechat_push_does_not_log_when_no_document_pushed(self) -> None:
         service = Mock()

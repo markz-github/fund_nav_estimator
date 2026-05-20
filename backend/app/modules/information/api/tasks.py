@@ -34,6 +34,8 @@ def _message_error(message: str | None) -> str | None:
 def _note_error_for_task_log(db: Session, log: TaskLog) -> str | None:
     if log.task_type != "submit_information_video_note_task" or log.target_type != "video" or not log.target_id:
         return None
+    if log.status not in {"failed", "partial"}:
+        return None
     if not log.target_id.isdigit():
         return None
     video_id = int(log.target_id)
