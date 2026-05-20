@@ -90,6 +90,7 @@ class VideoOut(BaseModel):
     external_video_id: str
     title: str
     video_url: str
+    content_type: str
     author_name: str | None
     source_name: str | None
     published_at: datetime | None

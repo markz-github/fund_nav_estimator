@@ -353,6 +353,10 @@ table {
   width: 72px;
 }
 
+.col-type {
+  width: 82px;
+}
+
 .col-platform {
   width: 92px;
 }

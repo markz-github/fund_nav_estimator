@@ -24,6 +24,8 @@ class VideoSnapshot:
     author_name: str | None
     published_at: datetime | None
     raw_response: dict
+    content_type: str = "video"
+    content_text: str | None = None
 
 
 class VideoSourceAdapter(Protocol):
@@ -112,9 +114,11 @@ class BilibiliVideoSourceAdapter:
                     author_name=source.source_name,
                     published_at=published_at,
                     raw_response=item,
+                    content_type="video",
                 )
             )
         source.raw_response = json.dumps(payload, ensure_ascii=False)
+        snapshots.extend(self._fetch_latest_articles(source, mid, page_size, headers))
         logger.debug(
             "bilibili fetch latest videos parsed source_id=%s mid=%s raw_count=%s snapshot_count=%s",
             source.id,
@@ -123,6 +127,134 @@ class BilibiliVideoSourceAdapter:
             len(snapshots),
         )
         return snapshots
+
+    def _fetch_latest_articles(
+        self,
+        source: InformationVideoSource,
+        mid: str,
+        limit: int,
+        headers: dict[str, str],
+    ) -> list[VideoSnapshot]:
+        try:
+            response = requests.get(
+                "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space",
+                params={
+                    "host_mid": mid,
+                    "features": "itemOpusStyle",
+                    "offset": "",
+                },
+                headers={**headers, "Referer": f"https://space.bilibili.com/{mid}/dynamic"},
+                timeout=20,
+            )
+            logger.debug(
+                "bilibili fetch latest articles response source_id=%s mid=%s http_status=%s",
+                source.id,
+                mid,
+                response.status_code,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            logger.warning("bilibili fetch latest articles skipped source_id=%s mid=%s error=%r", source.id, mid, exc)
+            return []
+
+        code = payload.get("code")
+        if code not in (None, 0):
+            logger.warning(
+                "bilibili fetch latest articles skipped source_id=%s mid=%s code=%s message=%s",
+                source.id,
+                mid,
+                code,
+                payload.get("message"),
+            )
+            return []
+
+        snapshots: list[VideoSnapshot] = []
+        for item in (payload.get("data", {}).get("items", []) or [])[:limit]:
+            snapshot = self._article_snapshot_from_dynamic_item(source, item)
+            if snapshot is not None:
+                snapshots.append(snapshot)
+        logger.debug(
+            "bilibili fetch latest articles parsed source_id=%s mid=%s snapshot_count=%s",
+            source.id,
+            mid,
+            len(snapshots),
+        )
+        return snapshots
+
+    def _article_snapshot_from_dynamic_item(
+        self,
+        source: InformationVideoSource,
+        item: dict,
+    ) -> VideoSnapshot | None:
+        item_type = str(item.get("type") or "")
+        if item_type in {"DYNAMIC_TYPE_AV", "DYNAMIC_TYPE_PGC"}:
+            return None
+
+        modules = item.get("modules") or {}
+        dynamic = modules.get("module_dynamic") or {}
+        major = dynamic.get("major") or {}
+        major_type = str(major.get("type") or "")
+        if major_type not in {"MAJOR_TYPE_OPUS", "MAJOR_TYPE_ARTICLE", "MAJOR_TYPE_DRAW", "MAJOR_TYPE_NONE"}:
+            return None
+
+        opus = major.get("opus") or {}
+        article = major.get("article") or {}
+        draw = major.get("draw") or {}
+        desc = dynamic.get("desc") or {}
+        author = modules.get("module_author") or {}
+
+        external_id = str(opus.get("opus_id") or article.get("id") or item.get("id_str") or item.get("id") or "").strip()
+        if not external_id:
+            return None
+        external_video_id = f"article_{external_id}"
+        title = str(opus.get("title") or article.get("title") or desc.get("text") or external_video_id).strip()
+        if len(title) > 80:
+            title = title[:80]
+        content_text = self._extract_article_text(opus, article, draw, desc)
+        if not content_text:
+            return None
+
+        published_at = None
+        timestamp = author.get("pub_ts") or item.get("pub_ts")
+        if isinstance(timestamp, (int, float)):
+            published_at = datetime.fromtimestamp(timestamp)
+        url = str(opus.get("jump_url") or article.get("jump_url") or item.get("jump_url") or "").strip()
+        if url.startswith("//"):
+            url = f"https:{url}"
+        if not url:
+            url = f"https://www.bilibili.com/opus/{external_id}"
+        return VideoSnapshot(
+            platform=self.platform,
+            external_video_id=external_video_id,
+            title=title or external_video_id,
+            video_url=url,
+            author_name=source.source_name,
+            published_at=published_at,
+            raw_response=item,
+            content_type="article",
+            content_text=content_text,
+        )
+
+    @classmethod
+    def _extract_article_text(cls, *parts: dict) -> str:
+        values: list[str] = []
+        for part in parts:
+            cls._collect_text_values(part, values)
+        deduped = list(dict.fromkeys(value.strip() for value in values if value and value.strip()))
+        return "\n\n".join(deduped)
+
+    @classmethod
+    def _collect_text_values(cls, value, values: list[str]) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key in {"text", "raw_text", "summary", "desc"} and isinstance(child, str):
+                    values.append(child)
+                else:
+                    cls._collect_text_values(child, values)
+        elif isinstance(value, list):
+            for item in value:
+                cls._collect_text_values(item, values)
 
     @staticmethod
     def _build_headers(mid: str, bilibili_cookie: str | None = None) -> dict[str, str]:

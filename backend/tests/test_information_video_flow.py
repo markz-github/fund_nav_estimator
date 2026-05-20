@@ -71,6 +71,60 @@ class InformationVideoFlowTests(unittest.TestCase):
         headers = get.call_args.kwargs["headers"]
         self.assertEqual(headers["Cookie"], "SESSDATA=test; bili_jct=abc")
 
+    def test_bilibili_adapter_parses_article_dynamic_items(self) -> None:
+        adapter = BilibiliVideoSourceAdapter()
+        source = InformationVideoSource(
+            id=7,
+            platform="bilibili",
+            source_name="皓哥论股",
+            external_source_id="307610125",
+            enabled=1,
+        )
+        arc_response = Mock()
+        arc_response.status_code = 200
+        arc_response.json.return_value = {"code": 0, "data": {"list": {"vlist": []}}}
+        dynamic_response = Mock()
+        dynamic_response.status_code = 200
+        dynamic_response.json.return_value = {
+            "code": 0,
+            "data": {
+                "items": [
+                    {
+                        "id_str": "123456",
+                        "type": "DYNAMIC_TYPE_DRAW",
+                        "modules": {
+                            "module_author": {"pub_ts": 1779252000},
+                            "module_dynamic": {
+                                "major": {
+                                    "type": "MAJOR_TYPE_OPUS",
+                                    "opus": {
+                                        "opus_id": "987654",
+                                        "title": "今天市场观察",
+                                        "summary": {"text": "核心观点：控制仓位。"},
+                                        "jump_url": "//www.bilibili.com/opus/987654",
+                                    },
+                                },
+                                "desc": {"text": "补充观点：等待确认信号。"},
+                            },
+                        },
+                    },
+                    {"type": "DYNAMIC_TYPE_AV", "modules": {"module_dynamic": {"major": {"type": "MAJOR_TYPE_ARCHIVE"}}}},
+                ]
+            },
+        }
+
+        with patch(
+            "app.modules.information.services.video_source_adapters.requests.get",
+            side_effect=[arc_response, dynamic_response],
+        ):
+            snapshots = adapter.fetch_latest_videos(source)
+
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0].content_type, "article")
+        self.assertEqual(snapshots[0].external_video_id, "article_987654")
+        self.assertEqual(snapshots[0].video_url, "https://www.bilibili.com/opus/987654")
+        self.assertIn("控制仓位", snapshots[0].content_text or "")
+
     def test_scan_sources_inserts_new_videos_once(self) -> None:
         service = VideoInformationService(self.db)
         source = service.create_source(
@@ -104,6 +158,60 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(first_count, 1)
         self.assertEqual(second_count, 0)
         self.assertEqual(self.db.query(InformationVideo).count(), 1)
+
+    def test_scan_sources_submits_article_summary_without_settings_instruction(self) -> None:
+        service = VideoInformationService(self.db)
+        InformationSettingsService(self.db).update_settings({"hermes_summary_instruction": "系统设置里的笔记汇总说明"})
+        source = service.create_source(
+            VideoSourceCreate(
+                platform="bilibili",
+                source_name="皓哥论股",
+                external_source_id="307610125",
+            )
+        )
+        adapter = Mock()
+        adapter.normalize_source_id.side_effect = lambda value: value
+        adapter.fetch_latest_videos.return_value = [
+            VideoSnapshot(
+                platform="bilibili",
+                external_video_id="article_987654",
+                title="今天市场观察",
+                video_url="https://www.bilibili.com/opus/987654",
+                author_name="皓哥论股",
+                published_at=datetime(2026, 5, 20, 10, 0, 0),
+                raw_response={"id_str": "987654"},
+                content_type="article",
+                content_text="核心观点：控制仓位。",
+            )
+        ]
+        hermes = Mock()
+        hermes.start_run.return_value = HermesRunResult(
+            run_id="run-article",
+            status="running",
+            document_text=None,
+            raw_response={"id": "run-article", "status": "running"},
+        )
+
+        with patch(
+            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            return_value=adapter,
+        ), patch(
+            "app.modules.information.services.video_information_service.HermesClient",
+            return_value=hermes,
+        ):
+            created = service.scan_sources(source_id=source.id)
+
+        self.assertEqual(created, 1)
+        article = self.db.query(InformationVideo).one()
+        self.assertEqual(article.content_type, "article")
+        self.assertEqual(article.status, "article_summary_running")
+        document = self.db.query(InformationSummaryDocument).one()
+        self.assertEqual(document.platform, f"article_{article.id}")
+        self.assertEqual(document.status, "running")
+        prompt = hermes.start_run.call_args.args[0]
+        self.assertIn("B站图文投稿", prompt)
+        self.assertIn("核心观点：控制仓位。", prompt)
+        self.assertNotIn("系统设置里的笔记汇总说明", prompt)
 
     def test_scan_sources_can_target_selected_sources(self) -> None:
         service = VideoInformationService(self.db)

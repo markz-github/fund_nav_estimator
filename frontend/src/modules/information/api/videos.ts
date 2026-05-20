@@ -39,6 +39,7 @@ export interface InformationVideo {
   external_video_id: string
   title: string
   video_url: string
+  content_type: string
   author_name?: string | null
   published_at?: string | null
   status: string
