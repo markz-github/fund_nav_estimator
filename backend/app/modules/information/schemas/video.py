@@ -76,6 +76,7 @@ class VideoSourceOut(BaseModel):
 
 class InformationSettingsOut(BaseModel):
     bilibili_cookie: str
+    article_filter_keywords: str
     bilinote_base_url: str
     bilinote_provider_id: str
     bilinote_model_name: str
@@ -96,6 +97,7 @@ class InformationSettingsOut(BaseModel):
 
 class InformationSettingsUpdate(BaseModel):
     bilibili_cookie: str | None = None
+    article_filter_keywords: str | None = None
     bilinote_base_url: str | None = None
     bilinote_provider_id: str | None = None
     bilinote_model_name: str | None = None

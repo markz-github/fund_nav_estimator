@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
+import { formatDateTime } from '../../../utils/datetime'
 import {
   generateSummaryFromNotes,
   getInformationStatusOptions,
@@ -365,13 +366,13 @@ watch(
             <td>
               {{ note.source_name ?? '-' }}
             </td>
-            <td>{{ note.video_published_at ?? '-' }}</td>
+            <td>{{ formatDateTime(note.video_published_at) }}</td>
             <td>
               <span class="status-pill" :class="statusClass(note.status)">{{ note.status_label }}</span>
             </td>
             <td>{{ note.provider }}</td>
             <td class="mono">{{ note.external_task_id ?? '-' }}</td>
-            <td>{{ note.generated_at ?? '-' }}</td>
+            <td>{{ formatDateTime(note.generated_at) }}</td>
             <td>
               <RouterLink v-if="note.status === 'done'" class="link-button" :to="`/information/notes/${note.id}`">查看</RouterLink>
               <span v-else class="muted">-</span>

@@ -8,6 +8,7 @@ from app.modules.information.models.information_setting import InformationSettin
 
 DEFAULT_SETTINGS: dict[str, str] = {
     "bilibili_cookie": "",
+    "article_filter_keywords": "",
     "bilinote_base_url": "http://192.168.50.50:18483",
     "bilinote_provider_id": "",
     "bilinote_model_name": "",

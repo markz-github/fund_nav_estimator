@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
+import { formatDateTime } from '../../../utils/datetime'
 import {
   createVideoSource,
   deleteVideoSource,
@@ -196,7 +197,7 @@ onMounted(loadSources)
               </RouterLink>
             </td>
             <td><span class="status-pill" :class="statusClass(source.status)">{{ source.status_label }}</span></td>
-            <td>{{ source.last_scanned_at ?? '-' }}</td>
+            <td>{{ formatDateTime(source.last_scanned_at) }}</td>
             <td>
               <button class="ghost" type="button" @click="toggleSource(source)">{{ source.enabled ? '停用' : '启用' }}</button>
               <button class="danger" type="button" @click="removeSource(source)">删除</button>

@@ -62,6 +62,7 @@ onMounted(loadSettings)
 
     <div v-if="settings" class="settings-grid">
       <label class="settings-wide">B站 Cookie<textarea v-model="settings.bilibili_cookie" rows="3" autocomplete="off" spellcheck="false" /></label>
+      <label class="settings-wide">图文投稿过滤关键词<textarea v-model="settings.article_filter_keywords" rows="3" placeholder="可选。多个关键词可用换行、逗号或分号分隔；命中标题或正文的图文投稿不会入库。" /></label>
       <label>Bilinote 地址<input v-model="settings.bilinote_base_url" /></label>
       <label>Provider ID<input v-model="settings.bilinote_provider_id" /></label>
       <label>Model Name<input v-model="settings.bilinote_model_name" /></label>

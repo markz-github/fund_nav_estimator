@@ -20,6 +20,7 @@ VIDEO_STATUSES = (
     StatusOption("note_running", "笔记生成中"),
     StatusOption("note_done", "笔记已完成"),
     StatusOption("note_failed", "笔记失败"),
+    StatusOption("invalid_content", "无效内容"),
 )
 
 NOTE_STATUSES = (

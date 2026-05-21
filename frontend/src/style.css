@@ -433,12 +433,6 @@ td {
 
 .log-text-cell {
   position: relative;
-  overflow: visible;
-}
-
-.log-text-cell:hover,
-.log-text-cell:focus-within {
-  z-index: 20;
 }
 
 .log-text-preview {
@@ -449,12 +443,8 @@ td {
 }
 
 .log-text-popover {
-  position: absolute;
-  top: calc(100% - 4px);
-  left: 12px;
-  z-index: 30;
-  display: none;
-  width: max-content;
+  position: fixed;
+  z-index: 3000;
   min-width: min(360px, calc(100vw - 48px));
   max-width: min(720px, calc(100vw - 48px));
   max-height: 280px;
@@ -469,12 +459,6 @@ td {
   overflow-wrap: anywhere;
   user-select: text;
   cursor: text;
-}
-
-.log-text-cell:hover .log-text-popover,
-.log-text-cell:focus-within .log-text-popover,
-.log-text-popover:focus {
-  display: block;
 }
 
 th {
@@ -1225,6 +1209,7 @@ tbody tr {
   padding: 0.42rem 0.78rem;
   font-size: 0.98rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .status-ok {

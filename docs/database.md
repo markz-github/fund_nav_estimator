@@ -317,6 +317,7 @@ CREATE TABLE information_summary_document_items (
 当前使用的设置键包括：
 
 - `bilibili_cookie`：B站扫描请求使用的 Cookie，可为空。
+- `article_filter_keywords`：图文投稿过滤关键词，多个关键词可用换行、逗号或分号分隔；扫描时命中标题或正文的图文投稿会标记为 `invalid_content`，不进入 Hermes 图文笔记任务。
 - `bilinote_base_url`
 - `bilinote_provider_id`
 - `bilinote_model_name`
