@@ -2,14 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { formatDateTime } from '../../../utils/datetime'
-import { listErrors, listTaskLogs, type DataFetchError, type OperationModule, type TaskLog } from '../api/operations'
+import { listTaskLogs, type OperationModule, type TaskLog } from '../api/operations'
 import { getInformationStatusOptions, type StatusOption } from '../api/videos'
 import { statusClass } from '../utils/status'
 
 const route = useRoute()
 const router = useRouter()
 const taskLogs = ref<TaskLog[]>([])
-const errors = ref<DataFetchError[]>([])
 const loading = ref(false)
 const message = ref('')
 const selectedTaskType = ref('')
@@ -30,8 +29,8 @@ const operationModule = computed<OperationModule>(() =>
 const pageTitle = computed(() => (operationModule.value === 'fund_nav' ? '基金运行状态' : '信息流运行状态'))
 const pageSubtitle = computed(() =>
   operationModule.value === 'fund_nav'
-    ? '查看基金净值、持仓、行情和估算相关任务日志与未处理异常。'
-    : '查看信息流扫描、信息源笔记和笔记汇总相关任务日志与未处理异常。',
+    ? '查看基金净值、持仓、行情和估算相关任务日志。'
+    : '查看信息流扫描、信息源笔记和笔记汇总相关任务日志。',
 )
 const currentTaskTypes = computed(() =>
   operationModule.value === 'fund_nav' ? fundNavTaskTypes.value : informationTaskTypes.value,
@@ -52,15 +51,10 @@ async function loadOperations() {
   loading.value = true
   message.value = ''
   try {
-    const [logsResult, errorsResult] = await Promise.all([
-      listTaskLogs(operationModule.value, {
-        taskType: selectedTaskType.value,
-        status: selectedStatus.value,
-      }),
-      listErrors(operationModule.value),
-    ])
-    taskLogs.value = logsResult
-    errors.value = errorsResult
+    taskLogs.value = await listTaskLogs(operationModule.value, {
+      taskType: selectedTaskType.value,
+      status: selectedStatus.value,
+    })
   } catch (error) {
     message.value = '运行状态加载失败，请确认后端服务是否正常。'
   } finally {
@@ -115,10 +109,12 @@ function showTextPopover(event: MouseEvent | FocusEvent, text?: string | null) {
   const element = event.currentTarget as HTMLElement
   const rect = element.getBoundingClientRect()
   const width = Math.min(720, window.innerWidth - 48)
-  const left = Math.min(Math.max(24, rect.left), window.innerWidth - width - 24)
+  const pointerLeft = event instanceof MouseEvent ? event.clientX + 10 : rect.left
+  const pointerTop = event instanceof MouseEvent ? event.clientY + 10 : rect.bottom + 6
+  const left = Math.min(Math.max(12, pointerLeft), window.innerWidth - width - 12)
   popover.value = {
     text,
-    top: rect.bottom + 8,
+    top: pointerTop,
     left,
     visible: true,
   }
@@ -256,6 +252,7 @@ watch(
             <td
               class="log-text-cell"
               @mouseenter="showTextPopover($event, log.message)"
+              @mousemove="showTextPopover($event, log.message)"
               @focusin="showTextPopover($event, log.message)"
               @mouseleave="hideTextPopover"
               @focusout="hideTextPopover"
@@ -265,6 +262,7 @@ watch(
             <td
               class="log-text-cell"
               @mouseenter="showTextPopover($event, log.error_message)"
+              @mousemove="showTextPopover($event, log.error_message)"
               @focusin="showTextPopover($event, log.error_message)"
               @mouseleave="hideTextPopover"
               @focusout="hideTextPopover"
@@ -275,59 +273,6 @@ watch(
         </tbody>
       </table>
     </div>
-
-    <section class="section-title spaced-title">
-      <div>
-        <p class="eyebrow">Data Errors</p>
-        <h2>数据异常</h2>
-      </div>
-      <span>{{ errors.length }} 条</span>
-    </section>
-
-    <div class="table-card">
-      <table class="info-table errors-table">
-        <colgroup>
-          <col class="col-id" />
-          <col class="col-source" />
-          <col class="col-task-type" />
-          <col class="col-target" />
-          <col class="col-time" />
-          <col class="col-message" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>来源</th>
-            <th>类型</th>
-            <th>目标代码</th>
-            <th>发生时间</th>
-            <th>错误信息</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="errors.length === 0">
-            <td colspan="6">暂无未处理数据异常。</td>
-          </tr>
-          <tr v-for="error in errors" :key="error.id">
-            <td class="mono">{{ error.id }}</td>
-            <td>{{ error.source }}</td>
-            <td class="mono">{{ error.data_type }}</td>
-            <td class="mono">{{ error.target_code }}</td>
-            <td>{{ formatDateTime(error.occurred_at) }}</td>
-            <td
-              class="log-text-cell"
-              @mouseenter="showTextPopover($event, error.error_message)"
-              @focusin="showTextPopover($event, error.error_message)"
-              @mouseleave="hideTextPopover"
-              @focusout="hideTextPopover"
-            >
-              <span class="log-text-preview">{{ error.error_message }}</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
     <div
       v-if="popover.visible"
       class="log-text-popover"

@@ -20,7 +20,7 @@ class WechatPushResult:
 
 
 class WechatPushClient:
-    def __init__(self, webhook_url: str, token: str = "", timeout: int = 30) -> None:
+    def __init__(self, webhook_url: str, token: str = "", timeout: int = 60) -> None:
         self.webhook_url = webhook_url.strip()
         self.token = token.strip()
         self.timeout = timeout

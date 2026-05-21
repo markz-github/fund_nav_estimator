@@ -177,7 +177,7 @@ class EastmoneySource:
                     "User-Agent": "Mozilla/5.0",
                     **(headers or {}),
                 },
-                timeout=20,
+                timeout=60,
             )
             if response.status_code >= 400:
                 return ""

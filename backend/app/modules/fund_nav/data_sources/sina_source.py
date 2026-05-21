@@ -57,7 +57,7 @@ class SinaFundSource:
                     endpoint,
                     params={"symbol": fund_code},
                     headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn"},
-                    timeout=20,
+                    timeout=60,
                 )
                 if response.status_code >= 400:
                     continue

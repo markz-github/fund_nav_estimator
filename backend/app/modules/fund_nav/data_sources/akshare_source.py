@@ -513,7 +513,7 @@ class AkshareSource:
                     "Referer": "https://finance.sina.com.cn",
                     "User-Agent": "Mozilla/5.0",
                 },
-                timeout=15,
+                timeout=60,
             )
             response.encoding = "gbk"
         except requests.RequestException:

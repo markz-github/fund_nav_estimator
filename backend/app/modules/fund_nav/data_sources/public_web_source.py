@@ -58,7 +58,7 @@ class PublicWebFundSource:
         texts: list[str] = []
         for url in urls:
             try:
-                response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+                response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
                 if response.status_code >= 400:
                     continue
                 response.encoding = response.apparent_encoding or "utf-8"
