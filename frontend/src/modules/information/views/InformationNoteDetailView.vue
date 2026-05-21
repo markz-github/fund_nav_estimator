@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import { getVideoNote, getVideoNoteRawResponse, type VideoNoteDetail } from '../api/videos'
 
 const route = useRoute()
+const router = useRouter()
 const note = ref<VideoNoteDetail | null>(null)
 const loading = ref(false)
 const message = ref('')
@@ -64,6 +65,14 @@ async function toggleRawResponse() {
   }
 }
 
+function goBack() {
+  if (window.history.state?.back) {
+    router.back()
+    return
+  }
+  router.push({ name: 'information-notes' })
+}
+
 onMounted(loadNote)
 watch(noteId, loadNote)
 </script>
@@ -85,7 +94,7 @@ watch(noteId, loadNote)
         </p>
       </div>
       <div class="section-actions">
-        <button class="ghost" :disabled="loading" @click="loadNote">{{ loading ? '刷新中...' : '刷新详情' }}</button>
+        <button class="ghost" type="button" @click="goBack">返回</button>
       </div>
        <div class="muted">
         <!-- <span class="status-pill" :class="statusClass(note.status)">{{ note.status }}</span> -->

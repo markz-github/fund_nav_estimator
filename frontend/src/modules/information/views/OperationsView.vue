@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { listErrors, listTaskLogs, type DataFetchError, type OperationModule, type TaskLog } from '../api/operations'
+import { getInformationStatusOptions, type StatusOption } from '../api/videos'
 import { statusClass } from '../utils/status'
 
 const route = useRoute()
@@ -11,27 +12,10 @@ const errors = ref<DataFetchError[]>([])
 const loading = ref(false)
 const message = ref('')
 const selectedTaskType = ref('')
-
-const taskTypeOptions = {
-  fund_nav: [
-    'refresh_nav',
-    'refresh_profile',
-    'refresh_holding',
-    'refresh_quote',
-    'estimate_nav',
-  ],
-  information: [
-    'scan_information_videos',
-    'generate_information_video_notes',
-    'submit_information_video_note_task',
-    'poll_information_video_notes',
-    'generate_information_summary_documents',
-    'generate_information_weekly_summary_documents',
-    'generate_information_custom_summary',
-    'retry_information_summary_document',
-    'push_information_summary_documents',
-  ],
-}
+const selectedStatus = ref('')
+const fundNavTaskTypes = ref<StatusOption[]>([])
+const informationTaskTypes = ref<StatusOption[]>([])
+const taskStatuses = ref<StatusOption[]>([])
 
 const operationModule = computed<OperationModule>(() =>
   route.path.startsWith('/fund-nav') ? 'fund_nav' : 'information',
@@ -42,14 +26,30 @@ const pageSubtitle = computed(() =>
     ? '查看基金净值、持仓、行情和估算相关任务日志与未处理异常。'
     : '查看信息流扫描、信息源笔记和笔记汇总相关任务日志与未处理异常。',
 )
-const currentTaskTypes = computed(() => taskTypeOptions[operationModule.value])
+const currentTaskTypes = computed(() =>
+  operationModule.value === 'fund_nav' ? fundNavTaskTypes.value : informationTaskTypes.value,
+)
+
+function taskTypeLabel(taskType: string) {
+  return currentTaskTypes.value.find((option) => option.value === taskType)?.label ?? taskType
+}
+
+function filterQuery() {
+  return {
+    ...(selectedTaskType.value ? { task_type: selectedTaskType.value } : {}),
+    ...(selectedStatus.value ? { status: selectedStatus.value } : {}),
+  }
+}
 
 async function loadOperations() {
   loading.value = true
   message.value = ''
   try {
     const [logsResult, errorsResult] = await Promise.all([
-      listTaskLogs(operationModule.value, selectedTaskType.value),
+      listTaskLogs(operationModule.value, {
+        taskType: selectedTaskType.value,
+        status: selectedStatus.value,
+      }),
       listErrors(operationModule.value),
     ])
     taskLogs.value = logsResult
@@ -61,21 +61,34 @@ async function loadOperations() {
   }
 }
 
-function applyQueryFilters() {
-  selectedTaskType.value = typeof route.query.task_type === 'string' ? route.query.task_type : ''
+async function loadOptions() {
+  try {
+    const options = await getInformationStatusOptions()
+    fundNavTaskTypes.value = options.fund_nav_task_types
+    informationTaskTypes.value = options.information_task_types
+    taskStatuses.value = options.task_statuses
+  } catch {
+    message.value = '枚举选项加载失败，请确认后端服务是否正常。'
+  }
 }
 
-async function applyTaskTypeFilter() {
+function applyQueryFilters() {
+  selectedTaskType.value = typeof route.query.task_type === 'string' ? route.query.task_type : ''
+  selectedStatus.value = typeof route.query.status === 'string' ? route.query.status : ''
+}
+
+async function applyFilters() {
   await router.replace({
     name: operationModule.value === 'fund_nav' ? 'fund-nav-operations' : 'information-operations',
-    query: selectedTaskType.value ? { task_type: selectedTaskType.value } : undefined,
+    query: filterQuery(),
   })
   await loadOperations()
 }
 
-function resetTaskType() {
+function resetFilters() {
   selectedTaskType.value = ''
-  applyTaskTypeFilter()
+  selectedStatus.value = ''
+  applyFilters()
 }
 
 function durationText(durationMs?: number | null) {
@@ -92,10 +105,12 @@ function targetRoute(log: TaskLog) {
 
 onMounted(() => {
   applyQueryFilters()
+  loadOptions()
   loadOperations()
 })
 watch(operationModule, () => {
   selectedTaskType.value = ''
+  selectedStatus.value = ''
   loadOperations()
 })
 
@@ -133,19 +148,28 @@ watch(
       <span>{{ taskLogs.length }} 条</span>
     </section>
 
-    <form class="filter-bar compact-filter" @submit.prevent="applyTaskTypeFilter">
+    <form class="filter-bar compact-filter" @submit.prevent="applyFilters">
       <label>
         任务类型
         <select v-model="selectedTaskType">
           <option value="">全部类型</option>
-          <option v-for="taskType in currentTaskTypes" :key="taskType" :value="taskType">
-            {{ taskType }}
+          <option v-for="taskType in currentTaskTypes" :key="taskType.value" :value="taskType.value">
+            {{ taskType.label }}
+          </option>
+        </select>
+      </label>
+      <label>
+        状态
+        <select v-model="selectedStatus">
+          <option value="">全部状态</option>
+          <option v-for="status in taskStatuses" :key="status.value" :value="status.value">
+            {{ status.label }}
           </option>
         </select>
       </label>
       <div class="filter-actions">
         <button class="ghost" type="submit" :disabled="loading">应用筛选</button>
-        <button class="ghost" type="button" :disabled="loading || !selectedTaskType" @click="resetTaskType">重置</button>
+        <button class="ghost" type="button" :disabled="loading || (!selectedTaskType && !selectedStatus)" @click="resetFilters">重置</button>
       </div>
     </form>
 
@@ -188,10 +212,10 @@ watch(
               <RouterLink
                 :to="{
                   name: operationModule === 'fund_nav' ? 'fund-nav-operations' : 'information-operations',
-                  query: { task_type: log.task_type },
+                  query: { ...filterQuery(), task_type: log.task_type },
                 }"
               >
-                {{ log.task_type }}
+                {{ taskTypeLabel(log.task_type) }}
               </RouterLink>
             </td>
             <td class="mono">
@@ -204,8 +228,14 @@ watch(
             <td><span class="status-pill" :class="statusClass(log.status)">{{ log.status_label }}</span></td>
             <td>{{ log.started_at }}</td>
             <td>{{ durationText(log.duration_ms) }}</td>
-            <td>{{ log.message ?? '-' }}</td>
-            <td>{{ log.error_message ?? '-' }}</td>
+            <td class="log-text-cell">
+              <span class="log-text-preview">{{ log.message ?? '-' }}</span>
+              <span v-if="log.message" class="log-text-popover" tabindex="0">{{ log.message }}</span>
+            </td>
+            <td class="log-text-cell">
+              <span class="log-text-preview">{{ log.error_message ?? '-' }}</span>
+              <span v-if="log.error_message" class="log-text-popover" tabindex="0">{{ log.error_message }}</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -249,7 +279,10 @@ watch(
             <td class="mono">{{ error.data_type }}</td>
             <td class="mono">{{ error.target_code }}</td>
             <td>{{ error.occurred_at }}</td>
-            <td>{{ error.error_message }}</td>
+            <td class="log-text-cell">
+              <span class="log-text-preview">{{ error.error_message }}</span>
+              <span class="log-text-popover" tabindex="0">{{ error.error_message }}</span>
+            </td>
           </tr>
         </tbody>
       </table>

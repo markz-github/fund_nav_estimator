@@ -1,42 +1,69 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import {
   generateSummary,
+  getInformationStatusOptions,
   listSummaryDocuments,
   retrySummaryDocument,
+  type StatusOption,
   type SummaryDocument,
 } from '../api/videos'
 import { statusClass } from '../utils/status'
 
+const route = useRoute()
+const router = useRouter()
 const documents = ref<SummaryDocument[]>([])
 const loading = ref(false)
 const generating = ref(false)
 const retryingDocumentId = ref<number | null>(null)
 const message = ref('')
 const notesDialogDocumentId = ref<number | null>(null)
+const selectedSummaryType = ref('')
+const summaryTypes = ref<StatusOption[]>([])
 const notesDialogDocument = computed(() => documents.value.find((item) => item.id === notesDialogDocumentId.value) ?? null)
 
 function summaryTypeLabel(type: string) {
-  const labels: Record<string, string> = {
-    manual: '手动汇总',
-    daily: '日汇总',
-    weekly: '周汇总',
-  }
-  return labels[type] ?? type
+  return summaryTypes.value.find((option) => option.value === type)?.label ?? type
 }
 
 async function loadDocuments(options?: { keepMessage?: boolean }) {
   loading.value = true
   if (!options?.keepMessage) message.value = ''
   try {
-    documents.value = await listSummaryDocuments()
+    documents.value = await listSummaryDocuments({ summaryType: selectedSummaryType.value })
   } catch (error) {
     message.value = apiErrorMessage(error, '笔记汇总加载失败。')
   } finally {
     loading.value = false
   }
+}
+
+async function loadOptions() {
+  try {
+    const options = await getInformationStatusOptions()
+    summaryTypes.value = options.summary_types
+  } catch (error) {
+    message.value = apiErrorMessage(error, '汇总类型选项加载失败。')
+  }
+}
+
+function applyQueryFilters() {
+  selectedSummaryType.value = typeof route.query.summary_type === 'string' ? route.query.summary_type : ''
+}
+
+async function applySummaryTypeFilter() {
+  await router.replace({
+    name: 'information-summaries',
+    query: selectedSummaryType.value ? { summary_type: selectedSummaryType.value } : undefined,
+  })
+  await loadDocuments()
+}
+
+function resetSummaryType() {
+  selectedSummaryType.value = ''
+  applySummaryTypeFilter()
 }
 
 async function runSummary() {
@@ -74,7 +101,19 @@ function closeNotesDialog() {
   notesDialogDocumentId.value = null
 }
 
-onMounted(loadDocuments)
+onMounted(() => {
+  applyQueryFilters()
+  loadOptions()
+  loadDocuments()
+})
+
+watch(
+  () => route.query,
+  () => {
+    applyQueryFilters()
+    loadDocuments()
+  },
+)
 </script>
 
 <template>
@@ -92,6 +131,22 @@ onMounted(loadDocuments)
     </section>
 
     <p v-if="message" class="message">{{ message }}</p>
+
+    <form class="filter-bar compact-filter" @submit.prevent="applySummaryTypeFilter">
+      <label>
+        汇总类型
+        <select v-model="selectedSummaryType">
+          <option value="">全部类型</option>
+          <option v-for="summaryType in summaryTypes" :key="summaryType.value" :value="summaryType.value">
+            {{ summaryType.label }}
+          </option>
+        </select>
+      </label>
+      <div class="filter-actions">
+        <button class="ghost" type="submit" :disabled="loading">应用筛选</button>
+        <button class="ghost" type="button" :disabled="loading || !selectedSummaryType" @click="resetSummaryType">重置</button>
+      </div>
+    </form>
 
     <div class="table-card">
       <table class="info-table">

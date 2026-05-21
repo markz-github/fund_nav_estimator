@@ -1139,10 +1139,13 @@ class VideoInformationService:
             return None
         return {"id": note.id, "raw_response": note.raw_response}
 
-    def list_summary_documents(self, limit: int = 100) -> list[dict[str, object]]:
+    def list_summary_documents(self, limit: int = 100, summary_type: str | None = None) -> list[dict[str, object]]:
+        statement = select(InformationSummaryDocument)
+        if summary_type:
+            statement = statement.where(InformationSummaryDocument.summary_type == summary_type)
         documents = list(
             self.db.scalars(
-                select(InformationSummaryDocument).order_by(InformationSummaryDocument.created_at.desc()).limit(limit)
+                statement.order_by(InformationSummaryDocument.created_at.desc()).limit(limit)
             ).all()
         )
         return [self._summary_document_payload(document) for document in documents]

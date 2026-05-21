@@ -1,25 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import MarkdownContent from '../components/MarkdownContent.vue'
-import { getSummaryDocument, type SummaryDocument } from '../api/videos'
+import { getInformationStatusOptions, getSummaryDocument, type StatusOption, type SummaryDocument } from '../api/videos'
 import { statusClass } from '../utils/status'
 
 const route = useRoute()
+const router = useRouter()
 const document = ref<SummaryDocument | null>(null)
 const loading = ref(false)
 const message = ref('')
+const summaryTypes = ref<StatusOption[]>([])
 
 const documentId = computed(() => Number(route.params.documentId))
 
 function summaryTypeLabel(type: string) {
-  const labels: Record<string, string> = {
-    manual: '手动汇总',
-    daily: '日汇总',
-    weekly: '周汇总',
-  }
-  return labels[type] ?? type
+  return summaryTypes.value.find((option) => option.value === type)?.label ?? type
 }
 
 async function loadDocument() {
@@ -36,7 +33,27 @@ async function loadDocument() {
   }
 }
 
-onMounted(loadDocument)
+async function loadOptions() {
+  try {
+    const options = await getInformationStatusOptions()
+    summaryTypes.value = options.summary_types
+  } catch {
+    summaryTypes.value = []
+  }
+}
+
+function goBack() {
+  if (window.history.state?.back) {
+    router.back()
+    return
+  }
+  router.push({ name: 'information-summaries' })
+}
+
+onMounted(() => {
+  loadOptions()
+  loadDocument()
+})
 watch(documentId, loadDocument)
 </script>
 
@@ -51,7 +68,7 @@ watch(documentId, loadDocument)
         </p>
       </div>
       <div class="section-actions">
-        <RouterLink class="link-button" :to="{ name: 'information-summaries' }">返回列表</RouterLink>
+        <button class="ghost" type="button" @click="goBack">返回</button>
       </div>
       <span class="status-pill" :class="statusClass(document.status)">{{ document.status_label }}</span>
     </section>

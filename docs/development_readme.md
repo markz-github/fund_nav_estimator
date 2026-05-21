@@ -205,6 +205,24 @@ Bilinote 总结任务还会读取 `information_settings.video_note_recent_days`�
 
 ## 信息流状态说明
 
+### 枚举使用约定
+
+数据库中的状态、类型等枚举值统一保存英文或数字编码，例如 `task_logs.task_type`、`task_logs.status`、`information_summary_documents.summary_type`。
+
+后端代码中的枚举定义统一维护在 `backend/app/modules/information/status_enums.py`，包括：
+
+- 信息源状态、视频状态、笔记状态、汇总文档状态和任务状态。
+- 基金模块任务类型、信息流模块任务类型。
+- 汇总类型：`manual`、`daily`、`weekly`。
+
+前端页面展示中文时，不在页面里硬编码英文到中文的映射；筛选下拉框也不在前端维护固定数组。前端应通过统一枚举接口查询选项：
+
+```text
+GET /api/information/status-options
+```
+
+页面拿到枚举后按 `value` 传递筛选参数，按 `label` 展示中文，例如任务类型筛选和笔记汇总类型筛选。
+
 ### 视频处理状态
 
 `information_videos.status` 表示视频在信息流处理链路中的状态：
