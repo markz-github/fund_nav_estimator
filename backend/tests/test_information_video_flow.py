@@ -349,6 +349,44 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(failed_note.external_task_id, "new-run")
         self.assertIsNone(failed_note.error_message)
 
+    def test_article_note_submit_applies_keyword_filter_before_hermes(self) -> None:
+        service = VideoInformationService(self.db)
+        InformationSettingsService(self.db).update_settings({"article_filter_keywords": "过滤词"})
+        source = service.create_source(
+            VideoSourceCreate(
+                platform="bilibili",
+                source_name="皓哥论股",
+                external_source_id="307610125",
+            )
+        )
+        article = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="article_filtered_on_submit",
+            title="盘中观点",
+            video_url="https://www.bilibili.com/opus/article_filtered_on_submit",
+            content_type="article",
+            content_text="这条内容包含过滤词，应跳过生成。",
+            status="note_pending",
+        )
+        self.db.add(article)
+        self.db.commit()
+        hermes = Mock()
+
+        with patch(
+            "app.modules.information.services.video_information_service.HermesClient",
+            return_value=hermes,
+        ):
+            result = service.submit_pending_article_note_task(video_ids=[article.id])
+
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["started"], 0)
+        self.assertEqual(result["video_id"], article.id)
+        self.db.refresh(article)
+        self.assertEqual(article.status, "invalid_content")
+        self.assertEqual(self.db.query(InformationVideoNote).filter_by(video_id=article.id).count(), 0)
+        hermes.start_run.assert_not_called()
+
     def test_scan_sources_can_target_selected_sources(self) -> None:
         service = VideoInformationService(self.db)
         first_source = service.create_source(

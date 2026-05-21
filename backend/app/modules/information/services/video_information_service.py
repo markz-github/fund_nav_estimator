@@ -181,16 +181,13 @@ class VideoInformationService:
                     len(snapshots),
                 )
                 for snapshot in snapshots:
-                    is_invalid_content = self._article_matches_filter(snapshot, article_filter_keywords)
+                    is_invalid_content = self._apply_article_filter(
+                        snapshot,
+                        article_filter_keywords,
+                        context="video scan",
+                        source_id=source.id,
+                    )
                     snapshot_status = "invalid_content" if is_invalid_content else "note_pending"
-                    if is_invalid_content:
-                        logger.debug(
-                            "video scan marked filtered article invalid source_id=%s platform=%s external_video_id=%s title=%s",
-                            source.id,
-                            snapshot.platform,
-                            snapshot.external_video_id,
-                            snapshot.title[:120],
-                        )
                     existing = self.db.scalar(
                         select(InformationVideo)
                         .where(
@@ -449,7 +446,7 @@ class VideoInformationService:
 
     def submit_pending_article_note_task(self, limit: int = 1, video_ids: list[int] | None = None) -> dict[str, int | str | None]:
         settings = InformationSettingsService(self.db).get_settings()
-        client = self._hermes_client(settings)
+        article_filter_keywords = self._parse_keywords(settings.get("article_filter_keywords", ""))
         result = {
             "total": 0,
             "completed": 0,
@@ -482,6 +479,16 @@ class VideoInformationService:
         if article is None:
             return result
         result["total"] = 1
+        result["video_id"] = article.id
+        if self._apply_article_filter(
+            article,
+            article_filter_keywords,
+            context="article note submit",
+            source_id=article.source_id,
+        ):
+            self.db.commit()
+            return result
+        client = self._hermes_client(settings)
         note = self._note_for_submit(article, provider="hermes")
         try:
             article.status = "note_running"
@@ -1276,11 +1283,33 @@ class VideoInformationService:
             if item.strip()
         ]
 
-    @staticmethod
-    def _article_matches_filter(snapshot, keywords: list[str]) -> bool:
-        if snapshot.content_type != "article" or not keywords:
+    def _apply_article_filter(
+        self,
+        target,
+        keywords: list[str],
+        *,
+        context: str,
+        source_id: int | None = None,
+    ) -> bool:
+        if not self._article_matches_filter(target, keywords):
             return False
-        searchable_text = f"{snapshot.title}\n{snapshot.content_text or ''}".lower()
+        if hasattr(target, "status"):
+            target.status = "invalid_content"
+        logger.debug(
+            "%s marked filtered article invalid source_id=%s platform=%s external_video_id=%s title=%s",
+            context,
+            source_id,
+            getattr(target, "platform", None),
+            getattr(target, "external_video_id", None),
+            str(getattr(target, "title", ""))[:120],
+        )
+        return True
+
+    @staticmethod
+    def _article_matches_filter(target, keywords: list[str]) -> bool:
+        if getattr(target, "content_type", None) != "article" or not keywords:
+            return False
+        searchable_text = f"{getattr(target, 'title', '')}\n{getattr(target, 'content_text', '') or ''}".lower()
         return any(keyword in searchable_text for keyword in keywords)
 
     @staticmethod
