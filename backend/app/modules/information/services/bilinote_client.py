@@ -27,7 +27,7 @@ class BilinoteTaskResult:
 
 
 class BilinoteClient:
-    def __init__(self, base_url: str, timeout: int = 30) -> None:
+    def __init__(self, base_url: str, timeout: int = 60) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 

@@ -18,16 +18,6 @@ export interface TaskLog {
   status_label: string
 }
 
-export interface DataFetchError {
-  id: number
-  source: string
-  data_type: string
-  target_code: string
-  error_message: string
-  occurred_at: string
-  resolved: number
-}
-
 export async function listTaskLogs(module: OperationModule, filters?: { taskType?: string; status?: string }): Promise<TaskLog[]> {
   const { data } = await apiClient.get<TaskLog[]>('/tasks/logs', {
     params: {
@@ -35,13 +25,6 @@ export async function listTaskLogs(module: OperationModule, filters?: { taskType
       task_type: filters?.taskType || undefined,
       status: filters?.status || undefined,
     },
-  })
-  return data
-}
-
-export async function listErrors(module: OperationModule): Promise<DataFetchError[]> {
-  const { data } = await apiClient.get<DataFetchError[]>('/errors', {
-    params: { unresolved_only: true, module },
   })
   return data
 }

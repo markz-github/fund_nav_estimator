@@ -334,7 +334,7 @@ table {
 }
 
 .notes-table {
-  min-width: 1520px;
+  min-width: 0;
 }
 
 .operations-table {
@@ -420,6 +420,34 @@ table {
 .col-title,
 .col-message {
   width: auto;
+}
+
+.notes-table .col-id {
+  width: 58px;
+}
+
+.notes-table .col-source {
+  width: 120px;
+}
+
+.notes-table .col-duration {
+  width: 76px;
+}
+
+.notes-table .col-time {
+  width: 145px;
+}
+
+.notes-table .col-status {
+  width: 112px;
+}
+
+.notes-table .col-provider {
+  width: 86px;
+}
+
+.notes-table .col-actions {
+  width: 82px;
 }
 
 th,

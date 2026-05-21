@@ -90,7 +90,7 @@ class BilibiliVideoSourceAdapter:
             url,
             params=params,
             headers=headers,
-            timeout=20,
+            timeout=60,
         )
         logger.debug(
             "bilibili fetch latest videos response source_id=%s mid=%s http_status=%s",
@@ -164,7 +164,7 @@ class BilibiliVideoSourceAdapter:
                 url,
                 params=params,
                 headers={**headers, "Referer": f"https://space.bilibili.com/{mid}/dynamic"},
-                timeout=20,
+                timeout=60,
             )
             logger.debug(
                 "bilibili fetch latest articles response source_id=%s mid=%s http_status=%s",

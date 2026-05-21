@@ -158,7 +158,6 @@ watch(
           <col class="col-status" />
           <col class="col-time" />
           <col class="col-source" />
-          <col class="col-task" />
           <col class="col-time" />
           <col class="col-actions-wide" />
         </colgroup>
@@ -170,14 +169,13 @@ watch(
             <th>状态</th>
             <th>汇总日期</th>
             <th>平台</th>
-            <th>Run ID</th>
             <th>生成时间</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="documents.length === 0">
-            <td colspan="9">暂无笔记汇总文档。</td>
+            <td colspan="8">暂无笔记汇总文档。</td>
           </tr>
           <tr v-for="document in documents" :key="document.id">
             <td class="mono">{{ document.id }}</td>
@@ -190,7 +188,6 @@ watch(
             <td><span class="status-pill" :class="statusClass(document.status)">{{ document.status_label }}</span></td>
             <td>{{ document.summary_date }}</td>
             <td>{{ document.platform }}</td>
-            <td class="mono">{{ document.hermes_run_id ?? '-' }}</td>
             <td>{{ document.generated_at ? formatDateTime(document.generated_at) : document.summary_date }}</td>
             <td>
               <div class="quick-actions">
