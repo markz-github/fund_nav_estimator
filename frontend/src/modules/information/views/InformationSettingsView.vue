@@ -50,7 +50,7 @@ onMounted(loadSettings)
       <div>
         <p class="eyebrow">Settings</p>
         <h1>信息流设置</h1>
-        <p class="subtitle">维护 B站 Cookie、Bilinote、Hermes 接口参数和汇总说明。</p>
+        <p class="subtitle">维护 B站 Cookie、Bilinote、Hermes 接口参数和各类汇总说明。</p>
       </div>
       <div class="section-actions">
         <button class="ghost" :disabled="loading" @click="loadSettings">{{ loading ? '刷新中...' : '刷新设置' }}</button>
@@ -75,7 +75,9 @@ onMounted(loadSettings)
       <label>轮询路径<input v-model="settings.hermes_status_path_template" /></label>
       <label class="settings-wide">微信推送接口<input v-model="settings.wechat_push_webhook_url" placeholder="每日汇总 8 点推送使用" /></label>
       <label>微信推送 Token<input v-model="settings.wechat_push_token" type="password" autocomplete="off" spellcheck="false" placeholder="可选" /></label>
-      <label class="settings-wide">Hermes 汇总说明<textarea v-model="settings.hermes_summary_instruction" rows="5" placeholder="可选。会附加到每日汇总和手动笔记汇总的提示词中。" /></label>
+      <label class="settings-wide">Hermes 手动汇总说明<textarea v-model="settings.hermes_summary_instruction" rows="5" placeholder="可选。仅用于在笔记管理中手动选择笔记生成的汇总。" /></label>
+      <label class="settings-wide">Hermes 日汇总说明<textarea v-model="settings.hermes_daily_summary_instruction" rows="5" placeholder="可选。仅用于每日定时汇总和手动生成每日汇总。" /></label>
+      <label class="settings-wide">Hermes 周汇总说明<textarea v-model="settings.hermes_weekly_summary_instruction" rows="5" placeholder="可选。仅用于每周定时汇总上周一至上周日发布内容。" /></label>
     </div>
   </main>
 </template>

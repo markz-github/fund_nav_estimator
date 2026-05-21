@@ -19,6 +19,7 @@ INFORMATION_TASK_TYPES = {
     "submit_information_video_note_task",
     "poll_information_video_notes",
     "generate_information_summary_documents",
+    "generate_information_weekly_summary_documents",
     "generate_information_custom_summary",
     "retry_information_summary_document",
     "push_information_summary_documents",

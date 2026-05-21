@@ -26,6 +26,7 @@ from app.modules.information.models.video_source import InformationVideoSource
 from app.scheduler.jobs import (
     create_scheduler,
     generate_information_summary_documents_job,
+    generate_information_weekly_summary_documents_job,
     generate_information_video_notes_job,
     poll_information_summary_documents_job,
     push_information_summary_documents_job,
@@ -45,6 +46,7 @@ def settings(fund_enabled: bool, information_enabled: bool):
         scheduler_scan_videos_cron="*/3 * * * *",
         scheduler_generate_video_notes_interval_seconds=30,
         scheduler_generate_summary_documents_cron="0 7 * * *",
+        scheduler_generate_weekly_summary_documents_cron="30 7 * * mon",
         scheduler_poll_summary_documents_interval_seconds=30,
         scheduler_push_summary_documents_cron="0 8 * * *",
     )
@@ -92,6 +94,7 @@ class SchedulerConfigTests(unittest.TestCase):
                 "scan_information_videos",
                 "generate_information_video_notes",
                 "generate_information_summary_documents",
+                "generate_information_weekly_summary_documents",
                 "poll_information_summary_documents",
                 "push_information_summary_documents",
             },
@@ -442,6 +445,20 @@ class SchedulerConfigTests(unittest.TestCase):
 
         expected_date = date.today() - timedelta(days=1)
         service.create_daily_summary.assert_called_once_with(platform="bilibili", summary_date=expected_date)
+
+    def test_scheduled_weekly_summary_job_uses_previous_monday(self) -> None:
+        service = Mock()
+        service.create_weekly_summary.return_value = None
+
+        with (
+            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+        ):
+            generate_information_weekly_summary_documents_job()
+
+        today = date.today()
+        expected_week_start = today - timedelta(days=today.weekday() + 7)
+        service.create_weekly_summary.assert_called_once_with(platform="bilibili", week_start=expected_week_start)
 
     def test_scheduled_summary_poll_job_does_not_log_empty_poll(self) -> None:
         service = Mock()

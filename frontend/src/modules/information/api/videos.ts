@@ -28,6 +28,8 @@ export interface InformationSettings {
   hermes_run_path: string
   hermes_status_path_template: string
   hermes_summary_instruction: string
+  hermes_daily_summary_instruction: string
+  hermes_weekly_summary_instruction: string
   wechat_push_webhook_url: string
   wechat_push_token: string
   video_note_recent_days: string
@@ -81,6 +83,7 @@ export interface VideoNoteRawResponse {
 export interface SummaryDocument {
   id: number
   platform: string
+  summary_type: string
   summary_date: string
   title: string
   status: string

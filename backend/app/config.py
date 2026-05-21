@@ -26,6 +26,7 @@ class AppConfig(BaseModel):
     scheduler_scan_videos_cron: str = "*/3 * * * *"
     scheduler_generate_video_notes_interval_seconds: int = 30
     scheduler_generate_summary_documents_cron: str = "0 7 * * *"
+    scheduler_generate_weekly_summary_documents_cron: str = "30 7 * * mon"
     scheduler_poll_summary_documents_interval_seconds: int = 30
     scheduler_push_summary_documents_cron: str = "0 8 * * *"
 

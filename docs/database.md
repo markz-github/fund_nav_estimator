@@ -279,6 +279,7 @@ Hermes 二次汇总文档表，第一版按每日和平台聚合。
 CREATE TABLE information_summary_documents (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     platform VARCHAR(30) NOT NULL COMMENT '视频平台',
+    summary_type VARCHAR(20) NOT NULL DEFAULT 'daily' COMMENT '汇总类型：manual、daily、weekly',
     summary_date DATE NOT NULL COMMENT '汇总日期',
     title VARCHAR(200) NOT NULL COMMENT '文档标题',
     status VARCHAR(30) NOT NULL DEFAULT 'pending' COMMENT '生成状态',
@@ -289,8 +290,9 @@ CREATE TABLE information_summary_documents (
     generated_at DATETIME NULL COMMENT '生成时间',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_information_summary_documents_platform_date (platform, summary_date),
-    INDEX idx_information_summary_documents_status (status)
+    UNIQUE KEY uk_information_summary_documents_platform_type_date (platform, summary_type, summary_date),
+    INDEX idx_information_summary_documents_status (status),
+    INDEX idx_information_summary_documents_type_date (summary_type, summary_date)
 );
 ```
 
@@ -328,6 +330,9 @@ CREATE TABLE information_summary_document_items (
 - `wechat_push_webhook_url`：微信推送接口地址，每天 08:00 推送昨天的已完成每日汇总。
 - `wechat_push_token`：微信推送接口可选鉴权令牌。若填写值未包含认证方案，后端会以 `Bearer <token>` 形式发送 `Authorization` 请求头。
 - `video_note_recent_days`：Bilinote 总结任务只处理最近 N 天内发布或入库的视频，默认 3 天；设置为 0 表示不限制。
+- `hermes_summary_instruction`：手动选择笔记生成自定义汇总时使用的补充说明。
+- `hermes_daily_summary_instruction`：每日汇总使用的补充说明。
+- `hermes_weekly_summary_instruction`：周汇总使用的补充说明。
 
 ```sql
 CREATE TABLE information_settings (

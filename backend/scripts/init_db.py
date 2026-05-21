@@ -73,6 +73,28 @@ def ensure_schema_columns() -> None:
         if "information_videos" in table_names:
             connection.execute(text("ALTER TABLE information_videos MODIFY COLUMN raw_response LONGTEXT NULL COMMENT '扫描原始响应'"))
         if "information_summary_documents" in table_names:
+            summary_columns = {column["name"] for column in inspector.get_columns("information_summary_documents")}
+            if "summary_type" not in summary_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE information_summary_documents "
+                        "ADD COLUMN summary_type VARCHAR(20) NOT NULL DEFAULT 'daily' COMMENT '汇总类型：daily、weekly、manual'"
+                    )
+                )
+            summary_indexes = {index["name"] for index in inspector.get_indexes("information_summary_documents")}
+            if "uk_information_summary_documents_platform_date" in summary_indexes:
+                connection.execute(text("ALTER TABLE information_summary_documents DROP INDEX uk_information_summary_documents_platform_date"))
+            if "uk_information_summary_documents_platform_type_date" not in summary_indexes:
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX uk_information_summary_documents_platform_type_date "
+                        "ON information_summary_documents (platform, summary_type, summary_date)"
+                    )
+                )
+            if "idx_information_summary_documents_type_date" not in summary_indexes:
+                connection.execute(
+                    text("CREATE INDEX idx_information_summary_documents_type_date ON information_summary_documents (summary_type, summary_date)")
+                )
             connection.execute(text("ALTER TABLE information_summary_documents MODIFY COLUMN document_text LONGTEXT NULL COMMENT '汇总文档正文'"))
             connection.execute(text("ALTER TABLE information_summary_documents MODIFY COLUMN raw_response LONGTEXT NULL COMMENT 'Hermes 原始响应'"))
 

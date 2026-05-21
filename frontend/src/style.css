@@ -326,7 +326,7 @@ table {
 }
 
 .sources-table {
-  min-width: 1240px;
+  min-width: 1260px;
 }
 
 .videos-table {
@@ -375,6 +375,10 @@ table {
 
 .col-status {
   width: 132px;
+}
+
+.col-status-wide {
+  width: 152px;
 }
 
 .col-provider {

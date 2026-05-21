@@ -84,6 +84,8 @@ class InformationSettingsOut(BaseModel):
     hermes_run_path: str
     hermes_status_path_template: str
     hermes_summary_instruction: str
+    hermes_daily_summary_instruction: str
+    hermes_weekly_summary_instruction: str
     wechat_push_webhook_url: str
     wechat_push_token: str
     video_note_recent_days: str
@@ -102,6 +104,8 @@ class InformationSettingsUpdate(BaseModel):
     hermes_run_path: str | None = None
     hermes_status_path_template: str | None = None
     hermes_summary_instruction: str | None = None
+    hermes_daily_summary_instruction: str | None = None
+    hermes_weekly_summary_instruction: str | None = None
     wechat_push_webhook_url: str | None = None
     wechat_push_token: str | None = None
     video_note_recent_days: str | None = None
@@ -222,6 +226,7 @@ class SummaryDocumentOut(BaseModel):
 
     id: int
     platform: str
+    summary_type: str
     summary_date: date
     title: str
     status: str
