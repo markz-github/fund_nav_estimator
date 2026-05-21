@@ -86,13 +86,14 @@ watch(noteId, loadNote)
         <p class="eyebrow">Note Detail</p>
         <h2>{{ note.video_title ?? `视频 ${note.video_id}` }}</h2>
         <p class="subtitle">
-          {{ note.video_platform ?? '-' }} · {{ note.video_external_id ?? '-' }} ·
+          {{ note.video_platform ?? '-' }} ·
           <a v-if="note.source_url" :href="note.source_url" target="_blank" rel="noreferrer">
             {{ note.source_name ?? '发布账号' }}
           </a>
           <span v-else>{{ note.source_name ?? '未知账号' }}</span>
           · {{ formatDateTime(note.video_published_at) }}
           · 时长 {{ formatDurationSeconds(note.video_duration_seconds) }}
+          · Provider {{ note.provider }}
           · <a v-if="note.video_url" :href="note.video_url" target="_blank" rel="noreferrer">打开视频</a>
         </p>
       </div>

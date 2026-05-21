@@ -318,7 +318,6 @@ watch(
           <col class="col-duration" />
           <col class="col-time" />
           <col class="col-status" />
-          <col class="col-provider" />
           <col class="col-time" />
           <col class="col-actions" />
         </colgroup>
@@ -339,14 +338,13 @@ watch(
             <th>时长</th>
             <th><button class="sort-header" type="button" @click="toggleSort('published_at')">发布时间 <span>{{ sortIndicator('published_at') }}</span></button></th>
             <th><button class="sort-header" type="button" @click="toggleSort('status')">状态 <span>{{ sortIndicator('status') }}</span></button></th>
-            <th>Provider</th>
             <th><button class="sort-header" type="button" @click="toggleSort('generated_at')">生成时间 <span>{{ sortIndicator('generated_at') }}</span></button></th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="sortedNotes.length === 0">
-            <td colspan="10">暂无笔记。</td>
+            <td colspan="9">暂无笔记。</td>
           </tr>
           <tr v-for="note in sortedNotes" :key="note.id">
             <td>
@@ -372,7 +370,6 @@ watch(
             <td>
               <span class="status-pill" :class="statusClass(note.status)">{{ note.status_label }}</span>
             </td>
-            <td>{{ note.provider }}</td>
             <td>{{ formatDateTime(note.generated_at) }}</td>
             <td>
               <RouterLink v-if="note.status === 'done'" class="link-button" :to="`/information/notes/${note.id}`">查看</RouterLink>

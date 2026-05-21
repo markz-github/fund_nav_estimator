@@ -426,6 +426,10 @@ table {
   width: 58px;
 }
 
+.notes-table .col-title {
+  width: 28%;
+}
+
 .notes-table .col-source {
   width: 120px;
 }
@@ -440,10 +444,6 @@ table {
 
 .notes-table .col-status {
   width: 112px;
-}
-
-.notes-table .col-provider {
-  width: 86px;
 }
 
 .notes-table .col-actions {
