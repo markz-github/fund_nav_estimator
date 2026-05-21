@@ -71,6 +71,11 @@ def ensure_schema_columns() -> None:
         if "information_video_sources" in table_names:
             connection.execute(text("ALTER TABLE information_video_sources MODIFY COLUMN raw_response LONGTEXT NULL COMMENT '最近扫描原始响应'"))
         if "information_videos" in table_names:
+            video_columns = {column["name"] for column in inspector.get_columns("information_videos")}
+            if "duration_seconds" not in video_columns:
+                connection.execute(
+                    text("ALTER TABLE information_videos ADD COLUMN duration_seconds INT NULL COMMENT '视频时长秒数'")
+                )
             connection.execute(text("ALTER TABLE information_videos MODIFY COLUMN raw_response LONGTEXT NULL COMMENT '扫描原始响应'"))
         if "information_summary_documents" in table_names:
             summary_columns = {column["name"] for column in inspector.get_columns("information_summary_documents")}

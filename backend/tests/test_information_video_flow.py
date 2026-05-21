@@ -71,6 +71,45 @@ class InformationVideoFlowTests(unittest.TestCase):
         headers = get.call_args.kwargs["headers"]
         self.assertEqual(headers["Cookie"], "SESSDATA=test; bili_jct=abc")
 
+    def test_bilibili_adapter_parses_video_duration(self) -> None:
+        adapter = BilibiliVideoSourceAdapter()
+        source = InformationVideoSource(
+            id=7,
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        arc_response = Mock()
+        arc_response.status_code = 200
+        arc_response.json.return_value = {
+            "code": 0,
+            "data": {
+                "list": {
+                    "vlist": [
+                        {
+                            "bvid": "BV-duration",
+                            "title": "有时长的视频",
+                            "pic": "https://i0.hdslb.com/test.jpg",
+                            "created": 1779252000,
+                            "length": "1:02:03",
+                        }
+                    ]
+                }
+            },
+        }
+        dynamic_response = Mock()
+        dynamic_response.status_code = 200
+        dynamic_response.json.return_value = {"code": 0, "data": {"items": []}}
+
+        with patch(
+            "app.modules.information.services.video_source_adapters.requests.get",
+            side_effect=[arc_response, dynamic_response],
+        ):
+            snapshots = adapter.fetch_latest_videos(source)
+
+        self.assertEqual(snapshots[0].duration_seconds, 3723)
+
     def test_bilibili_adapter_parses_article_dynamic_items(self) -> None:
         adapter = BilibiliVideoSourceAdapter()
         source = InformationVideoSource(
@@ -184,6 +223,7 @@ class InformationVideoFlowTests(unittest.TestCase):
                 author_name="测试账号",
                 published_at=datetime(2026, 5, 18, 10, 0, 0),
                 raw_response={"bvid": "BV1xx"},
+                duration_seconds=452,
             )
         ]
 
@@ -197,6 +237,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(first_count, 1)
         self.assertEqual(second_count, 0)
         self.assertEqual(self.db.query(InformationVideo).count(), 1)
+        self.assertEqual(self.db.query(InformationVideo).one().duration_seconds, 452)
 
     def test_article_note_uses_hermes_without_settings_instruction(self) -> None:
         service = VideoInformationService(self.db)
@@ -1215,6 +1256,7 @@ class InformationVideoFlowTests(unittest.TestCase):
             external_video_id="BV-note-first",
             title="账号一视频",
             video_url="https://www.bilibili.com/video/BV-note-first",
+            duration_seconds=188,
             status="note_done",
         )
         second_video = InformationVideo(
@@ -1223,6 +1265,7 @@ class InformationVideoFlowTests(unittest.TestCase):
             external_video_id="BV-note-second",
             title="账号二视频",
             video_url="https://www.bilibili.com/video/BV-note-second",
+            duration_seconds=244,
             status="note_done",
         )
         self.db.add_all([first_video, second_video])
@@ -1238,6 +1281,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         notes = VideoInformationService(self.db).list_notes(source_id=second_source.id)
 
         self.assertEqual([note["source_name"] for note in notes], ["账号二"])
+        self.assertEqual([note["video_duration_seconds"] for note in notes], [244])
 
         filtered_by_date = VideoInformationService(self.db).list_notes(
             published_from=date(2026, 5, 19),

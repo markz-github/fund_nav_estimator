@@ -29,6 +29,7 @@ class VideoSnapshot:
     raw_response: dict
     content_type: str = "video"
     content_text: str | None = None
+    duration_seconds: int | None = None
 
 
 class VideoSourceAdapter(Protocol):
@@ -119,6 +120,7 @@ class BilibiliVideoSourceAdapter:
                 continue
             created = item.get("created")
             published_at = datetime.fromtimestamp(created) if isinstance(created, (int, float)) else None
+            duration_seconds = self._duration_seconds(item.get("length") or item.get("duration"))
             snapshots.append(
                 VideoSnapshot(
                     platform=self.platform,
@@ -129,6 +131,7 @@ class BilibiliVideoSourceAdapter:
                     published_at=published_at,
                     raw_response=item,
                     content_type="video",
+                    duration_seconds=duration_seconds,
                 )
             )
         source.raw_response = json.dumps(payload, ensure_ascii=False)
@@ -323,6 +326,28 @@ class BilibiliVideoSourceAdapter:
         if cookie:
             headers["Cookie"] = cookie
         return headers
+
+    @staticmethod
+    def _duration_seconds(value) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return int(value) if value >= 0 else None
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.isdigit():
+            return int(text)
+        parts = text.split(":")
+        if not all(part.isdigit() for part in parts):
+            return None
+        if len(parts) == 2:
+            minutes, seconds = (int(part) for part in parts)
+            return minutes * 60 + seconds
+        if len(parts) == 3:
+            hours, minutes, seconds = (int(part) for part in parts)
+            return hours * 3600 + minutes * 60 + seconds
+        return None
 
 
 def get_video_source_adapter(platform: str) -> VideoSourceAdapter:

@@ -5,6 +5,7 @@ import { apiErrorMessage } from '../../../api/client'
 import { formatDateTime } from '../../../utils/datetime'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import { getVideoNote, getVideoNoteRawResponse, type VideoNoteDetail } from '../api/videos'
+import { formatDurationSeconds } from '../utils/duration'
 
 const route = useRoute()
 const router = useRouter()
@@ -91,6 +92,7 @@ watch(noteId, loadNote)
           </a>
           <span v-else>{{ note.source_name ?? '未知账号' }}</span>
           · {{ formatDateTime(note.video_published_at) }}
+          · 时长 {{ formatDurationSeconds(note.video_duration_seconds) }}
           · <a v-if="note.video_url" :href="note.video_url" target="_blank" rel="noreferrer">打开视频</a>
         </p>
       </div>

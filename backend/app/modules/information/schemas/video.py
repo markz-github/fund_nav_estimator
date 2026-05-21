@@ -136,6 +136,7 @@ class VideoOut(BaseModel):
     author_name: str | None
     source_name: str | None
     published_at: datetime | None
+    duration_seconds: int | None = None
     status: str
     created_at: datetime
     updated_at: datetime
@@ -174,6 +175,7 @@ class VideoNoteOut(BaseModel):
     video_title: str | None = None
     video_url: str | None = None
     video_published_at: datetime | None = None
+    video_duration_seconds: int | None = None
     source_id: int | None = None
     source_name: str | None = None
     source_url: str | None = None
@@ -196,6 +198,7 @@ class VideoNoteDetailOut(VideoNoteOut):
     video_title: str | None = None
     video_url: str | None = None
     video_published_at: datetime | None = None
+    video_duration_seconds: int | None = None
     video_platform: str | None = None
     video_external_id: str | None = None
     source_id: int | None = None
@@ -214,6 +217,7 @@ class SummaryDocumentNoteOut(BaseModel):
     video_title: str | None = None
     video_url: str | None = None
     video_published_at: datetime | None = None
+    video_duration_seconds: int | None = None
     source_id: int | None = None
     source_name: str | None = None
     source_url: str | None = None

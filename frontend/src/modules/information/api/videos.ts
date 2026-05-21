@@ -45,6 +45,7 @@ export interface InformationVideo {
   title: string
   video_url: string
   content_type: string
+  duration_seconds?: number | null
   author_name?: string | null
   published_at?: string | null
   status: string
@@ -57,6 +58,7 @@ export interface VideoNote {
   video_title?: string | null
   video_url?: string | null
   video_published_at?: string | null
+  video_duration_seconds?: number | null
   source_id?: number | null
   source_name?: string | null
   source_url?: string | null
@@ -72,6 +74,7 @@ export interface VideoNote {
 export interface VideoNoteDetail extends VideoNote {
   video_title?: string | null
   video_url?: string | null
+  video_duration_seconds?: number | null
   video_platform?: string | null
   video_external_id?: string | null
 }
@@ -102,6 +105,7 @@ export interface SummaryDocumentNote {
   video_title?: string | null
   video_url?: string | null
   video_published_at?: string | null
+  video_duration_seconds?: number | null
   source_id?: number | null
   source_name?: string | null
   source_url?: string | null

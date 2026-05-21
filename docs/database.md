@@ -236,6 +236,7 @@ CREATE TABLE information_videos (
     video_url VARCHAR(500) NOT NULL COMMENT '内容链接',
     content_type VARCHAR(30) NOT NULL DEFAULT 'video' COMMENT '内容类型：video/article',
     content_text LONGTEXT NULL COMMENT '图文正文',
+    duration_seconds INT NULL COMMENT '视频时长秒数',
     author_name VARCHAR(100) NULL COMMENT '作者名称',
     published_at DATETIME NULL COMMENT '发布时间',
     status VARCHAR(30) NOT NULL DEFAULT 'discovered' COMMENT '处理状态',
