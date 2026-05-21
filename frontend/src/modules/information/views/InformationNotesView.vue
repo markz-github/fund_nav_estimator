@@ -13,6 +13,7 @@ import {
   type VideoSource,
 } from '../api/videos'
 import DateField from '../components/DateField.vue'
+import { formatDurationSeconds } from '../utils/duration'
 import { statusClass } from '../utils/status'
 
 const route = useRoute()
@@ -314,6 +315,7 @@ watch(
           <col class="col-id" />
           <col class="col-title" />
           <col class="col-source" />
+          <col class="col-duration" />
           <col class="col-time" />
           <col class="col-status" />
           <col class="col-provider" />
@@ -335,6 +337,7 @@ watch(
             <th>ID</th>
             <th><button class="sort-header" type="button" @click="toggleSort('title')">视频 <span>{{ sortIndicator('title') }}</span></button></th>
             <th><button class="sort-header" type="button" @click="toggleSort('source')">发布账号 <span>{{ sortIndicator('source') }}</span></button></th>
+            <th>时长</th>
             <th><button class="sort-header" type="button" @click="toggleSort('published_at')">发布时间 <span>{{ sortIndicator('published_at') }}</span></button></th>
             <th><button class="sort-header" type="button" @click="toggleSort('status')">状态 <span>{{ sortIndicator('status') }}</span></button></th>
             <th>Provider</th>
@@ -345,7 +348,7 @@ watch(
         </thead>
         <tbody>
           <tr v-if="sortedNotes.length === 0">
-            <td colspan="10">暂无笔记。</td>
+            <td colspan="11">暂无笔记。</td>
           </tr>
           <tr v-for="note in sortedNotes" :key="note.id">
             <td>
@@ -366,6 +369,7 @@ watch(
             <td>
               {{ note.source_name ?? '-' }}
             </td>
+            <td class="mono">{{ formatDurationSeconds(note.video_duration_seconds) }}</td>
             <td>{{ formatDateTime(note.video_published_at) }}</td>
             <td>
               <span class="status-pill" :class="statusClass(note.status)">{{ note.status_label }}</span>

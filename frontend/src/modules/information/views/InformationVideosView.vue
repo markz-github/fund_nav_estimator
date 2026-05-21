@@ -16,6 +16,7 @@ import {
   type VideoSource,
 } from '../api/videos'
 import DateField from '../components/DateField.vue'
+import { formatDurationSeconds } from '../utils/duration'
 import { statusClass } from '../utils/status'
 
 const route = useRoute()
@@ -312,6 +313,7 @@ watch(
           <col class="col-type" />
           <col class="col-title" />
           <col class="col-source" />
+          <col class="col-duration" />
           <col class="col-status" />
           <col class="col-time" />
           <col class="col-status" />
@@ -322,8 +324,8 @@ watch(
               <input
                 class="row-check"
                 type="checkbox"
-              :checked="allVideosSelected"
-              :disabled="loading || sortedVideos.length === 0"
+                :checked="allVideosSelected"
+                :disabled="loading || sortedVideos.length === 0"
                 @change="toggleAllVideos(($event.target as HTMLInputElement).checked)"
               />
             </th>
@@ -335,6 +337,7 @@ watch(
             <th>
               <button class="sort-header" type="button" @click="toggleSort('source')">账号 <span>{{ sortIndicator('source') }}</span></button>
             </th>
+            <th>时长</th>
             <th>
               <button class="sort-header" type="button" @click="toggleSort('status')">状态 <span>{{ sortIndicator('status') }}</span></button>
             </th>
@@ -346,7 +349,7 @@ watch(
         </thead>
         <tbody>
           <tr v-if="sortedVideos.length === 0">
-            <td colspan="8">暂无内容。</td>
+            <td colspan="9">暂无内容。</td>
           </tr>
           <tr v-for="video in sortedVideos" :key="video.id">
             <td>
@@ -365,6 +368,7 @@ watch(
             </td>
             <td><a :href="video.video_url" target="_blank" rel="noreferrer">{{ video.title }}</a></td>
             <td>{{ video.source_name ?? video.author_name ?? '-' }}</td>
+            <td class="mono">{{ video.content_type === 'article' ? '-' : formatDurationSeconds(video.duration_seconds) }}</td>
             <td>
               <span class="status-pill" :class="statusClass(video.status)">{{ video.status_label }}</span>
             </td>

@@ -207,6 +207,7 @@ class VideoInformationService:
                             existing.video_url = snapshot.video_url
                             existing.content_type = snapshot.content_type
                             existing.content_text = snapshot.content_text
+                            existing.duration_seconds = snapshot.duration_seconds
                             existing.author_name = snapshot.author_name
                             existing.published_at = snapshot.published_at
                             existing.status = snapshot_status
@@ -220,6 +221,7 @@ class VideoInformationService:
                             existing.video_url = snapshot.video_url
                             existing.content_type = snapshot.content_type
                             existing.content_text = snapshot.content_text
+                            existing.duration_seconds = snapshot.duration_seconds
                             existing.author_name = snapshot.author_name
                             existing.published_at = snapshot.published_at
                             existing.status = "invalid_content"
@@ -242,6 +244,7 @@ class VideoInformationService:
                             video_url=snapshot.video_url,
                             content_type=snapshot.content_type,
                             content_text=snapshot.content_text,
+                            duration_seconds=snapshot.duration_seconds,
                             author_name=snapshot.author_name,
                             published_at=snapshot.published_at,
                             status=snapshot_status,
@@ -1088,6 +1091,7 @@ class VideoInformationService:
                 "video_title": video_title,
                 "video_url": videos_by_id[note.video_id].video_url if note.video_id in videos_by_id else None,
                 "video_published_at": videos_by_id[note.video_id].published_at if note.video_id in videos_by_id else None,
+                "video_duration_seconds": videos_by_id[note.video_id].duration_seconds if note.video_id in videos_by_id else None,
                 "source_id": videos_by_id[note.video_id].source_id if note.video_id in videos_by_id else None,
                 "source_name": sources_by_id[videos_by_id[note.video_id].source_id].source_name
                 if note.video_id in videos_by_id and videos_by_id[note.video_id].source_id in sources_by_id
@@ -1144,6 +1148,7 @@ class VideoInformationService:
             "video_title": video.title if video is not None else None,
             "video_url": video.video_url if video is not None else None,
             "video_published_at": video.published_at if video is not None else None,
+            "video_duration_seconds": video.duration_seconds if video is not None else None,
             "video_platform": video.platform if video is not None else None,
             "video_external_id": video.external_video_id if video is not None else None,
             "source_id": source.id if source is not None else None,
@@ -1211,6 +1216,7 @@ class VideoInformationService:
                 "video_title": video.title if video is not None else None,
                 "video_url": video.video_url if video is not None else None,
                 "video_published_at": video.published_at if video is not None else None,
+                "video_duration_seconds": video.duration_seconds if video is not None else None,
                 "source_id": source.id if source is not None else video.source_id if video is not None else None,
                 "source_name": source.source_name if source is not None else video.author_name if video is not None else None,
                 "source_url": source.source_url if source is not None else None,
