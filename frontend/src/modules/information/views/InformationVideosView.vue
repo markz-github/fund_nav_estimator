@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
+import { formatDateTime } from '../../../utils/datetime'
 import {
   generateVideoNotes,
   getInformationStatusOptions,
@@ -367,7 +368,7 @@ watch(
             <td>
               <span class="status-pill" :class="statusClass(video.status)">{{ video.status_label }}</span>
             </td>
-            <td>{{ video.published_at ?? '-' }}</td>
+            <td>{{ formatDateTime(video.published_at) }}</td>
             <td>
               <RouterLink
                 v-if="notesByVideoId.get(video.id)?.status === 'done'"

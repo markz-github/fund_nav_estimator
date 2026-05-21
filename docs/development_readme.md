@@ -14,6 +14,7 @@
 - 禁止生成 Python `__pycache__` 目录和 `.pyc` 文件。运行后端脚本、测试或服务时，应设置 `PYTHONDONTWRITEBYTECODE=1`，或使用 `python -B`。
 - 每次识别到新的需求、需求变化或新的需求细节时，应同步更新 `docs/requirements/` 下对应的需求文档。
 - 系统中的业务数据表应统一使用 `is_deleted` 字段表示软删除状态。`is_deleted` 默认为 `0`，表示未删除；`1` 表示已删除。查询业务数据时应默认过滤 `is_deleted = 0`，避免返回已删除数据。
+- 前端展示日期时间字段时统一使用 `yyyy-MM-dd HH:mm:ss` 格式，例如 `2026-05-21 09:30:05`。仅日期字段继续使用 `yyyy-MM-dd`。前端应通过统一工具函数格式化日期时间，避免在页面中直接展示后端返回的 ISO 字符串或临时截断字符串。
 
 ## 后端启动
 
@@ -202,6 +203,8 @@ SCHEDULER_PUSH_SUMMARY_DOCUMENTS_CRON=0 8 * * *
 - `SCHEDULER_PUSH_SUMMARY_DOCUMENTS_CRON`：每天 08:00 将昨天已完成的每日汇总文档推送到微信接口。
 
 Bilinote 总结任务还会读取 `information_settings.video_note_recent_days`，只对最近 N 天内发布或入库的视频提交总结任务。默认值为 `3`，设置为 `0` 表示不限制天数。
+
+图文投稿扫描会读取 `information_settings.article_filter_keywords`。多个关键词可用换行、逗号或分号分隔；命中图文投稿标题或正文时，该图文投稿会在信息源列表中显示为“无效内容”，状态值为 `invalid_content`，不会进入 Hermes 图文笔记任务。
 
 ## 信息流状态说明
 

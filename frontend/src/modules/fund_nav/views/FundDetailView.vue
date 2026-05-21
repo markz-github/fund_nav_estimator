@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
+import { formatDateTime } from '../../../utils/datetime'
 import {
   getFund,
   listFundHoldings,
@@ -164,7 +165,7 @@ onMounted(loadDetail)
       </article>
       <article class="info-card">
         <span>估算时间</span>
-        <strong>{{ fund.latest_estimate_time ?? '-' }}</strong>
+        <strong>{{ formatDateTime(fund.latest_estimate_time) }}</strong>
       </article>
       <article class="info-card" :class="{ 'warning-card': fund.latest_coverage_ratio && Number(fund.latest_coverage_ratio) < 0.6 }">
         <span>有效覆盖率</span>

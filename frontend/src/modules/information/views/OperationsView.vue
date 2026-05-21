@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { formatDateTime } from '../../../utils/datetime'
 import { listErrors, listTaskLogs, type DataFetchError, type OperationModule, type TaskLog } from '../api/operations'
 import { getInformationStatusOptions, type StatusOption } from '../api/videos'
 import { statusClass } from '../utils/status'
@@ -16,6 +17,12 @@ const selectedStatus = ref('')
 const fundNavTaskTypes = ref<StatusOption[]>([])
 const informationTaskTypes = ref<StatusOption[]>([])
 const taskStatuses = ref<StatusOption[]>([])
+const popover = ref<{ text: string; top: number; left: number; visible: boolean }>({
+  text: '',
+  top: 0,
+  left: 0,
+  visible: false,
+})
 
 const operationModule = computed<OperationModule>(() =>
   route.path.startsWith('/fund-nav') ? 'fund_nav' : 'information',
@@ -101,6 +108,24 @@ function targetRoute(log: TaskLog) {
     return { name: 'information-videos', query: { video_id: log.target_id } }
   }
   return null
+}
+
+function showTextPopover(event: MouseEvent | FocusEvent, text?: string | null) {
+  if (!text) return
+  const element = event.currentTarget as HTMLElement
+  const rect = element.getBoundingClientRect()
+  const width = Math.min(720, window.innerWidth - 48)
+  const left = Math.min(Math.max(24, rect.left), window.innerWidth - width - 24)
+  popover.value = {
+    text,
+    top: rect.bottom + 8,
+    left,
+    visible: true,
+  }
+}
+
+function hideTextPopover() {
+  popover.value.visible = false
 }
 
 onMounted(() => {
@@ -226,15 +251,25 @@ watch(
             </td>
             <td class="mono">{{ log.external_task_id ?? '-' }}</td>
             <td><span class="status-pill" :class="statusClass(log.status)">{{ log.status_label }}</span></td>
-            <td>{{ log.started_at }}</td>
+            <td>{{ formatDateTime(log.started_at) }}</td>
             <td>{{ durationText(log.duration_ms) }}</td>
-            <td class="log-text-cell">
+            <td
+              class="log-text-cell"
+              @mouseenter="showTextPopover($event, log.message)"
+              @focusin="showTextPopover($event, log.message)"
+              @mouseleave="hideTextPopover"
+              @focusout="hideTextPopover"
+            >
               <span class="log-text-preview">{{ log.message ?? '-' }}</span>
-              <span v-if="log.message" class="log-text-popover" tabindex="0">{{ log.message }}</span>
             </td>
-            <td class="log-text-cell">
+            <td
+              class="log-text-cell"
+              @mouseenter="showTextPopover($event, log.error_message)"
+              @focusin="showTextPopover($event, log.error_message)"
+              @mouseleave="hideTextPopover"
+              @focusout="hideTextPopover"
+            >
               <span class="log-text-preview">{{ log.error_message ?? '-' }}</span>
-              <span v-if="log.error_message" class="log-text-popover" tabindex="0">{{ log.error_message }}</span>
             </td>
           </tr>
         </tbody>
@@ -278,14 +313,30 @@ watch(
             <td>{{ error.source }}</td>
             <td class="mono">{{ error.data_type }}</td>
             <td class="mono">{{ error.target_code }}</td>
-            <td>{{ error.occurred_at }}</td>
-            <td class="log-text-cell">
+            <td>{{ formatDateTime(error.occurred_at) }}</td>
+            <td
+              class="log-text-cell"
+              @mouseenter="showTextPopover($event, error.error_message)"
+              @focusin="showTextPopover($event, error.error_message)"
+              @mouseleave="hideTextPopover"
+              @focusout="hideTextPopover"
+            >
               <span class="log-text-preview">{{ error.error_message }}</span>
-              <span class="log-text-popover" tabindex="0">{{ error.error_message }}</span>
             </td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div
+      v-if="popover.visible"
+      class="log-text-popover"
+      :style="{ top: `${popover.top}px`, left: `${popover.left}px` }"
+      tabindex="0"
+      @mouseenter="popover.visible = true"
+      @mouseleave="hideTextPopover"
+    >
+      {{ popover.text }}
     </div>
   </main>
 </template>

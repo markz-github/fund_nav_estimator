@@ -17,6 +17,7 @@ export interface VideoSource {
 
 export interface InformationSettings {
   bilibili_cookie: string
+  article_filter_keywords: string
   bilinote_base_url: string
   bilinote_provider_id: string
   bilinote_model_name: string

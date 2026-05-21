@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
+import { formatDateTime } from '../../../utils/datetime'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import { getVideoNote, getVideoNoteRawResponse, type VideoNoteDetail } from '../api/videos'
 
@@ -89,7 +90,7 @@ watch(noteId, loadNote)
             {{ note.source_name ?? '发布账号' }}
           </a>
           <span v-else>{{ note.source_name ?? '未知账号' }}</span>
-          · {{ note.video_published_at ?? '发布时间未知' }}
+          · {{ formatDateTime(note.video_published_at) }}
           · <a v-if="note.video_url" :href="note.video_url" target="_blank" rel="noreferrer">打开视频</a>
         </p>
       </div>

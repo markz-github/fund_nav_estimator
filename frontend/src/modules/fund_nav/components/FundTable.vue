@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { Fund, FundSortBy, SortOrder } from '../api/funds'
 import { statusClass as commonStatusClass } from '../../information/utils/status'
+import { formatDateTime } from '../../../utils/datetime'
 
 const props = defineProps<{
   funds: Fund[]
@@ -53,11 +54,6 @@ function growthPercent(value?: string | null) {
 function growthClass(value?: string | null) {
   if (!value) return ''
   return Number(value) >= 0 ? 'up' : 'down'
-}
-
-function shortDateTime(value?: string | null) {
-  if (!value) return '-'
-  return value.replace('T', ' ').slice(0, 16)
 }
 
 function statusText(fund: Fund) {
@@ -125,7 +121,7 @@ function sortIndicator(sortBy: FundSortBy) {
           </td>
           <td>
             <strong class="metric">{{ fund.latest_estimated_nav ?? '-' }}</strong>
-            <span class="muted">{{ shortDateTime(fund.latest_estimate_time) }}</span>
+            <span class="muted">{{ formatDateTime(fund.latest_estimate_time) }}</span>
           </td>
           <td>
             <strong class="metric change-rate" :class="growthClass(fund.latest_estimated_growth_rate)">

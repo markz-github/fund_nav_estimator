@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
+import { formatDateTime } from '../../../utils/datetime'
 import {
   generateSummary,
   getInformationStatusOptions,
@@ -190,7 +191,7 @@ watch(
             <td>{{ document.summary_date }}</td>
             <td>{{ document.platform }}</td>
             <td class="mono">{{ document.hermes_run_id ?? '-' }}</td>
-            <td>{{ document.generated_at ?? document.summary_date }}</td>
+            <td>{{ document.generated_at ? formatDateTime(document.generated_at) : document.summary_date }}</td>
             <td>
               <div class="quick-actions">
                 <RouterLink class="link-button" :to="{ name: 'information-summary-detail', params: { documentId: document.id } }">
@@ -229,7 +230,7 @@ watch(
               #{{ item.id }} {{ item.video_title ?? `视频 ${item.video_id}` }}
             </RouterLink>
             <span>{{ item.source_name ?? '-' }}</span>
-            <span>{{ item.video_published_at ?? '-' }}</span>
+            <span>{{ formatDateTime(item.video_published_at) }}</span>
           </li>
         </ul>
         <p v-else class="message">暂无关联笔记。</p>

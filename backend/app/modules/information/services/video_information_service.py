@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 import json
 import logging
+import re
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only
@@ -145,6 +146,7 @@ class VideoInformationService:
         sources = self.db.scalars(statement).all()
         settings = InformationSettingsService(self.db).get_settings()
         bilibili_cookie = settings.get("bilibili_cookie", "").strip()
+        article_filter_keywords = self._parse_keywords(settings.get("article_filter_keywords", ""))
         logger.debug(
             "video scan started source_id=%s source_ids=%s limit=%s enabled_source_count=%s",
             source_id,
@@ -179,6 +181,16 @@ class VideoInformationService:
                     len(snapshots),
                 )
                 for snapshot in snapshots:
+                    is_invalid_content = self._article_matches_filter(snapshot, article_filter_keywords)
+                    snapshot_status = "invalid_content" if is_invalid_content else "note_pending"
+                    if is_invalid_content:
+                        logger.debug(
+                            "video scan marked filtered article invalid source_id=%s platform=%s external_video_id=%s title=%s",
+                            source.id,
+                            snapshot.platform,
+                            snapshot.external_video_id,
+                            snapshot.title[:120],
+                        )
                     existing = self.db.scalar(
                         select(InformationVideo)
                         .where(
@@ -197,11 +209,21 @@ class VideoInformationService:
                             existing.content_text = snapshot.content_text
                             existing.author_name = snapshot.author_name
                             existing.published_at = snapshot.published_at
-                            existing.status = "note_pending"
+                            existing.status = snapshot_status
                             existing.raw_response = json.dumps(snapshot.raw_response, ensure_ascii=False)
                             created += 1
                             source_created += 1
                             continue
+                        if is_invalid_content and existing.status != "invalid_content":
+                            existing.source_id = source.id
+                            existing.title = snapshot.title[:300]
+                            existing.video_url = snapshot.video_url
+                            existing.content_type = snapshot.content_type
+                            existing.content_text = snapshot.content_text
+                            existing.author_name = snapshot.author_name
+                            existing.published_at = snapshot.published_at
+                            existing.status = "invalid_content"
+                            existing.raw_response = json.dumps(snapshot.raw_response, ensure_ascii=False)
                         duplicate_count += 1
                         logger.debug(
                             "video scan skipped duplicate source_id=%s platform=%s external_video_id=%s title=%s",
@@ -222,7 +244,7 @@ class VideoInformationService:
                             content_text=snapshot.content_text,
                             author_name=snapshot.author_name,
                             published_at=snapshot.published_at,
-                            status="note_pending",
+                            status=snapshot_status,
                             raw_response=json.dumps(snapshot.raw_response, ensure_ascii=False),
                         )
                     )
@@ -1237,6 +1259,23 @@ class VideoInformationService:
         if not existing:
             return error_message
         return f"{existing};{error_message}"
+
+    @staticmethod
+    def _parse_keywords(raw_value: str | None) -> list[str]:
+        if not raw_value:
+            return []
+        return [
+            item.strip().lower()
+            for item in re.split(r"[\n,，;；]+", raw_value)
+            if item.strip()
+        ]
+
+    @staticmethod
+    def _article_matches_filter(snapshot, keywords: list[str]) -> bool:
+        if snapshot.content_type != "article" or not keywords:
+            return False
+        searchable_text = f"{snapshot.title}\n{snapshot.content_text or ''}".lower()
+        return any(keyword in searchable_text for keyword in keywords)
 
     @staticmethod
     def _hermes_client(settings: dict[str, str]) -> HermesClient:
