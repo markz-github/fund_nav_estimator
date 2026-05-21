@@ -28,9 +28,13 @@ export interface DataFetchError {
   resolved: number
 }
 
-export async function listTaskLogs(module: OperationModule, taskType?: string): Promise<TaskLog[]> {
+export async function listTaskLogs(module: OperationModule, filters?: { taskType?: string; status?: string }): Promise<TaskLog[]> {
   const { data } = await apiClient.get<TaskLog[]>('/tasks/logs', {
-    params: { module, task_type: taskType || undefined },
+    params: {
+      module,
+      task_type: filters?.taskType || undefined,
+      status: filters?.status || undefined,
+    },
   })
   return data
 }

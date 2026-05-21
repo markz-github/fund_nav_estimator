@@ -326,7 +326,7 @@ table {
 }
 
 .sources-table {
-  min-width: 1260px;
+  min-width: 1290px;
 }
 
 .videos-table {
@@ -378,7 +378,7 @@ table {
 }
 
 .col-status-wide {
-  width: 152px;
+  width: 180px;
 }
 
 .col-provider {
@@ -429,6 +429,52 @@ td {
   border-bottom: 1px solid rgba(36, 63, 47, 0.12);
   vertical-align: middle;
   overflow-wrap: anywhere;
+}
+
+.log-text-cell {
+  position: relative;
+  overflow: visible;
+}
+
+.log-text-cell:hover,
+.log-text-cell:focus-within {
+  z-index: 20;
+}
+
+.log-text-preview {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.log-text-popover {
+  position: absolute;
+  top: calc(100% - 4px);
+  left: 12px;
+  z-index: 30;
+  display: none;
+  width: max-content;
+  min-width: min(360px, calc(100vw - 48px));
+  max-width: min(720px, calc(100vw - 48px));
+  max-height: 280px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid rgba(36, 63, 47, 0.18);
+  border-radius: 8px;
+  color: #213b31;
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(23, 39, 29, 0.18);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+
+.log-text-cell:hover .log-text-popover,
+.log-text-cell:focus-within .log-text-popover,
+.log-text-popover:focus {
+  display: block;
 }
 
 th {

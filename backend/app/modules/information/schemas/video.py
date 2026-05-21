@@ -25,7 +25,10 @@ class InformationStatusOptionsOut(BaseModel):
     video_statuses: list[StatusOptionOut]
     note_statuses: list[StatusOptionOut]
     summary_document_statuses: list[StatusOptionOut]
+    summary_types: list[StatusOptionOut]
     task_statuses: list[StatusOptionOut]
+    fund_nav_task_types: list[StatusOptionOut]
+    information_task_types: list[StatusOptionOut]
 
 
 class VideoSourceCreate(BaseModel):

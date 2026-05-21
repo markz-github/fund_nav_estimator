@@ -10,20 +10,11 @@ from app.modules.information.models.task_log import TaskLog
 from app.modules.information.models.video import InformationVideo
 from app.modules.information.models.video_note import InformationVideoNote
 from app.modules.information.schemas.task import TaskLogOut
+from app.modules.information.status_enums import INFORMATION_TASK_TYPES as INFORMATION_TASK_TYPE_OPTIONS
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
-INFORMATION_TASK_TYPES = {
-    "scan_information_videos",
-    "generate_information_video_notes",
-    "submit_information_video_note_task",
-    "poll_information_video_notes",
-    "generate_information_summary_documents",
-    "generate_information_weekly_summary_documents",
-    "generate_information_custom_summary",
-    "retry_information_summary_document",
-    "push_information_summary_documents",
-}
+INFORMATION_TASK_TYPES = {option.value for option in INFORMATION_TASK_TYPE_OPTIONS}
 
 
 def _message_error(message: str | None) -> str | None:
@@ -84,6 +75,7 @@ def list_task_logs(
     limit: int = 100,
     module: str | None = None,
     task_type: str | None = None,
+    status: str | None = None,
     db: Session = Depends(get_db),
 ):
     statement = select(TaskLog)
@@ -93,5 +85,7 @@ def list_task_logs(
         statement = statement.where(TaskLog.task_type.not_in(INFORMATION_TASK_TYPES))
     if task_type:
         statement = statement.where(TaskLog.task_type == task_type)
+    if status:
+        statement = statement.where(TaskLog.status == status)
     logs = db.scalars(statement.order_by(TaskLog.started_at.desc()).limit(limit)).all()
     return [_task_log_out(db, log) for log in logs]

@@ -119,7 +119,10 @@ export interface InformationStatusOptions {
   video_statuses: StatusOption[]
   note_statuses: StatusOption[]
   summary_document_statuses: StatusOption[]
+  summary_types: StatusOption[]
   task_statuses: StatusOption[]
+  fund_nav_task_types: StatusOption[]
+  information_task_types: StatusOption[]
 }
 
 export interface InformationVideoFilters {
@@ -215,8 +218,12 @@ export async function getVideoNoteRawResponse(noteId: number) {
   return data
 }
 
-export async function listSummaryDocuments() {
-  const { data } = await apiClient.get<SummaryDocument[]>('/information/summary-documents')
+export async function listSummaryDocuments(filters?: { summaryType?: string }) {
+  const { data } = await apiClient.get<SummaryDocument[]>('/information/summary-documents', {
+    params: {
+      summary_type: filters?.summaryType || undefined,
+    },
+  })
   return data
 }
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import {
   getFund,
@@ -11,6 +11,7 @@ import {
 } from '../api/funds'
 
 const route = useRoute()
+const router = useRouter()
 const fundCode = computed(() => String(route.params.fundCode || ''))
 const fund = ref<Fund | null>(null)
 const holdings = ref<FundHolding[]>([])
@@ -103,6 +104,14 @@ async function refreshHoldings() {
   }
 }
 
+function goBack() {
+  if (window.history.state?.back) {
+    router.back()
+    return
+  }
+  router.push({ name: 'fund-list' })
+}
+
 onMounted(loadDetail)
 </script>
 
@@ -114,7 +123,10 @@ onMounted(loadDetail)
         <h1>{{ fund?.fund_name ?? fundCode }}</h1>
         <p class="subtitle">查看基金基础信息、官方净值和当前已维护的持仓情况。</p>
       </div>
-      <div class="code-badge">{{ fundCode }}</div>
+      <div class="section-actions">
+        <span class="code-badge">{{ fundCode }}</span>
+        <button class="ghost" type="button" @click="goBack">返回</button>
+      </div>
     </section>
 
     <p v-if="message" class="message">{{ message }}</p>

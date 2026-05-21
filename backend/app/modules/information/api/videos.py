@@ -27,9 +27,12 @@ from app.modules.information.schemas.video import (
     VideoSourceUpdate,
 )
 from app.modules.information.status_enums import (
+    FUND_NAV_TASK_TYPES,
+    INFORMATION_TASK_TYPES,
     NOTE_STATUSES,
     SOURCE_STATUSES,
     SUMMARY_DOCUMENT_STATUSES,
+    SUMMARY_TYPES,
     TASK_STATUSES,
     VIDEO_STATUSES,
     status_options,
@@ -49,7 +52,10 @@ def get_status_options():
         "video_statuses": status_options(VIDEO_STATUSES),
         "note_statuses": status_options(NOTE_STATUSES),
         "summary_document_statuses": status_options(SUMMARY_DOCUMENT_STATUSES),
+        "summary_types": status_options(SUMMARY_TYPES),
         "task_statuses": status_options(TASK_STATUSES),
+        "fund_nav_task_types": status_options(FUND_NAV_TASK_TYPES),
+        "information_task_types": status_options(INFORMATION_TASK_TYPES),
     }
 
 
@@ -178,8 +184,12 @@ def get_video_note_raw_response(note_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/summary-documents", response_model=list[SummaryDocumentOut])
-def list_summary_documents(limit: int = 100, db: Session = Depends(get_db)):
-    return VideoInformationService(db).list_summary_documents(limit=limit)
+def list_summary_documents(
+    limit: int = 100,
+    summary_type: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return VideoInformationService(db).list_summary_documents(limit=limit, summary_type=summary_type)
 
 
 @router.get("/summary-documents/{document_id}", response_model=SummaryDocumentOut)
