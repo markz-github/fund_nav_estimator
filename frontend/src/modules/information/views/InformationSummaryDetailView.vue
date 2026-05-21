@@ -13,6 +13,15 @@ const message = ref('')
 
 const documentId = computed(() => Number(route.params.documentId))
 
+function summaryTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    manual: '手动汇总',
+    daily: '日汇总',
+    weekly: '周汇总',
+  }
+  return labels[type] ?? type
+}
+
 async function loadDocument() {
   if (!Number.isFinite(documentId.value) || documentId.value <= 0) return
   loading.value = true
@@ -38,7 +47,7 @@ watch(documentId, loadDocument)
         <p class="eyebrow">Summary Detail</p>
         <h1>{{ document.title }}</h1>
         <p class="subtitle">
-          {{ document.summary_date }} · {{ document.platform }} · <span class="mono">document: {{ document.id }}</span>
+          {{ summaryTypeLabel(document.summary_type) }} · {{ document.summary_date }} · {{ document.platform }} · <span class="mono">document: {{ document.id }}</span>
         </p>
       </div>
       <div class="section-actions">

@@ -659,11 +659,41 @@ class VideoInformationService:
         target_date = summary_date or date.today()
         start_at = datetime.combine(target_date, time.min)
         end_at = datetime.combine(target_date, time.max)
+        return self._create_period_summary(
+            platform=platform,
+            summary_type="daily",
+            summary_date=target_date,
+            start_at=start_at,
+            end_at=end_at,
+        )
+
+    def create_weekly_summary(self, platform: str = "bilibili", week_start: date | None = None) -> InformationSummaryDocument | None:
+        target_week_start = week_start or self._previous_week_start()
+        week_end = target_week_start + timedelta(days=6)
+        return self._create_period_summary(
+            platform=platform,
+            summary_type="weekly",
+            summary_date=target_week_start,
+            start_at=datetime.combine(target_week_start, time.min),
+            end_at=datetime.combine(week_end, time.max),
+            period_end=week_end,
+        )
+
+    def _create_period_summary(
+        self,
+        platform: str,
+        summary_type: str,
+        summary_date: date,
+        start_at: datetime,
+        end_at: datetime,
+        period_end: date | None = None,
+    ) -> InformationSummaryDocument | None:
         existing = self.db.scalar(
             select(InformationSummaryDocument)
             .where(
                 InformationSummaryDocument.platform == platform,
-                InformationSummaryDocument.summary_date == target_date,
+                InformationSummaryDocument.summary_type == summary_type,
+                InformationSummaryDocument.summary_date == summary_date,
             )
             .execution_options(include_deleted=True)
         )
@@ -686,7 +716,8 @@ class VideoInformationService:
                     .join(InformationSummaryDocument, InformationSummaryDocument.id == InformationSummaryDocumentItem.document_id)
                     .where(
                         InformationSummaryDocument.platform == platform,
-                        InformationSummaryDocument.summary_date == target_date,
+                        InformationSummaryDocument.summary_type == summary_type,
+                        InformationSummaryDocument.summary_date == summary_date,
                         InformationSummaryDocument.status == "done",
                     )
                 ),
@@ -697,16 +728,19 @@ class VideoInformationService:
 
         document = existing or InformationSummaryDocument(
             platform=platform,
-            summary_date=target_date,
-            title=f"{target_date.isoformat()} {platform} 视频摘要",
+            summary_type=summary_type,
+            summary_date=summary_date,
+            title=self._summary_title(platform, summary_type, summary_date, period_end),
             status="pending",
         )
         settings = InformationSettingsService(self.db).get_settings()
         prompt = self._build_summary_prompt(
             platform,
-            target_date,
+            summary_date,
             notes,
-            settings.get("hermes_summary_instruction", ""),
+            self._summary_instruction(settings, summary_type),
+            summary_type=summary_type,
+            period_end=period_end,
         )
         return self._submit_summary_document(document, notes, prompt)
 
@@ -730,6 +764,7 @@ class VideoInformationService:
         title_text = (title or "").strip()
         document = InformationSummaryDocument(
             platform=f"custom_{now:%Y%m%d%H%M%S}",
+            summary_type="manual",
             summary_date=now.date(),
             title=title_text[:200] if title_text else f"自定义视频笔记汇总 {now:%Y-%m-%d %H:%M}",
             status="pending",
@@ -739,7 +774,8 @@ class VideoInformationService:
             "custom",
             now.date(),
             notes,
-            settings.get("hermes_summary_instruction", ""),
+            self._summary_instruction(settings, "manual"),
+            summary_type="manual",
         )
         return self._submit_summary_document(document, notes, prompt)
 
@@ -762,18 +798,24 @@ class VideoInformationService:
         ).all()
         if not notes:
             notes = self._notes_from_custom_summary_task_log(document)
-            if not document.platform.startswith("custom_"):
+            if document.summary_type == "weekly":
+                return self.create_weekly_summary(platform=document.platform, week_start=document.summary_date)
+            if document.summary_type == "daily" and not document.platform.startswith("custom_"):
                 return self.create_daily_summary(platform=document.platform, summary_date=document.summary_date)
         if not notes:
             raise ValueError("Failed custom summary has no completed note items to retry")
 
         settings = InformationSettingsService(self.db).get_settings()
-        prompt_platform = "custom" if document.platform.startswith("custom_") else document.platform
+        effective_summary_type = "manual" if document.platform.startswith("custom_") else document.summary_type
+        prompt_platform = "custom" if effective_summary_type == "manual" else document.platform
+        period_end = document.summary_date + timedelta(days=6) if effective_summary_type == "weekly" else None
         prompt = self._build_summary_prompt(
             prompt_platform,
             document.summary_date,
             notes,
-            settings.get("hermes_summary_instruction", ""),
+            self._summary_instruction(settings, effective_summary_type),
+            summary_type=effective_summary_type,
+            period_end=period_end,
         )
         return self._submit_summary_document(document, notes, prompt)
 
@@ -876,6 +918,7 @@ class VideoInformationService:
         document = self.db.scalar(
             select(InformationSummaryDocument).where(
                 InformationSummaryDocument.platform == platform,
+                InformationSummaryDocument.summary_type == "daily",
                 InformationSummaryDocument.summary_date == target_date,
                 InformationSummaryDocument.status == "done",
                 InformationSummaryDocument.document_text.is_not(None),
@@ -1114,6 +1157,7 @@ class VideoInformationService:
         return {
             "id": document.id,
             "platform": document.platform,
+            "summary_type": document.summary_type,
             "summary_date": document.summary_date,
             "title": document.title,
             "status": document.status,
@@ -1223,12 +1267,35 @@ class VideoInformationService:
             return None
         return datetime.now() - timedelta(days=days)
 
+    @staticmethod
+    def _previous_week_start(today: date | None = None) -> date:
+        current = today or date.today()
+        this_week_start = current - timedelta(days=current.weekday())
+        return this_week_start - timedelta(days=7)
+
+    @staticmethod
+    def _summary_instruction(settings: dict[str, str], summary_type: str) -> str:
+        if summary_type == "daily":
+            return settings.get("hermes_daily_summary_instruction", "")
+        if summary_type == "weekly":
+            return settings.get("hermes_weekly_summary_instruction", "")
+        return settings.get("hermes_summary_instruction", "")
+
+    @staticmethod
+    def _summary_title(platform: str, summary_type: str, summary_date: date, period_end: date | None = None) -> str:
+        if summary_type == "weekly":
+            end_date = period_end or summary_date + timedelta(days=6)
+            return f"{summary_date.isoformat()} 至 {end_date.isoformat()} {platform} 周汇总"
+        return f"{summary_date.isoformat()} {platform} 每日汇总"
+
     def _build_summary_prompt(
         self,
         platform: str,
         summary_date: date,
         notes: list[InformationVideoNote],
         instruction: str = "",
+        summary_type: str = "daily",
+        period_end: date | None = None,
     ) -> str:
         blocks = []
         for idx, note in enumerate(notes, start=1):
@@ -1245,6 +1312,7 @@ class VideoInformationService:
             url = video.video_url if video is not None and video.video_url else ""
             published_at = video.published_at.isoformat(sep=" ") if video is not None and video.published_at else "未知"
             metadata = [
+                f"发布账号：{author}",
                 f"作者：{author}",
                 f"标题：{title}",
                 f"发布时间：{published_at}",
@@ -1254,9 +1322,15 @@ class VideoInformationService:
             blocks.append(f"## 视频 {idx}\n" + "\n".join(metadata) + f"\n\n{note.note_text or ''}")
         instruction_text = instruction.strip()
         instruction_block = f"补充说明：\n{instruction_text}\n\n" if instruction_text else ""
+        summary_type_label = {"manual": "手动", "daily": "每日", "weekly": "每周"}.get(summary_type, summary_type)
+        period_text = (
+            f"{summary_date.isoformat()} 至 {(period_end or summary_date + timedelta(days=6)).isoformat()}"
+            if summary_type == "weekly"
+            else summary_date.isoformat()
+        )
         return (
-            f"请将以下 {platform} 视频的 Bilinote 文字总结汇总成一篇中文文档。\n"
-            f"日期：{summary_date.isoformat()}\n"
+            f"请将以下 {platform} 视频的 Bilinote 文字总结汇总成一篇中文{summary_type_label}汇总文档。\n"
+            f"汇总周期：{period_text}\n"
             f"{instruction_block}"
             "要求：提炼主题、关键观点、可执行信息和待跟进事项；去重，按主题分组。\n"
             "重点标注要求：请主动识别值得关注的核心结论、风险信号、分歧观点和行动建议，使用 **重点：...** 或 **风险：...** 进行醒目标注。\n"

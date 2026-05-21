@@ -18,6 +18,15 @@ const message = ref('')
 const notesDialogDocumentId = ref<number | null>(null)
 const notesDialogDocument = computed(() => documents.value.find((item) => item.id === notesDialogDocumentId.value) ?? null)
 
+function summaryTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    manual: '手动汇总',
+    daily: '日汇总',
+    weekly: '周汇总',
+  }
+  return labels[type] ?? type
+}
+
 async function loadDocuments(options?: { keepMessage?: boolean }) {
   loading.value = true
   if (!options?.keepMessage) message.value = ''
@@ -74,7 +83,7 @@ onMounted(loadDocuments)
       <div>
         <p class="eyebrow">Documents</p>
         <h1>笔记汇总</h1>
-        <p class="subtitle">查看每日汇总和手动选择笔记生成的 Hermes 汇总文档。</p>
+        <p class="subtitle">查看手动汇总、日汇总和周汇总生成的 Hermes 文档。</p>
       </div>
       <div class="section-actions">
         <span>{{ documents.length }} 篇</span>
@@ -88,6 +97,7 @@ onMounted(loadDocuments)
       <table class="info-table">
         <colgroup>
           <col class="col-id" />
+          <col class="col-type" />
           <col class="col-title" />
           <col class="col-status" />
           <col class="col-time" />
@@ -99,6 +109,7 @@ onMounted(loadDocuments)
         <thead>
           <tr>
             <th>ID</th>
+            <th>汇总类型</th>
             <th>汇总名称</th>
             <th>状态</th>
             <th>汇总日期</th>
@@ -110,10 +121,11 @@ onMounted(loadDocuments)
         </thead>
         <tbody>
           <tr v-if="documents.length === 0">
-            <td colspan="8">暂无笔记汇总文档。</td>
+            <td colspan="9">暂无笔记汇总文档。</td>
           </tr>
           <tr v-for="document in documents" :key="document.id">
             <td class="mono">{{ document.id }}</td>
+            <td>{{ summaryTypeLabel(document.summary_type) }}</td>
             <td>
               <RouterLink :to="{ name: 'information-summary-detail', params: { documentId: document.id } }">
                 {{ document.title }}

@@ -19,6 +19,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "hermes_run_path": "/v1/runs",
     "hermes_status_path_template": "/v1/runs/{run_id}",
     "hermes_summary_instruction": "",
+    "hermes_daily_summary_instruction": "",
+    "hermes_weekly_summary_instruction": "",
     "wechat_push_webhook_url": "",
     "wechat_push_token": "",
     "video_note_recent_days": "3",

@@ -309,6 +309,21 @@ def generate_information_summary_documents_job() -> None:
     _run_task("生成信息流每日汇总", "generate_information_summary_documents", handler, persist_skipped=False)
 
 
+def generate_information_weekly_summary_documents_job() -> None:
+    def handler(db: Session) -> tuple[str, str]:
+        today = datetime.now().date()
+        this_week_start = today - timedelta(days=today.weekday())
+        target_week_start = this_week_start - timedelta(days=7)
+        target_week_end = target_week_start + timedelta(days=6)
+        document = VideoInformationService(db).create_weekly_summary(platform="bilibili", week_start=target_week_start)
+        if document is None:
+            return "skipped", f"week={target_week_start}..{target_week_end};no completed notes to summarize"
+        status = "success" if document.status in {"done", "running"} else "failed"
+        return status, f"week={target_week_start}..{target_week_end};document_id={document.id};status={document.status}"
+
+    _run_task("生成信息流周汇总", "generate_information_weekly_summary_documents", handler, persist_skipped=False)
+
+
 def poll_information_summary_documents_job() -> None:
     def handler(db: Session) -> tuple[str, str]:
         result = VideoInformationService(db).poll_running_summary_documents()
@@ -388,6 +403,13 @@ def create_scheduler() -> BackgroundScheduler:
             generate_information_summary_documents_job,
             trigger=CronTrigger.from_crontab(settings.scheduler_generate_summary_documents_cron),
             id="generate_information_summary_documents",
+            replace_existing=True,
+            max_instances=1,
+        )
+        scheduler.add_job(
+            generate_information_weekly_summary_documents_job,
+            trigger=CronTrigger.from_crontab(settings.scheduler_generate_weekly_summary_documents_cron),
+            id="generate_information_weekly_summary_documents",
             replace_existing=True,
             max_instances=1,
         )

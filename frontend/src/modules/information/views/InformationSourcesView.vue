@@ -137,7 +137,7 @@ onMounted(loadSources)
           <col class="col-uid" />
           <col class="col-count" />
           <col class="col-count" />
-          <col class="col-status" />
+          <col class="col-status-wide" />
           <col class="col-time" />
           <col class="col-actions-wide" />
         </colgroup>
