@@ -341,7 +341,14 @@ class VideoInformationService:
             "external_task_id": None,
             "error_message": None,
         }
-        running_note = self.db.scalar(select(InformationVideoNote).where(InformationVideoNote.status == "running"))
+        running_note = self.db.scalar(
+            select(InformationVideoNote)
+            .join(InformationVideo, InformationVideo.id == InformationVideoNote.video_id)
+            .where(
+                InformationVideoNote.status == "running",
+                InformationVideo.status != "note_failed",
+            )
+        )
         if running_note is not None:
             result["total"] = 1
             result["running"] = 1
@@ -354,7 +361,7 @@ class VideoInformationService:
             select(InformationVideo)
             .where(
                 InformationVideo.content_type == "video",
-                InformationVideo.status.in_(["note_pending", "discovered", "note_failed"]),
+                InformationVideo.status.in_(["note_pending", "discovered"]),
             )
             .order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
         )
@@ -464,7 +471,7 @@ class VideoInformationService:
             select(InformationVideo)
             .where(
                 InformationVideo.content_type == "article",
-                InformationVideo.status.in_(["note_pending", "note_failed"]),
+                InformationVideo.status == "note_pending",
                 InformationVideo.content_text.is_not(None),
             )
             .order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
@@ -571,6 +578,24 @@ class VideoInformationService:
         self.db.commit()
         return len(videos)
 
+    def retry_video_note(self, video_id: int) -> bool:
+        video = self.db.get(InformationVideo, video_id)
+        if video is None:
+            return False
+        if video.status != "note_failed":
+            raise ValueError("Only failed information records can be retried")
+
+        note = self._get_latest_note(video) or self._create_note(video)
+        video.status = "note_pending"
+        note.status = "pending"
+        note.external_task_id = None
+        note.note_text = None
+        note.error_message = None
+        note.raw_response = None
+        note.generated_at = None
+        self.db.commit()
+        return True
+
     def poll_running_notes(self, video_ids: list[int] | None = None) -> dict[str, int | str | None]:
         settings = InformationSettingsService(self.db).get_settings()
         bilinote_client = BilinoteClient(settings["bilinote_base_url"])
@@ -600,10 +625,19 @@ class VideoInformationService:
         if video_ids:
             statement = statement.where(InformationVideoNote.video_id.in_(video_ids))
         notes = self.db.scalars(statement).all()
-        result["total"] = len(notes)
         now = datetime.now()
         for note in notes:
             video = self.db.get(InformationVideo, note.video_id)
+            if video is not None:
+                self.db.refresh(video)
+            if video is not None and video.status == "note_failed":
+                if note.status == "running":
+                    note.status = "failed"
+                    if not note.error_message:
+                        note.error_message = "Information record was marked as failed"
+                    self.db.commit()
+                continue
+            result["total"] += 1
             started_at = note.updated_at or note.created_at
             if started_at and now - started_at > VIDEO_NOTE_EXPIRY:
                 note.status = "failed"
@@ -637,6 +671,16 @@ class VideoInformationService:
                     note_text = bilinote_result.note_text
                     error_message = bilinote_result.error_message
                     raw_response = bilinote_result.raw_response
+                if video is not None:
+                    self.db.refresh(video)
+                self.db.refresh(note)
+                if video is not None and video.status == "note_failed":
+                    if note.status == "running":
+                        note.status = "failed"
+                        if not note.error_message:
+                            note.error_message = "Information record was marked as failed"
+                        self.db.commit()
+                    continue
                 note.raw_response = compact_json(raw_response)
                 note.note_text = note_text
                 note.error_message = error_message

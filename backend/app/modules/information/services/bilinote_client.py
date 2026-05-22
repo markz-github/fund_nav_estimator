@@ -105,7 +105,7 @@ class BilinoteClient:
         response.raise_for_status()
         if not isinstance(data, dict):
             data = {"data": data}
-        status = self._status(data) or "running"
+        status = self._status(data) or ("failed" if self._is_error_response(data) else "running")
         note_text = self._note_text(data)
         error_message = self._error_message(data)
         if status in {"done", "completed", "success", "finished"} or note_text:
@@ -183,19 +183,34 @@ class BilinoteClient:
             data,
             (
                 "error",
+                "msg",
                 "message",
                 "detail",
                 "error_message",
                 "data.error",
+                "data.msg",
                 "data.message",
                 "data.detail",
                 "data.error_message",
                 "result.error",
+                "result.msg",
                 "result.message",
                 "result.detail",
                 "result.error_message",
             ),
         )
+
+    @classmethod
+    def _is_error_response(cls, data: Any) -> bool:
+        code = cls._first_value(data, ("code", "data.code", "result.code"))
+        if isinstance(code, int):
+            return code != 0
+        if isinstance(code, str) and code.strip():
+            try:
+                return int(code.strip()) != 0
+            except ValueError:
+                return code.strip().lower() in {"error", "failed", "fail"}
+        return False
 
     @classmethod
     def _first_string(cls, data: Any, paths: tuple[str, ...]) -> str | None:
@@ -209,6 +224,20 @@ class BilinoteClient:
                     break
             if isinstance(current, str) and current.strip():
                 return current.strip()
+        return None
+
+    @classmethod
+    def _first_value(cls, data: Any, paths: tuple[str, ...]) -> Any:
+        for path in paths:
+            current = data
+            for part in path.split("."):
+                if isinstance(current, dict):
+                    current = current.get(part)
+                else:
+                    current = None
+                    break
+            if current is not None:
+                return current
         return None
 
 

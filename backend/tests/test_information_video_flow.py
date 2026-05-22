@@ -335,6 +335,12 @@ class InformationVideoFlowTests(unittest.TestCase):
             raw_response={"id": "new-run", "status": "running"},
         )
 
+        self.assertTrue(service.retry_video_note(article.id))
+        self.db.refresh(article)
+        self.db.refresh(failed_note)
+        self.assertEqual(article.status, "note_pending")
+        self.assertEqual(failed_note.status, "pending")
+
         with patch(
             "app.modules.information.services.video_information_service.HermesClient",
             return_value=hermes,
@@ -560,7 +566,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(result["failed"], 1)
         self.assertIn("bilinote unavailable", str(result["error_message"]))
 
-    def test_submit_pending_note_task_reuses_failed_note_on_retry(self) -> None:
+    def test_retry_video_note_reuses_failed_note_then_submit_updates_it(self) -> None:
         InformationSettingsService(self.db).update_settings(
             {
                 "bilinote_provider_id": "provider-1",
@@ -603,11 +609,20 @@ class InformationVideoFlowTests(unittest.TestCase):
             error_message=None,
         )
 
+        service = VideoInformationService(self.db)
+        self.assertTrue(service.retry_video_note(video.id))
+        self.db.refresh(video)
+        self.db.refresh(failed_note)
+        self.assertEqual(video.status, "note_pending")
+        self.assertEqual(failed_note.status, "pending")
+        self.assertIsNone(failed_note.external_task_id)
+        self.assertIsNone(failed_note.error_message)
+
         with patch(
             "app.modules.information.services.video_information_service.BilinoteClient",
             return_value=client,
         ):
-            result = VideoInformationService(self.db).submit_pending_note_task(video_ids=[video.id])
+            result = service.submit_pending_note_task(video_ids=[video.id])
 
         self.assertEqual(result["started"], 1)
         self.assertEqual(result["note_id"], failed_note.id)
@@ -616,6 +631,51 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(failed_note.status, "running")
         self.assertEqual(failed_note.external_task_id, "new-task")
         self.assertIsNone(failed_note.error_message)
+
+    def test_submit_pending_note_task_does_not_auto_retry_failed_video(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "bilinote_provider_id": "provider-1",
+                "bilinote_model_name": "model-1",
+            }
+        )
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-no-auto-retry",
+            title="不自动重试视频",
+            video_url="https://www.bilibili.com/video/BV-no-auto-retry",
+            status="note_failed",
+        )
+        self.db.add(video)
+        self.db.commit()
+        self.db.add(
+            InformationVideoNote(
+                video_id=video.id,
+                provider="bilinote",
+                status="failed",
+                error_message="人工终止",
+            )
+        )
+        self.db.commit()
+        client = Mock()
+
+        with patch(
+            "app.modules.information.services.video_information_service.BilinoteClient",
+            return_value=client,
+        ):
+            result = VideoInformationService(self.db).submit_pending_note_task()
+
+        self.assertEqual(result["total"], 0)
+        client.generate_note.assert_not_called()
 
     def test_bilinote_client_reads_nested_taskid_from_generate_response(self) -> None:
         response = Mock()
@@ -650,6 +710,17 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         self.assertEqual(result.status, "done")
         self.assertEqual(result.note_text, "这是一段 Bilinote 总结。")
+
+    def test_bilinote_client_treats_nonzero_business_code_as_failed(self) -> None:
+        response = Mock()
+        response.json.return_value = {"code": 500, "msg": "供应商不存在/未保存", "data": None}
+
+        with patch("app.modules.information.services.bilinote_client.requests.get", return_value=response):
+            result = BilinoteClient("http://bilinote.local").poll_task_once("task-provider-missing")
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.error_message, "供应商不存在/未保存")
+        self.assertEqual(result.raw_response["code"], 500)
 
     def test_poll_running_notes_returns_error_message_when_external_task_fails(self) -> None:
         source = InformationVideoSource(
@@ -698,6 +769,49 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.refresh(note)
         self.assertEqual(note.status, "failed")
         self.assertEqual(note.error_message, "Bilinote 外部失败")
+
+    def test_poll_running_notes_skips_video_already_marked_failed(self) -> None:
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-skip-manual-failed",
+            title="跳过手动失败视频",
+            video_url="https://www.bilibili.com/video/BV-skip-manual-failed",
+            status="note_failed",
+        )
+        self.db.add(video)
+        self.db.commit()
+        note = InformationVideoNote(
+            video_id=video.id,
+            provider="bilinote",
+            external_task_id="task-running",
+            status="running",
+        )
+        self.db.add(note)
+        self.db.commit()
+        client = Mock()
+
+        with patch(
+            "app.modules.information.services.video_information_service.BilinoteClient",
+            return_value=client,
+        ):
+            result = VideoInformationService(self.db).poll_running_notes(video_ids=[video.id])
+
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["running"], 0)
+        self.assertEqual(result["failed"], 0)
+        client.poll_task_once.assert_not_called()
+        self.db.refresh(note)
+        self.assertEqual(note.status, "failed")
+        self.assertEqual(note.error_message, "Information record was marked as failed")
 
     def test_bilinote_client_normalizes_escaped_ordered_list_markers(self) -> None:
         response = Mock()
