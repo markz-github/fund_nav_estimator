@@ -266,6 +266,13 @@ export async function markVideoNotesFailed(videoIds: number[]) {
   return data
 }
 
+export async function retryVideoNote(videoId: number) {
+  const { data } = await apiClient.post<{ status: string; message: string; count: number }>(
+    `/information/videos/${videoId}/retry-note`,
+  )
+  return data
+}
+
 export async function generateSummary() {
   const { data } = await apiClient.post<SummaryDocument | null>('/information/actions/generate-summary', undefined, {
     timeout: 180000,

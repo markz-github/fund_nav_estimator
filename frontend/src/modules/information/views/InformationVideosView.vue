@@ -10,6 +10,7 @@ import {
   listVideoNotes,
   listVideoSources,
   markVideoNotesFailed,
+  retryVideoNote,
   type InformationVideo,
   type StatusOption,
   type VideoNote,
@@ -29,6 +30,7 @@ const loading = ref(false)
 const runningAction = ref('')
 const message = ref('')
 const selectedVideoIds = ref<number[]>([])
+const retryingVideoId = ref<number | null>(null)
 const sortBy = ref<'published_at' | 'title' | 'source' | 'status'>('published_at')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 const videoFilters = ref({
@@ -170,6 +172,19 @@ async function runAction(action: 'notes' | 'markFailed') {
     message.value = apiErrorMessage(error, '手动任务执行失败，请确认后端服务是否启动，或查看运行状态页。')
   } finally {
     runningAction.value = ''
+  }
+}
+
+async function retryFailedVideo(video: InformationVideo) {
+  retryingVideoId.value = video.id
+  try {
+    await retryVideoNote(video.id)
+    message.value = `已将内容 ${video.id} 重新加入笔记生成流程。`
+    await loadAll({ keepMessage: true })
+  } catch (error) {
+    message.value = apiErrorMessage(error, '重试失败，请确认该内容仍处于失败状态，或查看运行状态页。')
+  } finally {
+    retryingVideoId.value = null
   }
 }
 
@@ -381,6 +396,15 @@ watch(
               >
                 查看
               </RouterLink>
+              <button
+                v-else-if="video.status === 'note_failed'"
+                class="link-button"
+                type="button"
+                :disabled="retryingVideoId === video.id"
+                @click="retryFailedVideo(video)"
+              >
+                {{ retryingVideoId === video.id ? '重试中...' : '重试' }}
+              </button>
               <span v-else class="muted">-</span>
             </td>
           </tr>
