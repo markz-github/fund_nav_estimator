@@ -10,8 +10,8 @@ const navGroups = [
   {
     label: '信息流',
     items: [
-      { to: '/information/sources', label: '视频来源' },
-      { to: '/information/videos', label: '信息源管理' },
+      { to: '/information/sources', label: '信息源管理' },
+      { to: '/information/videos', label: '信息管理' },
       { to: '/information/notes', label: '笔记管理' },
       { to: '/information/summaries', label: '笔记汇总' },
       { to: '/information/operations', label: '运行状态' },

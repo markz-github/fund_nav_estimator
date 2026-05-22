@@ -309,7 +309,7 @@ class SchedulerConfigTests(unittest.TestCase):
         service.scan_next_source.return_value = {
             "source_id": 3,
             "created": 0,
-            "error_message": "source_id=3;error=RuntimeError('Bilibili API returned code=-799')",
+            "error_message": "source_id=3;error=RuntimeError('Bilibili API returned code=-400')",
         }
 
         with (
@@ -322,7 +322,7 @@ class SchedulerConfigTests(unittest.TestCase):
         self.assertEqual(len(logs), 1)
         self.assertEqual(logs[0].task_type, "scan_information_videos")
         self.assertEqual(logs[0].status, "failed")
-        self.assertIn("code=-799", logs[0].message or "")
+        self.assertIn("code=-400", logs[0].message or "")
 
     def test_task_log_list_enriches_submit_note_error_message(self) -> None:
         db = self.SessionLocal()

@@ -195,7 +195,7 @@ SCHEDULER_PUSH_SUMMARY_DOCUMENTS_CRON=0 8 * * *
 - `SCHEDULER_REFRESH_HOLDINGS_CRON`：工作日 20:30 同步基金持仓。
 - `SCHEDULER_REFRESH_QUOTES_CRON`：工作日 09:00-15:00 每 30 分钟同步行情。
 - `SCHEDULER_ESTIMATE_NAV_CRON`：工作日 09:05-15:35 每 30 分钟估算净值。
-- `SCHEDULER_SCAN_VIDEOS_CRON`：每 3 分钟扫描信息流视频来源；定时任务每次只扫描 1 个启用账号，按最近扫描时间轮询，避免集中请求触发风控。
+- `SCHEDULER_SCAN_VIDEOS_CRON`：每 3 分钟扫描信息流信息源；定时任务每次只扫描 1 个启用账号，按最近扫描时间轮询，避免集中请求触发风控。
 - `SCHEDULER_GENERATE_VIDEO_NOTES_INTERVAL_SECONDS`：每 30 秒检查或提交 Bilinote 视频总结任务。
 - `SCHEDULER_GENERATE_SUMMARY_DOCUMENTS_CRON`：每天 07:00 针对昨天发布的视频对应笔记，提交 Hermes `/v1/runs` 汇总任务。
 - `SCHEDULER_GENERATE_WEEKLY_SUMMARY_DOCUMENTS_CRON`：每周一 07:30 针对上周一至上周日发布内容对应笔记，提交 Hermes `/v1/runs` 周汇总任务。
@@ -273,7 +273,7 @@ Hermes 汇总也拆成两类任务日志：
 - `generate_information_weekly_summary_documents`：提交上周一至上周日发布内容对应笔记的 Hermes 周汇总任务。
 - `poll_information_summary_documents`：定时扫描 `information_summary_documents.status = running` 的记录，调用 Hermes 状态接口获取最终汇总正文。
 
-信息流定时任务会精简空跑日志：没有启用视频来源、扫描没有新增视频、没有 running Bilinote 任务、没有待提交总结视频、没有可汇总笔记时，不写入 `task_logs`。手动触发的任务仍会写入日志，包括 `skipped` 结果。
+信息流定时任务会精简空跑日志：没有启用信息源、扫描没有新增视频、没有 running Bilinote 任务、没有待提交总结视频、没有可汇总笔记时，不写入 `task_logs`。手动触发的任务仍会写入日志，包括 `skipped` 结果。
 
 ## 项目结构
 

@@ -10,7 +10,7 @@
 is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除标记：0未删除，1已删除'
 ```
 
-业务查询默认只返回 `is_deleted = 0` 的数据；删除业务数据时应将 `is_deleted` 更新为 `1`，不做物理删除。现有数据库可执行 `docs/add_is_deleted_columns.sql` 补齐字段。
+业务查询默认只返回 `is_deleted = 0` 的数据；删除业务数据时应将 `is_deleted` 更新为 `1`，不做物理删除。
 
 ## funds
 

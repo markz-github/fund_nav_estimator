@@ -126,11 +126,6 @@ def update_information_settings(payload: InformationSettingsUpdate, db: Session 
     return InformationSettingsService(db).update_settings(payload.model_dump())
 
 
-# 临时排查记录：曾短暂启用 GET /debug/bilibili-dynamic-fields，
-# 用于验证 B 站图文投稿发布时间字段来自 modules.module_author.pub_ts。
-# 调试实现已从可执行代码中移除，避免长期保留未使用入口和 Cookie 相关请求逻辑。
-
-
 @router.get("/videos", response_model=list[VideoOut])
 def list_videos(
     limit: int = 100,
