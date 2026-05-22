@@ -4,7 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { formatDateTime } from '../../../utils/datetime'
 import MarkdownContent from '../components/MarkdownContent.vue'
-import { getVideoNote, getVideoNoteRawResponse, type VideoNoteDetail } from '../api/videos'
+import { getVideoNote, getVideoNoteRawResponse, repollVideoNote, type VideoNoteDetail } from '../api/videos'
 import { formatDurationSeconds } from '../utils/duration'
 
 const route = useRoute()
@@ -17,6 +17,7 @@ const rawLoading = ref(false)
 const rawMessage = ref('')
 const rawResponse = ref<string | null>(null)
 const rawViewMode = ref<'text' | 'json'>('text')
+const repolling = ref(false)
 
 const noteId = computed(() => Number(route.params.noteId))
 const formattedRawResponse = computed(() => {
@@ -67,6 +68,21 @@ async function toggleRawResponse() {
   }
 }
 
+async function repollCurrentNote() {
+  if (!note.value) return
+  repolling.value = true
+  message.value = ''
+  try {
+    await repollVideoNote(note.value.id)
+    message.value = `已将笔记 ${note.value.id} 恢复为轮询中，系统会按原任务 ID 获取结果。`
+    await loadNote()
+  } catch (error) {
+    message.value = apiErrorMessage(error, '重新轮询失败，请确认该笔记为失败状态且保留了任务 ID。')
+  } finally {
+    repolling.value = false
+  }
+}
+
 function goBack() {
   if (window.history.state?.back) {
     router.back()
@@ -98,6 +114,15 @@ watch(noteId, loadNote)
         </p>
       </div>
       <div class="section-actions">
+        <button
+          v-if="note.status === 'failed' && note.external_task_id"
+          class="ghost"
+          type="button"
+          :disabled="repolling"
+          @click="repollCurrentNote"
+        >
+          {{ repolling ? '轮询中...' : '重新轮询' }}
+        </button>
         <button class="ghost" type="button" @click="goBack">返回</button>
       </div>
        <div class="muted">

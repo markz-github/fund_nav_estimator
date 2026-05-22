@@ -5,6 +5,7 @@ import json
 import logging
 import re
 
+from requests import exceptions as requests_exceptions
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only
 
@@ -596,6 +597,26 @@ class VideoInformationService:
         self.db.commit()
         return True
 
+    def repoll_video_note(self, note_id: int) -> bool:
+        note = self.db.get(InformationVideoNote, note_id)
+        if note is None:
+            return False
+        if note.status != "failed":
+            raise ValueError("Only failed notes can be repolled")
+        if not note.external_task_id:
+            raise ValueError("Failed note does not have external_task_id")
+
+        video = self.db.get(InformationVideo, note.video_id)
+        note.status = "running"
+        note.note_text = None
+        note.error_message = None
+        note.raw_response = None
+        note.generated_at = None
+        if video is not None:
+            video.status = "note_running"
+        self.db.commit()
+        return True
+
     def poll_running_notes(self, video_ids: list[int] | None = None) -> dict[str, int | str | None]:
         settings = InformationSettingsService(self.db).get_settings()
         bilinote_client = BilinoteClient(settings["bilinote_base_url"])
@@ -720,6 +741,17 @@ class VideoInformationService:
                     exc_info=True,
                 )
                 note = self.db.get(InformationVideoNote, note.id)
+                if isinstance(exc, (requests_exceptions.ConnectionError, requests_exceptions.Timeout)):
+                    if note is not None:
+                        note.status = "running"
+                        result["error_message"] = self._append_result_error(result.get("error_message"), repr(exc)[:2000])
+                    if video is not None:
+                        video.status = "note_running"
+                    provider = note.provider if note is not None else "note"
+                    log_fetch_error(self.db, provider, "video_note_poll", str(note.video_id if note else "running"), repr(exc))
+                    self.db.commit()
+                    result["running"] += 1
+                    continue
                 if note is not None:
                     note.status = "failed"
                     note.error_message = repr(exc)[:2000]
