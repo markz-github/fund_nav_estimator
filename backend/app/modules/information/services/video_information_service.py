@@ -23,6 +23,7 @@ from app.modules.information.services.information_settings_service import Inform
 from app.modules.information.services.operation_log_service import log_fetch_error
 from app.modules.information.services.video_source_adapters import get_video_source_adapter
 from app.modules.information.services.wechat_push_client import WechatPushClient
+from app.modules.information.utils.markdown import markdown_output_instruction
 
 
 logger = logging.getLogger(__name__)
@@ -1411,9 +1412,7 @@ class VideoInformationService:
             f"{instruction_block}"
             "要求：提炼主题、关键观点、可执行信息和待跟进事项；去重，按主题分组。\n"
             "重点标注要求：请主动识别值得关注的核心结论、风险信号、分歧观点和行动建议，使用 **重点：...** 或 **风险：...** 进行醒目标注。\n"
-            "输出格式要求：请以 Markdown 格式输出；使用 #、##、### 组织标题层级；"
-            "使用有序列表和无序列表归纳要点；重要观点使用 **加粗**；"
-            "不要输出 HTML；不要把正文包裹在 ```markdown 代码块中。\n\n"
+            f"{markdown_output_instruction()}\n\n"
             + "\n\n".join(blocks)
         )
 
@@ -1433,8 +1432,7 @@ class VideoInformationService:
             "请将以下 B站图文投稿整理成一篇中文 Markdown 摘要。\n"
             "这是单条图文投稿的直接总结任务，不要合并其他视频笔记，也不要假设存在 Bilinote 总结。\n"
             "要求：提炼核心观点、重要依据、风险信号、分歧观点和可跟进行动；保留作者和发布时间背景。\n"
-            "输出格式要求：使用 #、##、### 组织标题层级；使用列表归纳要点；重要观点使用 **加粗**；"
-            "不要输出 HTML；不要把正文包裹在 ```markdown 代码块中。\n\n"
+            f"{markdown_output_instruction()}\n\n"
             + "\n".join(metadata)
             + "\n\n正文：\n"
             + (article.content_text or "")

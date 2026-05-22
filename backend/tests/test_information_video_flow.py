@@ -705,7 +705,7 @@ class InformationVideoFlowTests(unittest.TestCase):
             "data": {
                 "status": "SUCCESS",
                 "result": {
-                    "markdown": "盘面特征：\n    1\\. 阴线实体变小。\n    2\\. 成交量萎缩。\n\n### 1\\. 证券",
+                    "markdown": "盘面特征：\n    1\\. 阴线实体变小。\n    2\\. 成交量萎缩。\n\n### 1\\. 证券\n### 1\\.1 半导体",
                 },
             },
         }
@@ -716,6 +716,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(result.status, "done")
         self.assertIn("    1. 阴线实体变小。", result.note_text or "")
         self.assertIn("### 1. 证券", result.note_text or "")
+        self.assertIn("### 1.1 半导体", result.note_text or "")
         self.assertNotIn("1\\.", result.note_text or "")
 
     def test_hermes_client_supports_configurable_auth_header(self) -> None:
@@ -753,6 +754,15 @@ class InformationVideoFlowTests(unittest.TestCase):
             post.call_args.kwargs["json"],
             {"model": "hermes-agent", "input": "prompt", "instructions": "title"},
         )
+
+    def test_hermes_client_normalizes_markdown_text(self) -> None:
+        response = Mock()
+        response.json.return_value = {"id": "run-markdown", "status": "done", "document": "### 1\\.1 半导体"}
+
+        with patch("app.modules.information.services.hermes_client.requests.get", return_value=response):
+            result = HermesClient("http://hermes.local").poll_run_once("run-markdown")
+
+        self.assertEqual(result.document_text, "### 1.1 半导体")
 
     def test_wechat_push_client_sends_markdown_format_payload(self) -> None:
         response = Mock()

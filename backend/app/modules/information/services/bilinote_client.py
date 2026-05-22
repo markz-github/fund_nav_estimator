@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
-import re
 import time
 from typing import Any
 
@@ -12,6 +11,7 @@ import requests
 from app.modules.information.services.external_call_logging import external_log_json
 from app.modules.information.services.external_call_logging import response_log_body
 from app.modules.information.services.external_call_logging import sanitize_external_url
+from app.modules.information.utils.markdown import normalize_markdown_text
 
 
 logger = logging.getLogger(__name__)
@@ -216,8 +216,3 @@ def compact_json(value: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def normalize_markdown_text(value: str) -> str:
-    normalized = value.strip()
-    normalized = re.sub(r"(?m)^(\s*)(\d+)\\\.(\s+)", r"\1\2.\3", normalized)
-    normalized = re.sub(r"(?m)^(\s*#{1,6}\s+\d+)\\\.(\s+)", r"\1.\2", normalized)
-    return normalized
