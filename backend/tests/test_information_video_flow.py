@@ -6,6 +6,7 @@ import sys
 import unittest
 from unittest.mock import Mock, patch
 
+from requests import exceptions as requests_exceptions
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -812,6 +813,115 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.refresh(note)
         self.assertEqual(note.status, "failed")
         self.assertEqual(note.error_message, "Information record was marked as failed")
+
+    def test_poll_running_notes_keeps_running_when_bilinote_network_unreachable(self) -> None:
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-network-unreachable",
+            title="网络不可达视频",
+            video_url="https://www.bilibili.com/video/BV-network-unreachable",
+            status="note_running",
+        )
+        self.db.add(video)
+        self.db.commit()
+        note = InformationVideoNote(
+            video_id=video.id,
+            provider="bilinote",
+            external_task_id="task-network-unreachable",
+            status="running",
+        )
+        self.db.add(note)
+        self.db.commit()
+        client = Mock()
+        client.poll_task_once.side_effect = requests_exceptions.ConnectionError("Network is unreachable")
+
+        with patch(
+            "app.modules.information.services.video_information_service.BilinoteClient",
+            return_value=client,
+        ), patch(
+            "app.modules.information.services.video_information_service.log_fetch_error",
+        ) as log_error:
+            result = VideoInformationService(self.db).poll_running_notes(video_ids=[video.id])
+
+        self.assertEqual(result["running"], 1)
+        self.assertEqual(result["failed"], 0)
+        self.assertIn("Network is unreachable", str(result["error_message"]))
+        self.db.refresh(video)
+        self.db.refresh(note)
+        self.assertEqual(video.status, "note_running")
+        self.assertEqual(note.status, "running")
+        self.assertIsNone(note.error_message)
+        log_error.assert_called_once()
+
+    def test_repoll_failed_note_keeps_external_task_id_and_allows_polling_result(self) -> None:
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-repoll",
+            title="重新轮询视频",
+            video_url="https://www.bilibili.com/video/BV-repoll",
+            status="note_failed",
+        )
+        self.db.add(video)
+        self.db.commit()
+        note = InformationVideoNote(
+            video_id=video.id,
+            provider="bilinote",
+            external_task_id="task-repoll",
+            status="failed",
+            error_message="误判失败",
+            raw_response='{"code": 500}',
+        )
+        self.db.add(note)
+        self.db.commit()
+
+        service = VideoInformationService(self.db)
+        self.assertTrue(service.repoll_video_note(note.id))
+        self.db.refresh(video)
+        self.db.refresh(note)
+        self.assertEqual(video.status, "note_running")
+        self.assertEqual(note.status, "running")
+        self.assertEqual(note.external_task_id, "task-repoll")
+        self.assertIsNone(note.error_message)
+
+        client = Mock()
+        client.poll_task_once.return_value = Mock(
+            task_id="task-repoll",
+            status="done",
+            note_text="补回的正文",
+            raw_response={"status": "SUCCESS", "markdown": "补回的正文"},
+            error_message=None,
+        )
+
+        with patch(
+            "app.modules.information.services.video_information_service.BilinoteClient",
+            return_value=client,
+        ):
+            result = service.poll_running_notes(video_ids=[video.id])
+
+        self.assertEqual(result["completed"], 1)
+        self.db.refresh(video)
+        self.db.refresh(note)
+        self.assertEqual(video.status, "note_done")
+        self.assertEqual(note.status, "done")
+        self.assertEqual(note.note_text, "补回的正文")
 
     def test_bilinote_client_normalizes_escaped_ordered_list_markers(self) -> None:
         response = Mock()

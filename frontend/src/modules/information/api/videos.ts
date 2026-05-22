@@ -273,6 +273,13 @@ export async function retryVideoNote(videoId: number) {
   return data
 }
 
+export async function repollVideoNote(noteId: number) {
+  const { data } = await apiClient.post<{ status: string; message: string; count: number }>(
+    `/information/video-notes/${noteId}/repoll`,
+  )
+  return data
+}
+
 export async function generateSummary() {
   const { data } = await apiClient.post<SummaryDocument | null>('/information/actions/generate-summary', undefined, {
     timeout: 180000,

@@ -8,6 +8,7 @@ import {
   getInformationStatusOptions,
   listVideoNotes,
   listVideoSources,
+  repollVideoNote,
   type StatusOption,
   type VideoNote,
   type VideoSource,
@@ -33,6 +34,7 @@ const generatingSummary = ref(false)
 const message = ref('')
 const selectedNoteIds = ref<number[]>([])
 const customSummaryTitle = ref('')
+const repollingNoteId = ref<number | null>(null)
 
 const filteredNotes = computed(() =>
   notes.value.filter((note) => {
@@ -215,6 +217,19 @@ async function runCustomSummary() {
   }
 }
 
+async function repollFailedNote(note: VideoNote) {
+  repollingNoteId.value = note.id
+  try {
+    await repollVideoNote(note.id)
+    message.value = `已将笔记 ${note.id} 恢复为轮询中，系统会按原任务 ID 获取结果。`
+    await loadNotes()
+  } catch (error) {
+    message.value = apiErrorMessage(error, '重新轮询失败，请确认该笔记为失败状态且保留了任务 ID。')
+  } finally {
+    repollingNoteId.value = null
+  }
+}
+
 onMounted(() => {
   applyQueryFilters()
   loadStatusOptions()
@@ -373,6 +388,15 @@ watch(
             <td>{{ formatDateTime(note.generated_at) }}</td>
             <td>
               <RouterLink v-if="note.status === 'done'" class="link-button" :to="`/information/notes/${note.id}`">查看</RouterLink>
+              <button
+                v-else-if="note.status === 'failed' && note.external_task_id"
+                class="link-button"
+                type="button"
+                :disabled="repollingNoteId === note.id"
+                @click="repollFailedNote(note)"
+              >
+                {{ repollingNoteId === note.id ? '轮询中...' : '重新轮询' }}
+              </button>
               <span v-else class="muted">-</span>
             </td>
           </tr>

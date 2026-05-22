@@ -323,6 +323,34 @@ def retry_video_note(video_id: int, db: Session = Depends(get_db)):
     return ActionResult(status="success", message=message, count=1)
 
 
+@router.post("/video-notes/{note_id}/repoll", response_model=ActionResult)
+def repoll_video_note(note_id: int, db: Session = Depends(get_db)):
+    task_log = start_task(
+        db,
+        "手动重新轮询信息源笔记",
+        "repoll_information_video_note",
+        datetime.now(),
+        str(note_id),
+        target_type="note",
+        target_id=str(note_id),
+    )
+    try:
+        repolled = VideoInformationService(db).repoll_video_note(note_id)
+    except ValueError as exc:
+        finish_task(db, task_log, "failed", str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        log_fetch_error(db, "internal", "video_note", str(note_id), repr(exc))
+        finish_task(db, task_log, "failed", repr(exc))
+        raise
+    if not repolled:
+        finish_task(db, task_log, "failed", "video note not found")
+        raise HTTPException(status_code=404, detail="video note not found")
+    message = f"note_id={note_id};status=running"
+    finish_task(db, task_log, "success", message)
+    return ActionResult(status="success", message=message, count=1)
+
+
 @router.post("/actions/generate-summary", response_model=SummaryDocumentOut | None)
 def generate_summary(
     platform: str = "bilibili",

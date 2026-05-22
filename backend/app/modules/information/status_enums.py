@@ -65,6 +65,7 @@ INFORMATION_TASK_TYPES = (
     StatusOption("submit_information_video_note_task", "提交信息源笔记任务"),
     StatusOption("poll_information_video_notes", "轮询信息源笔记任务"),
     StatusOption("retry_information_video_note", "重试信息源笔记"),
+    StatusOption("repoll_information_video_note", "重新轮询信息源笔记"),
     StatusOption("generate_information_summary_documents", "生成信息流每日汇总"),
     StatusOption("generate_information_weekly_summary_documents", "生成信息流周汇总"),
     StatusOption("generate_information_custom_summary", "生成自定义视频笔记汇总"),
