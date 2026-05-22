@@ -258,7 +258,7 @@ watch(
     <section class="detail-hero">
       <div>
         <p class="eyebrow">Feeds</p>
-        <h1>信息源管理</h1>
+        <h1>信息管理</h1>
         <p class="subtitle">查看已扫描视频和图文投稿，提交对应笔记任务，并跟踪最新笔记状态。</p>
       </div>
     </section>

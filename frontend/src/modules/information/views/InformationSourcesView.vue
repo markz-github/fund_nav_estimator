@@ -36,7 +36,7 @@ async function loadSources(options?: { keepMessage?: boolean }) {
     const sourceIdSet = new Set(sources.value.map((source) => source.id))
     selectedSourceIds.value = selectedSourceIds.value.filter((sourceId) => sourceIdSet.has(sourceId))
   } catch (error) {
-    message.value = apiErrorMessage(error, '视频来源加载失败。')
+    message.value = apiErrorMessage(error, '信息源加载失败。')
   } finally {
     loading.value = false
   }
@@ -54,10 +54,10 @@ async function submitSource() {
       remark: newSource.value.remark.trim() || undefined,
     })
     newSource.value = { source_name: '', external_source_id: '', source_url: '', remark: '' }
-    message.value = '视频来源已添加。'
+    message.value = '信息源已添加。'
     await loadSources({ keepMessage: true })
   } catch (error) {
-    message.value = apiErrorMessage(error, '新增视频来源失败，请检查 UID 或主页 URL。')
+    message.value = apiErrorMessage(error, '新增信息源失败，请检查 UID 或主页 URL。')
   } finally {
     savingSource.value = false
   }
@@ -108,7 +108,7 @@ onMounted(loadSources)
     <section class="detail-hero">
       <div>
         <p class="eyebrow">Sources</p>
-        <h1>视频来源</h1>
+        <h1>信息源管理</h1>
         <p class="subtitle">维护 B站来源账号，并手动扫描选中或全部启用账号。</p>
       </div>
       <div class="section-actions">
@@ -166,7 +166,7 @@ onMounted(loadSources)
         </thead>
         <tbody>
           <tr v-if="sources.length === 0">
-            <td colspan="10">暂无视频来源。</td>
+            <td colspan="10">暂无信息源。</td>
           </tr>
           <tr v-for="source in sources" :key="source.id">
             <td>

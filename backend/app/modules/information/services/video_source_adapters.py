@@ -110,6 +110,16 @@ class BilibiliVideoSourceAdapter:
             payload = {"data": payload}
         code = payload.get("code")
         if code not in (None, 0):
+            if code == -799:
+                logger.info(
+                    "bilibili fetch latest videos rate limited source_id=%s mid=%s code=%s message=%s",
+                    source.id,
+                    mid,
+                    code,
+                    payload.get("message"),
+                )
+                source.raw_response = json.dumps(payload, ensure_ascii=False)
+                return []
             message = str(payload.get("message") or "unknown bilibili api error")
             raise RuntimeError(f"Bilibili API returned code={code};message={message}")
         vlist = payload.get("data", {}).get("list", {}).get("vlist", []) or []

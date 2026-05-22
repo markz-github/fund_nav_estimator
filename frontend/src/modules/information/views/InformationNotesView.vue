@@ -87,7 +87,7 @@ async function loadSources() {
   try {
     sources.value = await listVideoSources()
   } catch (error) {
-    message.value = apiErrorMessage(error, '视频来源加载失败。')
+    message.value = apiErrorMessage(error, '信息源加载失败。')
   }
 }
 

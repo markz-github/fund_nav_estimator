@@ -111,6 +111,25 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         self.assertEqual(snapshots[0].duration_seconds, 3723)
 
+    def test_bilibili_adapter_treats_rate_limit_as_empty_scan(self) -> None:
+        adapter = BilibiliVideoSourceAdapter()
+        source = InformationVideoSource(
+            id=7,
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"code": -799, "message": "请求过于频繁，请稍后再试", "data": None}
+
+        with patch("app.modules.information.services.video_source_adapters.requests.get", return_value=response):
+            snapshots = adapter.fetch_latest_videos(source)
+
+        self.assertEqual(snapshots, [])
+        self.assertIn('"code": -799', source.raw_response or "")
+
     def test_bilibili_adapter_parses_article_dynamic_items(self) -> None:
         adapter = BilibiliVideoSourceAdapter()
         source = InformationVideoSource(
@@ -489,7 +508,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
         adapter = Mock()
         adapter.normalize_source_id.side_effect = lambda value: value
-        adapter.fetch_latest_videos.side_effect = RuntimeError("Bilibili API returned code=-799")
+        adapter.fetch_latest_videos.side_effect = RuntimeError("Bilibili API returned code=-400")
 
         with patch(
             "app.modules.information.services.video_information_service.get_video_source_adapter",
