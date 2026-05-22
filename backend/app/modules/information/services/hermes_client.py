@@ -11,6 +11,7 @@ from app.modules.information.services.bilinote_client import compact_json
 from app.modules.information.services.external_call_logging import external_log_json
 from app.modules.information.services.external_call_logging import response_log_body
 from app.modules.information.services.external_call_logging import sanitize_external_url
+from app.modules.information.utils.markdown import normalize_markdown_text
 
 
 logger = logging.getLogger(__name__)
@@ -148,14 +149,14 @@ class HermesClient:
             ),
         )
         if text:
-            return text
+            return normalize_markdown_text(text)
         output = data.get("output") if isinstance(data, dict) else None
         if isinstance(output, list):
             text_parts: list[str] = []
             cls._collect_output_text(output, text_parts)
             text = "\n".join(part for part in text_parts if part.strip()).strip()
             if text:
-                return text
+                return normalize_markdown_text(text)
         return None
 
     @classmethod

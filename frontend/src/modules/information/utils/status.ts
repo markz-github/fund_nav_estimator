@@ -9,7 +9,7 @@ const runningStatuses = new Set([
   'processing',
   'in_progress',
 ])
-const mutedStatuses = new Set(['skipped', 'disabled', '停用'])
+const mutedStatuses = new Set(['skipped', 'disabled', 'invalid_content', '停用', '无效内容'])
 
 export function statusClass(status: string | number | null | undefined) {
   const normalized = String(status ?? '').trim().toLowerCase()

@@ -252,7 +252,6 @@ watch(
             <td
               class="log-text-cell"
               @mouseenter="showTextPopover($event, log.message)"
-              @mousemove="showTextPopover($event, log.message)"
               @focusin="showTextPopover($event, log.message)"
               @mouseleave="hideTextPopover"
               @focusout="hideTextPopover"
@@ -262,7 +261,6 @@ watch(
             <td
               class="log-text-cell"
               @mouseenter="showTextPopover($event, log.error_message)"
-              @mousemove="showTextPopover($event, log.error_message)"
               @focusin="showTextPopover($event, log.error_message)"
               @mouseleave="hideTextPopover"
               @focusout="hideTextPopover"
