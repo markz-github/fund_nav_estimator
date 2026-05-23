@@ -219,14 +219,10 @@ h1 {
 
 .inline-add-form {
   display: grid;
-  grid-template-columns: 120px 160px auto;
+  grid-template-columns: 140px 180px minmax(180px, 1fr) 120px minmax(120px, 1fr) auto;
   gap: 10px;
   align-items: center;
   transition: grid-template-columns 180ms ease;
-}
-
-.inline-add-form:focus-within {
-  grid-template-columns: 200px 260px auto;
 }
 
 .code-input,
@@ -341,6 +337,10 @@ table {
   min-width: 1360px;
 }
 
+.summary-config-table {
+  min-width: 1180px;
+}
+
 .errors-table {
   min-width: 1080px;
 }
@@ -367,6 +367,10 @@ table {
 
 .col-uid {
   width: 150px;
+}
+
+.col-category {
+  width: 110px;
 }
 
 .col-count {
@@ -487,6 +491,30 @@ td {
   overflow-wrap: anywhere;
   user-select: text;
   cursor: text;
+}
+
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+  color: #50625d;
+  font-weight: 700;
+}
+
+.category-inline-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.48rem 0.58rem;
+}
+
+.summary-config-title {
+  margin-top: 34px;
+}
+
+.summary-task-form {
+  margin-bottom: 12px;
 }
 
 th {
@@ -683,6 +711,41 @@ tbody tr {
   box-shadow: 0 24px 70px rgba(18, 28, 24, 0.28);
 }
 
+.summary-task-dialog {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+}
+
+.template-helper {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(134, 159, 151, 0.24);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(246, 250, 244, 0.8);
+}
+
+.template-helper p {
+  margin: 0;
+  color: #38473f;
+}
+
+.template-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.template-tokens span {
+  border: 1px solid rgba(36, 63, 47, 0.14);
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #243f2f;
+  font-size: 0.82rem;
+}
+
 .confirm-dialog h2 {
   margin: 2px 0 12px;
   font-size: 1.45rem;
@@ -852,7 +915,8 @@ tbody tr {
 }
 
 .settings-grid input,
-.settings-grid textarea {
+.settings-grid textarea,
+.settings-grid select {
   border: 1px solid rgba(134, 159, 151, 0.35);
   border-radius: 8px;
   color: #18322b;

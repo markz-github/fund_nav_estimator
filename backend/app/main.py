@@ -12,6 +12,7 @@ from app.modules.information.api import errors, tasks, videos
 from app.config import get_settings
 from app.logging_config import configure_logging
 from app.scheduler.jobs import create_scheduler
+from app.scheduler.runtime import set_scheduler
 
 
 settings = get_settings()
@@ -33,6 +34,7 @@ app.include_router(tasks.router, prefix="/api")
 app.include_router(errors.router, prefix="/api")
 app.include_router(videos.router, prefix="/api")
 scheduler = create_scheduler() if settings.scheduler_fund_enabled or settings.scheduler_information_enabled else None
+set_scheduler(scheduler)
 
 
 @app.middleware("http")

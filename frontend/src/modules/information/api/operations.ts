@@ -18,12 +18,24 @@ export interface TaskLog {
   status_label: string
 }
 
-export async function listTaskLogs(module: OperationModule, filters?: { taskType?: string; status?: string }): Promise<TaskLog[]> {
-  const { data } = await apiClient.get<TaskLog[]>('/tasks/logs', {
+export interface TaskLogPage {
+  items: TaskLog[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export async function listTaskLogs(
+  module: OperationModule,
+  filters?: { taskType?: string; status?: string; page?: number; pageSize?: number },
+): Promise<TaskLogPage> {
+  const { data } = await apiClient.get<TaskLogPage>('/tasks/logs', {
     params: {
       module,
       task_type: filters?.taskType || undefined,
       status: filters?.status || undefined,
+      page: filters?.page || undefined,
+      page_size: filters?.pageSize || undefined,
     },
   })
   return data

@@ -211,6 +211,7 @@ CREATE TABLE information_video_sources (
     source_name VARCHAR(100) NOT NULL COMMENT '来源账号名称',
     source_url VARCHAR(500) NULL COMMENT '来源主页 URL',
     external_source_id VARCHAR(100) NOT NULL COMMENT '平台账号 ID，如 B站 UID',
+    category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，如财经',
     enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用扫描',
     last_scanned_at DATETIME NULL COMMENT '最近扫描时间',
     remark VARCHAR(255) NULL COMMENT '备注',
@@ -238,6 +239,7 @@ CREATE TABLE information_videos (
     content_text LONGTEXT NULL COMMENT '图文正文',
     duration_seconds INT NULL COMMENT '视频时长秒数',
     author_name VARCHAR(100) NULL COMMENT '作者名称',
+    category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，默认继承信息源分类',
     published_at DATETIME NULL COMMENT '发布时间',
     status VARCHAR(30) NOT NULL DEFAULT 'discovered' COMMENT '处理状态',
     raw_response LONGTEXT NULL COMMENT '扫描原始响应',
@@ -274,14 +276,15 @@ CREATE TABLE information_video_notes (
 
 ## information_summary_documents
 
-Hermes 二次汇总文档表，第一版按每日和平台聚合。
+Hermes 二次汇总文档表。配置汇总通过 `summary_task_config_id` 关联来源任务配置；手动汇总的 `summary_task_config_id` 为空。
 
 ```sql
 CREATE TABLE information_summary_documents (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     platform VARCHAR(30) NOT NULL COMMENT '视频平台',
-    summary_type VARCHAR(20) NOT NULL DEFAULT 'daily' COMMENT '汇总类型：manual、daily、weekly',
     summary_date DATE NOT NULL COMMENT '汇总日期',
+    category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '汇总限定的信息分类',
+    summary_task_config_id BIGINT NULL COMMENT '来源汇总任务配置 ID；为空表示手动汇总',
     title VARCHAR(200) NOT NULL COMMENT '文档标题',
     status VARCHAR(30) NOT NULL DEFAULT 'pending' COMMENT '生成状态',
     hermes_run_id VARCHAR(100) NULL COMMENT 'Hermes 异步 run ID',
@@ -291,10 +294,43 @@ CREATE TABLE information_summary_documents (
     generated_at DATETIME NULL COMMENT '生成时间',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_information_summary_documents_platform_type_date (platform, summary_type, summary_date),
+    UNIQUE KEY uk_information_summary_documents_platform_date_category_task (platform, summary_date, category, summary_task_config_id),
     INDEX idx_information_summary_documents_status (status),
-    INDEX idx_information_summary_documents_type_date (summary_type, summary_date)
+    INDEX idx_information_summary_documents_date_category (summary_date, category),
+    INDEX idx_information_summary_documents_task_config (summary_task_config_id)
 );
+```
+
+现有数据库升级 SQL：
+
+```sql
+ALTER TABLE information_video_sources
+    ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，如财经' AFTER external_source_id;
+ALTER TABLE information_videos
+    ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，默认继承信息源分类' AFTER author_name;
+ALTER TABLE information_summary_documents
+    ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '汇总限定的信息分类' AFTER summary_date;
+ALTER TABLE information_summary_documents
+    ADD COLUMN summary_task_config_id BIGINT NULL COMMENT '来源汇总任务配置 ID；为空表示手动汇总' AFTER category;
+ALTER TABLE information_summary_documents
+    DROP INDEX uk_information_summary_documents_platform_type_date,
+    ADD UNIQUE KEY uk_information_summary_documents_platform_date_category_task (platform, summary_date, category, summary_task_config_id),
+    DROP INDEX idx_information_summary_documents_type_date,
+    ADD INDEX idx_information_summary_documents_date_category (summary_date, category),
+    ADD INDEX idx_information_summary_documents_task_config (summary_task_config_id);
+```
+
+如果已经执行过上一版按分类扩展的唯一索引，可继续调整为包含汇总任务配置 ID，并删除不再使用的 `summary_type`：
+
+```sql
+ALTER TABLE information_summary_documents
+    DROP INDEX uk_information_summary_documents_platform_type_date_category,
+    ADD UNIQUE KEY uk_information_summary_documents_platform_date_category_task (platform, summary_date, category, summary_task_config_id);
+
+ALTER TABLE information_summary_documents
+    DROP INDEX idx_information_summary_documents_type_date_category,
+    ADD INDEX idx_information_summary_documents_date_category (summary_date, category),
+    DROP COLUMN summary_type;
 ```
 
 ## information_summary_document_items
@@ -309,6 +345,87 @@ CREATE TABLE information_summary_document_items (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_information_summary_document_items_doc_note (document_id, note_id)
 );
+```
+
+## information_summary_task_configs
+
+信息流定时汇总任务配置表。每条配置定义一个定时汇总任务的内容范围：从 `start_days_before` 天前到昨天，限定指定信息分类。
+
+```sql
+CREATE TABLE information_summary_task_configs (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    task_name VARCHAR(100) NOT NULL COMMENT '任务名称',
+    platform VARCHAR(30) NOT NULL DEFAULT 'bilibili' COMMENT '视频平台',
+    category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类',
+    start_days_before INT NOT NULL DEFAULT 1 COMMENT '汇总发布日期范围开始：几天前；结束固定为昨天',
+    cron_expression VARCHAR(100) NOT NULL DEFAULT '0 7 * * *' COMMENT '定时触发 cron 表达式',
+    title_template VARCHAR(200) NOT NULL DEFAULT '{start_date:%Y-%m-%d} {platform} {category}汇总' COMMENT '汇总结果名称模板，使用 Python format 语法',
+    summary_instruction TEXT NOT NULL COMMENT '汇总说明，空值时使用默认汇总说明',
+    push_to_wechat TINYINT NOT NULL DEFAULT 0 COMMENT '是否推送到微信：0否，1是',
+    enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
+    is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除标记：0未删除，1已删除',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_information_summary_task_configs_enabled (enabled),
+    INDEX idx_information_summary_task_configs_category (category)
+);
+```
+
+默认配置：
+
+```sql
+INSERT INTO information_summary_task_configs
+    (task_name, platform, category, start_days_before, cron_expression, title_template, summary_instruction, push_to_wechat, enabled)
+VALUES
+    ('财经昨日汇总', 'bilibili', '财经', 1, '0 7 * * *', '{start_date:%Y-%m-%d} {platform} {category}汇总', '', 1, 1),
+    ('财经近7天汇总', 'bilibili', '财经', 7, '30 7 * * mon', '{start_date:%Y-%m-%d} 至 {end_date:%Y-%m-%d} {platform} {category}汇总', '', 0, 1);
+```
+
+如果已按上一版创建过 `information_summary_task_configs`，补充执行：
+
+```sql
+ALTER TABLE information_summary_task_configs
+    ADD COLUMN title_template VARCHAR(200) NOT NULL DEFAULT '{start_date:%Y-%m-%d} {platform} {category}汇总' COMMENT '汇总结果名称模板，使用 Python format 语法' AFTER start_days_before;
+
+ALTER TABLE information_summary_task_configs
+    ADD COLUMN cron_expression VARCHAR(100) NOT NULL DEFAULT '0 7 * * *' COMMENT '定时触发 cron 表达式' AFTER start_days_before;
+
+UPDATE information_summary_task_configs
+SET cron_expression = '0 7 * * *'
+WHERE start_days_before = 1 AND (cron_expression IS NULL OR cron_expression = '');
+
+UPDATE information_summary_task_configs
+SET cron_expression = '30 7 * * mon'
+WHERE start_days_before = 7 AND (cron_expression IS NULL OR cron_expression = '');
+
+ALTER TABLE information_summary_task_configs
+    ADD COLUMN summary_instruction TEXT NULL COMMENT '汇总说明，空值时使用默认汇总说明' AFTER title_template;
+
+UPDATE information_summary_task_configs
+SET summary_instruction = ''
+WHERE summary_instruction IS NULL;
+
+ALTER TABLE information_summary_task_configs
+    MODIFY COLUMN summary_instruction TEXT NOT NULL COMMENT '汇总说明，空值时使用默认汇总说明';
+
+ALTER TABLE information_summary_task_configs
+    ADD COLUMN push_to_wechat TINYINT NOT NULL DEFAULT 0 COMMENT '是否推送到微信：0否，1是' AFTER summary_instruction;
+
+ALTER TABLE information_summary_task_configs
+    ADD COLUMN is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除标记：0未删除，1已删除' AFTER enabled;
+
+UPDATE information_summary_task_configs
+SET title_template = '{start_date:%Y-%m-%d} {platform} {category}汇总'
+WHERE start_days_before = 1;
+
+UPDATE information_summary_task_configs
+SET title_template = '{start_date:%Y-%m-%d} 至 {end_date:%Y-%m-%d} {platform} {category}汇总'
+WHERE start_days_before = 7;
+
+ALTER TABLE information_summary_task_configs
+    DROP INDEX idx_information_summary_task_configs_enabled_type,
+    ADD INDEX idx_information_summary_task_configs_enabled (enabled),
+    DROP COLUMN summary_type;
 ```
 
 ## information_settings
@@ -329,12 +446,10 @@ CREATE TABLE information_summary_document_items (
 - `hermes_model`：Hermes Runs API 使用的模型名，默认 `hermes-agent`。
 - `hermes_run_path`：Hermes Runs API 路径，按 Hermes Agent 当前文档默认使用 `/v1/runs`。
 - `hermes_status_path_template`：Hermes Runs 状态轮询路径，按 Hermes Agent 当前文档默认使用 `/v1/runs/{run_id}`。
-- `wechat_push_webhook_url`：微信推送接口地址，每天 08:00 推送昨天的已完成每日汇总。
+- `wechat_push_webhook_url`：微信推送接口地址；Hermes 汇总轮询完成并写入正文后，会推送来源汇总任务配置中启用微信推送的汇总。
 - `wechat_push_token`：微信推送接口可选鉴权令牌。若填写值未包含认证方案，后端会以 `Bearer <token>` 形式发送 `Authorization` 请求头。
 - `video_note_recent_days`：Bilinote 总结任务只处理最近 N 天内发布或入库的视频，默认 3 天；设置为 0 表示不限制。
 - `hermes_summary_instruction`：手动选择笔记生成自定义汇总时使用的补充说明。
-- `hermes_daily_summary_instruction`：每日汇总使用的补充说明。
-- `hermes_weekly_summary_instruction`：周汇总使用的补充说明。
 
 ```sql
 CREATE TABLE information_settings (

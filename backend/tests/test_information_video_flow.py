@@ -18,6 +18,7 @@ import app.models  # noqa: F401
 from app.database import Base
 from app.modules.information.models.summary_document import InformationSummaryDocumentItem
 from app.modules.information.models.summary_document import InformationSummaryDocument
+from app.modules.information.models.summary_task_config import InformationSummaryTaskConfig
 from app.modules.information.models.task_log import TaskLog
 from app.modules.information.models.video import InformationVideo
 from app.modules.information.models.video_note import InformationVideoNote
@@ -1581,7 +1582,7 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         self.assertEqual(filtered_by_date, [])
 
-    def test_daily_summary_submits_hermes_run_and_saves_document(self) -> None:
+    def test_configured_summary_submits_hermes_run_and_saves_document(self) -> None:
         InformationSettingsService(self.db).update_settings(
             {
                 "hermes_base_url": "http://hermes.local",
@@ -1603,7 +1604,7 @@ class InformationVideoFlowTests(unittest.TestCase):
             external_video_id="BV3xx",
             title="已总结视频",
             video_url="https://www.bilibili.com/video/BV3xx",
-            published_at=datetime.combine(date.today(), datetime.min.time()),
+            published_at=datetime.combine(date.today() - timedelta(days=1), datetime.min.time()),
             status="note_done",
         )
         self.db.add(video)
@@ -1630,14 +1631,100 @@ class InformationVideoFlowTests(unittest.TestCase):
             "app.modules.information.services.video_information_service.HermesClient",
             return_value=hermes,
         ):
-            document = VideoInformationService(self.db).create_daily_summary()
+            config = InformationSummaryTaskConfig(
+                task_name="测试汇总",
+                platform="bilibili",
+                category="财经",
+                start_days_before=1,
+                title_template="{start_date:%Y-%m-%d} {platform} {category}汇总",
+                enabled=1,
+            )
+            self.db.add(config)
+            self.db.commit()
+            document = VideoInformationService(self.db).create_configured_summary(config)
 
         self.assertIsNotNone(document)
         self.assertEqual(document.status, "running")
+        self.assertEqual(document.summary_task_config_id, config.id)
         self.assertEqual(document.hermes_run_id, "run-1")
         self.assertIsNone(document.document_text)
         self.assertEqual(self.db.query(InformationSummaryDocumentItem).count(), 1)
         hermes.poll_run_once.assert_not_called()
+
+    def test_configured_summary_uses_title_template(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "hermes_base_url": "http://hermes.local",
+                "hermes_run_path": "/api/runs",
+                "hermes_status_path_template": "/api/runs/{run_id}",
+            }
+        )
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="财经账号",
+            external_source_id="12345",
+            category="财经",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-title-template",
+            title="模板标题视频",
+            video_url="https://www.bilibili.com/video/BV-title-template",
+            category="财经",
+            published_at=datetime(2026, 5, 22, 10, 0, 0),
+            status="note_done",
+        )
+        self.db.add(video)
+        self.db.commit()
+        self.db.add(
+            InformationVideoNote(
+                video_id=video.id,
+                provider="bilinote",
+                status="done",
+                note_text="模板标题输入",
+                generated_at=datetime.now(),
+            )
+        )
+        self.db.commit()
+        config = InformationSummaryTaskConfig(
+            task_name="模板任务",
+            platform="bilibili",
+            category="财经",
+            start_days_before=1,
+            title_template="{start_date:%Y%m%d}-{end_date:%Y%m%d}-{category}",
+            enabled=1,
+        )
+        self.db.add(config)
+        self.db.commit()
+        hermes = Mock()
+        hermes.start_run.return_value = HermesRunResult(
+            run_id="run-title-template",
+            status="running",
+            document_text=None,
+            raw_response={"id": "run-title-template"},
+        )
+
+        with patch(
+            "app.modules.information.services.video_information_service.HermesClient",
+            return_value=hermes,
+        ):
+            document = VideoInformationService(self.db).create_configured_summary(config, today=date(2026, 5, 23))
+
+        self.assertIsNotNone(document)
+        self.assertEqual(document.title, "20260522-20260522-财经")
+        self.assertEqual(document.summary_task_config_id, config.id)
+
+        self.db.delete(config)
+        self.db.commit()
+        payload = VideoInformationService(self.db).get_summary_document(document.id)
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["summary_task_config_id"], config.id)
+        self.assertEqual(payload["summary_task_name"], "模板任务")
 
     def test_custom_summary_uses_selected_done_notes(self) -> None:
         InformationSettingsService(self.db).update_settings(
@@ -1702,6 +1789,41 @@ class InformationVideoFlowTests(unittest.TestCase):
             self.db.query(InformationSummaryDocumentItem).filter_by(document_id=document.id).count(),
             1,
         )
+
+    def test_summary_documents_can_filter_manual_summaries(self) -> None:
+        config = InformationSummaryTaskConfig(
+            task_name="配置汇总",
+            platform="bilibili",
+            category="财经",
+            start_days_before=1,
+            enabled=1,
+        )
+        self.db.add(config)
+        self.db.commit()
+        manual_document = InformationSummaryDocument(
+            platform="custom_20260523100000",
+            summary_date=date(2026, 5, 23),
+            category="财经",
+            title="手动汇总",
+            status="done",
+            document_text="手动内容",
+        )
+        configured_document = InformationSummaryDocument(
+            platform="bilibili",
+            summary_date=date(2026, 5, 23),
+            category="财经",
+            summary_task_config_id=config.id,
+            title="配置汇总",
+            status="done",
+            document_text="配置内容",
+        )
+        self.db.add_all([manual_document, configured_document])
+        self.db.commit()
+
+        documents = VideoInformationService(self.db).list_summary_documents(manual_summary=True)
+
+        self.assertEqual([item["id"] for item in documents], [manual_document.id])
+        self.assertEqual(documents[0]["summary_task_name"], "手动汇总")
 
     def test_custom_summary_can_use_user_title(self) -> None:
         source = InformationVideoSource(
@@ -1877,6 +1999,54 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(document.status, "done")
         self.assertEqual(document.document_text, "轮询得到的汇总文档")
         self.assertEqual(video.status, "note_done")
+
+    def test_completed_configured_summary_pushes_to_wechat_immediately(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "wechat_push_webhook_url": "http://wechat.local/api/wechat/push",
+            }
+        )
+        config = InformationSummaryTaskConfig(
+            task_name="推送汇总",
+            platform="bilibili",
+            category="财经",
+            start_days_before=1,
+            push_to_wechat=1,
+            enabled=1,
+        )
+        self.db.add(config)
+        self.db.commit()
+        document = InformationSummaryDocument(
+            platform="bilibili",
+            summary_date=date.today(),
+            category="财经",
+            summary_task_config_id=config.id,
+            title="配置汇总",
+            status="running",
+            hermes_run_id="run-push",
+        )
+        self.db.add(document)
+        self.db.commit()
+        hermes = Mock()
+        hermes.poll_run_once.return_value = HermesRunResult(
+            run_id="run-push",
+            status="done",
+            document_text="推送正文",
+            raw_response={"id": "run-push", "result": "推送正文"},
+        )
+        response = Mock()
+        response.json.return_value = {"ok": True}
+
+        with (
+            patch("app.modules.information.services.video_information_service.HermesClient", return_value=hermes),
+            patch("app.modules.information.services.wechat_push_client.requests.post", return_value=response) as post,
+        ):
+            result = VideoInformationService(self.db).poll_running_summary_documents()
+
+        self.assertEqual(result["completed"], 1)
+        self.assertEqual(result["wechat_pushed"], 1)
+        post.assert_called_once()
+        self.assertEqual(post.call_args.kwargs["json"]["text"], "# 配置汇总\n\n推送正文")
 
     def test_summary_prompt_includes_configured_instruction(self) -> None:
         source = InformationVideoSource(

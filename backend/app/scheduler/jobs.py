@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -17,6 +17,8 @@ from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.market_service import MarketService
 from app.modules.information.services.operation_log_service import log_fetch_error, log_task, task_status_from_counts
 from app.modules.information.services.video_information_service import VideoInformationService
+
+SUMMARY_TASK_CONFIG_JOB_PREFIX = "generate_information_summary_task_config_"
 
 
 def _video_note_task_status(result: dict[str, int | str | None]) -> str:
@@ -54,8 +56,8 @@ def _video_note_poll_should_log(result: dict[str, int | str | None]) -> bool:
 
 
 def _summary_document_poll_status(result: dict[str, int]) -> str:
-    if result["failed"] > 0:
-        if result["completed"] > 0 or result["running"] > 0:
+    if result["failed"] > 0 or result.get("wechat_failed", 0) > 0:
+        if result["completed"] > 0 or result["running"] > 0 or result.get("wechat_pushed", 0) > 0:
             return "partial"
         return "failed"
     if result["running"] > 0:
@@ -70,12 +72,19 @@ def _summary_document_poll_status(result: dict[str, int]) -> str:
 def _summary_document_poll_message(result: dict[str, int]) -> str:
     return (
         f"total={result['total']};completed={result['completed']};"
-        f"failed={result['failed']};running={result['running']};expired={result['expired']}"
+        f"failed={result['failed']};running={result['running']};expired={result['expired']};"
+        f"wechat_pushed={result.get('wechat_pushed', 0)};wechat_failed={result.get('wechat_failed', 0)}"
     )
 
 
 def _summary_document_poll_should_log(result: dict[str, int]) -> bool:
-    return result["completed"] > 0 or result["failed"] > 0 or result["expired"] > 0
+    return (
+        result["completed"] > 0
+        or result["failed"] > 0
+        or result["expired"] > 0
+        or result.get("wechat_pushed", 0) > 0
+        or result.get("wechat_failed", 0) > 0
+    )
 
 
 def _run_task(task_name: str, task_type: str, handler, persist_skipped: bool = True) -> None:
@@ -297,31 +306,49 @@ def generate_information_video_notes_job() -> None:
         db.close()
 
 
-def generate_information_summary_documents_job() -> None:
+def generate_information_summary_task_config_job(config_id: int) -> None:
     def handler(db: Session) -> tuple[str, str]:
-        target_date = datetime.now().date() - timedelta(days=1)
-        document = VideoInformationService(db).create_daily_summary(platform="bilibili", summary_date=target_date)
+        service = VideoInformationService(db)
+        document = service.run_summary_task_config(config_id)
         if document is None:
-            return "skipped", f"date={target_date};no completed notes to summarize"
+            return "skipped", f"summary_task_config_id={config_id};no completed notes to summarize"
         status = "success" if document.status in {"done", "running"} else "failed"
-        return status, f"date={target_date};document_id={document.id};status={document.status}"
+        return (
+            status,
+            f"summary_task_config_id={config_id};summary_date={document.summary_date};category={document.category};"
+            f"document_id={document.id};status={document.status}",
+        )
 
-    _run_task("生成信息流每日汇总", "generate_information_summary_documents", handler, persist_skipped=False)
+    _run_task(
+        "生成信息流配置汇总",
+        "generate_information_summary_task_config",
+        handler,
+        persist_skipped=False,
+    )
 
 
-def generate_information_weekly_summary_documents_job() -> None:
-    def handler(db: Session) -> tuple[str, str]:
-        today = datetime.now().date()
-        this_week_start = today - timedelta(days=today.weekday())
-        target_week_start = this_week_start - timedelta(days=7)
-        target_week_end = target_week_start + timedelta(days=6)
-        document = VideoInformationService(db).create_weekly_summary(platform="bilibili", week_start=target_week_start)
-        if document is None:
-            return "skipped", f"week={target_week_start}..{target_week_end};no completed notes to summarize"
-        status = "success" if document.status in {"done", "running"} else "failed"
-        return status, f"week={target_week_start}..{target_week_end};document_id={document.id};status={document.status}"
-
-    _run_task("生成信息流周汇总", "generate_information_weekly_summary_documents", handler, persist_skipped=False)
+def register_information_summary_task_config_jobs(scheduler: BackgroundScheduler) -> None:
+    for job in list(scheduler.get_jobs()):
+        if job.id.startswith(SUMMARY_TASK_CONFIG_JOB_PREFIX):
+            scheduler.remove_job(job.id)
+    db = SessionLocal()
+    try:
+        configs = VideoInformationService(db).list_summary_task_configs()
+        for config in configs:
+            if not config.enabled:
+                continue
+            job_id = f"{SUMMARY_TASK_CONFIG_JOB_PREFIX}{config.id}"
+            scheduler.add_job(
+                generate_information_summary_task_config_job,
+                args=[config.id],
+                trigger=CronTrigger.from_crontab(config.cron_expression),
+                id=job_id,
+                name=config.task_name,
+                replace_existing=True,
+                max_instances=1,
+            )
+    finally:
+        db.close()
 
 
 def poll_information_summary_documents_job() -> None:
@@ -332,17 +359,6 @@ def poll_information_summary_documents_job() -> None:
         return _summary_document_poll_status(result), _summary_document_poll_message(result)
 
     _run_task("轮询 Hermes 信息流汇总任务", "poll_information_summary_documents", handler, persist_skipped=False)
-
-
-def push_information_summary_documents_job() -> None:
-    def handler(db: Session) -> tuple[str, str]:
-        target_date = datetime.now().date() - timedelta(days=1)
-        result = VideoInformationService(db).push_daily_summary_to_wechat(platform="bilibili", summary_date=target_date)
-        if result["pushed"] == 0:
-            return "skipped", f"date={target_date};{result['message']}"
-        return "success", f"date={target_date};document_id={result['document_id']};{result['message']}"
-
-    _run_task("推送信息流每日汇总到微信", "push_information_summary_documents", handler, persist_skipped=False)
 
 
 def create_scheduler() -> BackgroundScheduler:
@@ -399,31 +415,11 @@ def create_scheduler() -> BackgroundScheduler:
             replace_existing=True,
             max_instances=1,
         )
-        scheduler.add_job(
-            generate_information_summary_documents_job,
-            trigger=CronTrigger.from_crontab(settings.scheduler_generate_summary_documents_cron),
-            id="generate_information_summary_documents",
-            replace_existing=True,
-            max_instances=1,
-        )
-        scheduler.add_job(
-            generate_information_weekly_summary_documents_job,
-            trigger=CronTrigger.from_crontab(settings.scheduler_generate_weekly_summary_documents_cron),
-            id="generate_information_weekly_summary_documents",
-            replace_existing=True,
-            max_instances=1,
-        )
+        register_information_summary_task_config_jobs(scheduler)
         scheduler.add_job(
             poll_information_summary_documents_job,
             trigger=IntervalTrigger(seconds=settings.scheduler_poll_summary_documents_interval_seconds),
             id="poll_information_summary_documents",
-            replace_existing=True,
-            max_instances=1,
-        )
-        scheduler.add_job(
-            push_information_summary_documents_job,
-            trigger=CronTrigger.from_crontab(settings.scheduler_push_summary_documents_cron),
-            id="push_information_summary_documents",
             replace_existing=True,
             max_instances=1,
         )

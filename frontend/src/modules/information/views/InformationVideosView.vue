@@ -6,6 +6,7 @@ import { formatDateTime } from '../../../utils/datetime'
 import {
   generateVideoNotes,
   getInformationStatusOptions,
+  listInformationCategories,
   listInformationVideos,
   listVideoNotes,
   listVideoSources,
@@ -26,6 +27,7 @@ const sources = ref<VideoSource[]>([])
 const videos = ref<InformationVideo[]>([])
 const notes = ref<VideoNote[]>([])
 const videoStatusOptions = ref<StatusOption[]>([])
+const categories = ref<string[]>(['财经'])
 const loading = ref(false)
 const runningAction = ref('')
 const message = ref('')
@@ -37,6 +39,7 @@ const videoFilters = ref({
   videoId: '',
   sourceId: '',
   status: '',
+  category: '',
   publishedFrom: defaultPublishedFrom(),
   publishedTo: '',
 })
@@ -94,6 +97,7 @@ async function loadAll(options?: { keepMessage?: boolean }) {
         videoId: videoFilters.value.videoId ? Number(videoFilters.value.videoId) : undefined,
         sourceId: videoFilters.value.sourceId ? Number(videoFilters.value.sourceId) : undefined,
         status: videoFilters.value.status || undefined,
+        category: videoFilters.value.category || undefined,
         publishedFrom: videoFilters.value.publishedFrom || undefined,
         publishedTo: videoFilters.value.publishedTo || undefined,
       }),
@@ -115,6 +119,7 @@ async function loadStatusOptions() {
   try {
     const result = await getInformationStatusOptions()
     videoStatusOptions.value = result.video_statuses
+    categories.value = await listInformationCategories()
   } catch (error) {
     message.value = apiErrorMessage(error, '状态枚举加载失败。')
   }
@@ -127,6 +132,7 @@ function applyQueryFilters() {
     videoId: typeof route.query.video_id === 'string' ? route.query.video_id : '',
     sourceId: typeof route.query.source_id === 'string' ? route.query.source_id : '',
     status: typeof route.query.status === 'string' ? route.query.status : '',
+    category: typeof route.query.category === 'string' ? route.query.category : '',
     publishedFrom:
       allDatesSelected
         ? ''
@@ -145,6 +151,7 @@ function filterQuery() {
     video_id: videoFilters.value.videoId || undefined,
     source_id: videoFilters.value.sourceId || undefined,
     status: videoFilters.value.status || undefined,
+    category: videoFilters.value.category || undefined,
     published_from: videoFilters.value.publishedFrom || undefined,
     published_to: videoFilters.value.publishedTo || undefined,
     date_range: hasDateFilter ? undefined : 'all',
@@ -210,6 +217,7 @@ async function resetVideoFilters() {
     videoId: '',
     sourceId: '',
     status: '',
+    category: '',
     publishedFrom: defaultPublishedFrom(),
     publishedTo: '',
   }
@@ -306,6 +314,15 @@ watch(
           </select>
         </label>
         <label>
+          分类
+          <select v-model="videoFilters.category">
+            <option value="">全部分类</option>
+            <option v-for="category in categories" :key="category" :value="category">
+              {{ category }}
+            </option>
+          </select>
+        </label>
+        <label>
           发布开始
           <DateField v-model="videoFilters.publishedFrom" placeholder="开始日期" />
         </label>
@@ -328,6 +345,7 @@ watch(
           <col class="col-type" />
           <col class="col-title" />
           <col class="col-source" />
+          <col class="col-category" />
           <col class="col-duration" />
           <col class="col-status" />
           <col class="col-time" />
@@ -352,6 +370,7 @@ watch(
             <th>
               <button class="sort-header" type="button" @click="toggleSort('source')">账号 <span>{{ sortIndicator('source') }}</span></button>
             </th>
+            <th>分类</th>
             <th>时长</th>
             <th>
               <button class="sort-header" type="button" @click="toggleSort('status')">状态 <span>{{ sortIndicator('status') }}</span></button>
@@ -364,7 +383,7 @@ watch(
         </thead>
         <tbody>
           <tr v-if="sortedVideos.length === 0">
-            <td colspan="9">暂无内容。</td>
+            <td colspan="10">暂无内容。</td>
           </tr>
           <tr v-for="video in sortedVideos" :key="video.id">
             <td>
@@ -383,6 +402,7 @@ watch(
             </td>
             <td><a :href="video.video_url" target="_blank" rel="noreferrer">{{ video.title }}</a></td>
             <td>{{ video.source_name ?? video.author_name ?? '-' }}</td>
+            <td>{{ video.category }}</td>
             <td class="mono">{{ video.content_type === 'article' ? '-' : formatDurationSeconds(video.duration_seconds) }}</td>
             <td>
               <span class="status-pill" :class="statusClass(video.status)">{{ video.status_label }}</span>

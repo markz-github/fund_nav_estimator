@@ -5,6 +5,7 @@ import json
 import logging
 import re
 
+from apscheduler.triggers.cron import CronTrigger
 from requests import exceptions as requests_exceptions
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, load_only
@@ -13,11 +14,17 @@ from app.modules.information.models.summary_document import (
     InformationSummaryDocument,
     InformationSummaryDocumentItem,
 )
+from app.modules.information.models.summary_task_config import InformationSummaryTaskConfig
 from app.modules.information.models.task_log import TaskLog
 from app.modules.information.models.video import InformationVideo
 from app.modules.information.models.video_note import InformationVideoNote
 from app.modules.information.models.video_source import InformationVideoSource
-from app.modules.information.schemas.video import VideoSourceCreate, VideoSourceUpdate
+from app.modules.information.schemas.video import (
+    SummaryTaskConfigCreate,
+    SummaryTaskConfigUpdate,
+    VideoSourceCreate,
+    VideoSourceUpdate,
+)
 from app.modules.information.services.bilinote_client import BilinoteClient, compact_json
 from app.modules.information.services.hermes_client import HermesClient
 from app.modules.information.services.information_settings_service import InformationSettingsService
@@ -30,6 +37,57 @@ from app.modules.information.utils.markdown import markdown_output_instruction
 logger = logging.getLogger(__name__)
 VIDEO_NOTE_EXPIRY = timedelta(days=1)
 SUMMARY_DOCUMENT_EXPIRY = timedelta(days=1)
+DEFAULT_CATEGORY = "财经"
+DEFAULT_SUMMARY_TASK_CONFIGS = (
+    {
+        "task_name": "财经昨日汇总",
+        "platform": "bilibili",
+        "category": DEFAULT_CATEGORY,
+        "start_days_before": 1,
+        "cron_expression": "0 7 * * *",
+        "title_template": "{start_date:%Y-%m-%d} {platform} {category}汇总",
+        "summary_instruction": "",
+        "push_to_wechat": 1,
+    },
+    {
+        "task_name": "财经近7天汇总",
+        "platform": "bilibili",
+        "category": DEFAULT_CATEGORY,
+        "start_days_before": 7,
+        "cron_expression": "30 7 * * mon",
+        "title_template": "{start_date:%Y-%m-%d} 至 {end_date:%Y-%m-%d} {platform} {category}汇总",
+        "summary_instruction": "",
+        "push_to_wechat": 0,
+    },
+)
+
+
+def normalize_category(category: str | None) -> str:
+    return (category or DEFAULT_CATEGORY).strip() or DEFAULT_CATEGORY
+
+
+def _normalize_start_days_before(value: int | None) -> int:
+    days = int(value or 1)
+    if days < 1:
+        raise ValueError("start_days_before must be greater than or equal to 1")
+    return days
+
+
+def _normalize_title_template(value: str | None) -> str:
+    template = (value or "").strip()
+    return template or "{start_date:%Y-%m-%d} {platform} {category}汇总"
+
+
+def _normalize_cron_expression(value: str | None) -> str:
+    expression = (value or "").strip()
+    if not expression:
+        expression = "0 7 * * *"
+    CronTrigger.from_crontab(expression)
+    return expression
+
+
+def _normalize_instruction(value: str | None) -> str:
+    return (value or "").strip()
 
 
 class VideoInformationService:
@@ -62,6 +120,7 @@ class VideoInformationService:
                     "source_name": source.source_name,
                     "source_url": source.source_url,
                     "external_source_id": source.external_source_id,
+                    "category": source.category,
                     "enabled": source.enabled,
                     "last_scanned_at": source.last_scanned_at,
                     "remark": source.remark,
@@ -72,6 +131,93 @@ class VideoInformationService:
                 }
             )
         return result
+
+    def list_categories(self) -> list[str]:
+        values: set[str] = {DEFAULT_CATEGORY}
+        for model in (InformationVideoSource, InformationVideo, InformationSummaryDocument, InformationSummaryTaskConfig):
+            rows = self.db.scalars(select(model.category).where(model.category.is_not(None))).all()
+            values.update(normalize_category(value) for value in rows if value)
+        return sorted(values, key=lambda item: (item != DEFAULT_CATEGORY, item))
+
+    def ensure_default_summary_task_configs(self) -> None:
+        existing_count = (
+            self.db.scalar(
+                select(func.count(InformationSummaryTaskConfig.id)).execution_options(include_deleted=True)
+            )
+            or 0
+        )
+        if existing_count > 0:
+            return
+        for item in DEFAULT_SUMMARY_TASK_CONFIGS:
+            self.db.add(InformationSummaryTaskConfig(**item, enabled=1))
+        self.db.commit()
+
+    def list_summary_task_configs(self) -> list[InformationSummaryTaskConfig]:
+        self.ensure_default_summary_task_configs()
+        return list(
+            self.db.scalars(
+                select(InformationSummaryTaskConfig).order_by(
+                    InformationSummaryTaskConfig.enabled.desc(),
+                    InformationSummaryTaskConfig.id.asc(),
+                )
+            ).all()
+        )
+
+    def create_summary_task_config(self, payload: SummaryTaskConfigCreate) -> InformationSummaryTaskConfig:
+        task_name = payload.task_name.strip() or "信息流汇总任务"
+        config = InformationSummaryTaskConfig(
+            task_name=task_name,
+            platform=(payload.platform or "bilibili").strip().lower(),
+            category=normalize_category(payload.category),
+            start_days_before=_normalize_start_days_before(payload.start_days_before),
+            cron_expression=_normalize_cron_expression(payload.cron_expression),
+            title_template=_normalize_title_template(payload.title_template),
+            summary_instruction=_normalize_instruction(payload.summary_instruction),
+            push_to_wechat=1 if payload.push_to_wechat else 0,
+            enabled=1 if payload.enabled else 0,
+        )
+        self.db.add(config)
+        self.db.commit()
+        self.db.refresh(config)
+        return config
+
+    def update_summary_task_config(
+        self,
+        config_id: int,
+        payload: SummaryTaskConfigUpdate,
+    ) -> InformationSummaryTaskConfig | None:
+        config = self.db.get(InformationSummaryTaskConfig, config_id)
+        if config is None:
+            return None
+        if payload.task_name is not None:
+            config.task_name = payload.task_name.strip() or config.task_name
+        if payload.platform is not None:
+            config.platform = (payload.platform or "bilibili").strip().lower()
+        if payload.category is not None:
+            config.category = normalize_category(payload.category)
+        if payload.start_days_before is not None:
+            config.start_days_before = _normalize_start_days_before(payload.start_days_before)
+        if payload.cron_expression is not None:
+            config.cron_expression = _normalize_cron_expression(payload.cron_expression)
+        if payload.title_template is not None:
+            config.title_template = _normalize_title_template(payload.title_template)
+        if payload.summary_instruction is not None:
+            config.summary_instruction = _normalize_instruction(payload.summary_instruction)
+        if payload.push_to_wechat is not None:
+            config.push_to_wechat = 1 if payload.push_to_wechat else 0
+        if payload.enabled is not None:
+            config.enabled = 1 if payload.enabled else 0
+        self.db.commit()
+        self.db.refresh(config)
+        return config
+
+    def delete_summary_task_config(self, config_id: int) -> bool:
+        config = self.db.get(InformationSummaryTaskConfig, config_id)
+        if config is None:
+            return False
+        self.db.delete(config)
+        self.db.commit()
+        return True
 
     def create_source(self, payload: VideoSourceCreate) -> InformationVideoSource:
         adapter = get_video_source_adapter(payload.platform)
@@ -91,6 +237,7 @@ class VideoInformationService:
                 source_name=payload.source_name.strip(),
                 source_url=payload.source_url,
                 external_source_id=normalized_id,
+                category=normalize_category(payload.category),
                 remark=payload.remark,
                 enabled=1,
             )
@@ -100,6 +247,7 @@ class VideoInformationService:
             source.source_name = payload.source_name.strip()
             source.source_url = payload.source_url
             source.external_source_id = normalized_id
+            source.category = normalize_category(payload.category)
             source.remark = payload.remark
             source.enabled = 1
         self.db.commit()
@@ -117,6 +265,8 @@ class VideoInformationService:
         if payload.external_source_id is not None:
             adapter = get_video_source_adapter(source.platform)
             source.external_source_id = adapter.normalize_source_id(payload.external_source_id)
+        if payload.category is not None:
+            source.category = normalize_category(payload.category)
         if payload.enabled is not None:
             source.enabled = 1 if payload.enabled else 0
         if payload.remark is not None:
@@ -208,6 +358,7 @@ class VideoInformationService:
                             existing.content_text = snapshot.content_text
                             existing.duration_seconds = snapshot.duration_seconds
                             existing.author_name = snapshot.author_name
+                            existing.category = normalize_category(source.category)
                             existing.published_at = snapshot.published_at
                             existing.status = snapshot_status
                             existing.raw_response = json.dumps(snapshot.raw_response, ensure_ascii=False)
@@ -222,6 +373,7 @@ class VideoInformationService:
                             existing.content_text = snapshot.content_text
                             existing.duration_seconds = snapshot.duration_seconds
                             existing.author_name = snapshot.author_name
+                            existing.category = normalize_category(source.category)
                             existing.published_at = snapshot.published_at
                             existing.status = "invalid_content"
                             existing.raw_response = json.dumps(snapshot.raw_response, ensure_ascii=False)
@@ -245,6 +397,7 @@ class VideoInformationService:
                             content_text=snapshot.content_text,
                             duration_seconds=snapshot.duration_seconds,
                             author_name=snapshot.author_name,
+                            category=normalize_category(source.category),
                             published_at=snapshot.published_at,
                             status=snapshot_status,
                             raw_response=json.dumps(snapshot.raw_response, ensure_ascii=False),
@@ -764,45 +917,77 @@ class VideoInformationService:
                 result["failed"] += 1
         return result
 
-    def create_daily_summary(self, platform: str = "bilibili", summary_date: date | None = None) -> InformationSummaryDocument | None:
-        target_date = summary_date or date.today()
-        start_at = datetime.combine(target_date, time.min)
-        end_at = datetime.combine(target_date, time.max)
+    def create_configured_summary(
+        self,
+        config: InformationSummaryTaskConfig,
+        today: date | None = None,
+    ) -> InformationSummaryDocument | None:
+        current_date = today or date.today()
+        end_date = current_date - timedelta(days=1)
+        start_date = current_date - timedelta(days=config.start_days_before)
+        if start_date > end_date:
+            start_date = end_date
+        title = self._render_summary_title_template(
+            config.title_template,
+            platform=config.platform,
+            category=config.category,
+            start_date=start_date,
+            end_date=end_date,
+        )
         return self._create_period_summary(
-            platform=platform,
-            summary_type="daily",
-            summary_date=target_date,
-            start_at=start_at,
-            end_at=end_at,
+            platform=config.platform,
+            summary_date=start_date,
+            category=config.category,
+            start_at=datetime.combine(start_date, time.min),
+            end_at=datetime.combine(end_date, time.max),
+            period_end=end_date,
+            title=title,
+            summary_task_config_id=config.id,
+            summary_instruction=config.summary_instruction,
         )
 
-    def create_weekly_summary(self, platform: str = "bilibili", week_start: date | None = None) -> InformationSummaryDocument | None:
-        target_week_start = week_start or self._previous_week_start()
-        week_end = target_week_start + timedelta(days=6)
-        return self._create_period_summary(
-            platform=platform,
-            summary_type="weekly",
-            summary_date=target_week_start,
-            start_at=datetime.combine(target_week_start, time.min),
-            end_at=datetime.combine(week_end, time.max),
-            period_end=week_end,
-        )
+    def run_summary_task_config(self, config_id: int, today: date | None = None) -> InformationSummaryDocument | None:
+        config = self.db.get(InformationSummaryTaskConfig, config_id)
+        if config is None or not config.enabled:
+            return None
+        return self.create_configured_summary(config, today=today)
+
+    def period_summary_categories(self, platform: str, start_at: datetime, end_at: datetime) -> list[str]:
+        rows = self.db.scalars(
+            select(InformationVideo.category)
+            .join(InformationVideoNote, InformationVideoNote.video_id == InformationVideo.id)
+            .where(
+                InformationVideo.platform == platform,
+                InformationVideoNote.status == "done",
+                InformationVideoNote.note_text.is_not(None),
+                func.coalesce(InformationVideo.published_at, InformationVideo.created_at) >= start_at,
+                func.coalesce(InformationVideo.published_at, InformationVideo.created_at) <= end_at,
+            )
+            .distinct()
+        ).all()
+        categories = sorted({normalize_category(row) for row in rows if row})
+        return categories or [DEFAULT_CATEGORY]
 
     def _create_period_summary(
         self,
         platform: str,
-        summary_type: str,
         summary_date: date,
+        category: str,
         start_at: datetime,
         end_at: datetime,
         period_end: date | None = None,
+        title: str | None = None,
+        summary_task_config_id: int | None = None,
+        summary_instruction: str | None = None,
     ) -> InformationSummaryDocument | None:
+        normalized_category = normalize_category(category)
         existing = self.db.scalar(
             select(InformationSummaryDocument)
             .where(
                 InformationSummaryDocument.platform == platform,
-                InformationSummaryDocument.summary_type == summary_type,
                 InformationSummaryDocument.summary_date == summary_date,
+                InformationSummaryDocument.category == normalized_category,
+                InformationSummaryDocument.summary_task_config_id == summary_task_config_id,
             )
             .execution_options(include_deleted=True)
         )
@@ -816,6 +1001,7 @@ class VideoInformationService:
             .join(InformationVideo, InformationVideo.id == InformationVideoNote.video_id)
             .where(
                 InformationVideo.platform == platform,
+                InformationVideo.category == normalized_category,
                 InformationVideoNote.status == "done",
                 InformationVideoNote.note_text.is_not(None),
                 func.coalesce(InformationVideo.published_at, InformationVideo.created_at) >= start_at,
@@ -825,8 +1011,9 @@ class VideoInformationService:
                     .join(InformationSummaryDocument, InformationSummaryDocument.id == InformationSummaryDocumentItem.document_id)
                     .where(
                         InformationSummaryDocument.platform == platform,
-                        InformationSummaryDocument.summary_type == summary_type,
                         InformationSummaryDocument.summary_date == summary_date,
+                        InformationSummaryDocument.category == normalized_category,
+                        InformationSummaryDocument.summary_task_config_id == summary_task_config_id,
                         InformationSummaryDocument.status == "done",
                     )
                 ),
@@ -837,23 +1024,34 @@ class VideoInformationService:
 
         document = existing or InformationSummaryDocument(
             platform=platform,
-            summary_type=summary_type,
             summary_date=summary_date,
-            title=self._summary_title(platform, summary_type, summary_date, period_end),
+            category=normalized_category,
+            summary_task_config_id=summary_task_config_id,
+            title=title or self._summary_title(platform, summary_date, period_end, normalized_category),
             status="pending",
         )
+        if summary_task_config_id is not None:
+            document.summary_task_config_id = summary_task_config_id
+        if title and document.status not in {"done", "running"}:
+            document.title = title[:200]
         settings = InformationSettingsService(self.db).get_settings()
         prompt = self._build_summary_prompt(
             platform,
             summary_date,
             notes,
-            self._summary_instruction(settings, summary_type),
-            summary_type=summary_type,
+            _normalize_instruction(summary_instruction)
+            or self._summary_instruction(settings),
             period_end=period_end,
+            category=normalized_category,
         )
         return self._submit_summary_document(document, notes, prompt)
 
-    def create_custom_summary(self, note_ids: list[int], title: str | None = None) -> InformationSummaryDocument:
+    def create_custom_summary(
+        self,
+        note_ids: list[int],
+        title: str | None = None,
+        summary_instruction: str | None = None,
+    ) -> InformationSummaryDocument:
         if not note_ids:
             raise ValueError("No notes selected for custom summary")
         unique_note_ids = list(dict.fromkeys(note_ids))
@@ -873,8 +1071,8 @@ class VideoInformationService:
         title_text = (title or "").strip()
         document = InformationSummaryDocument(
             platform=f"custom_{now:%Y%m%d%H%M%S}",
-            summary_type="manual",
             summary_date=now.date(),
+            category=DEFAULT_CATEGORY,
             title=title_text[:200] if title_text else f"自定义视频笔记汇总 {now:%Y-%m-%d %H:%M}",
             status="pending",
         )
@@ -883,8 +1081,8 @@ class VideoInformationService:
             "custom",
             now.date(),
             notes,
-            self._summary_instruction(settings, "manual"),
-            summary_type="manual",
+            _normalize_instruction(summary_instruction) or self._summary_instruction(settings),
+            category=DEFAULT_CATEGORY,
         )
         return self._submit_summary_document(document, notes, prompt)
 
@@ -907,24 +1105,35 @@ class VideoInformationService:
         ).all()
         if not notes:
             notes = self._notes_from_custom_summary_task_log(document)
-            if document.summary_type == "weekly":
-                return self.create_weekly_summary(platform=document.platform, week_start=document.summary_date)
-            if document.summary_type == "daily" and not document.platform.startswith("custom_"):
-                return self.create_daily_summary(platform=document.platform, summary_date=document.summary_date)
+            if document.summary_task_config_id is not None:
+                config = self.db.scalar(
+                    select(InformationSummaryTaskConfig)
+                    .where(InformationSummaryTaskConfig.id == document.summary_task_config_id)
+                    .execution_options(include_deleted=True)
+                )
+                if config is not None:
+                    return self.create_configured_summary(config, today=document.summary_date + timedelta(days=config.start_days_before))
         if not notes:
             raise ValueError("Failed custom summary has no completed note items to retry")
 
         settings = InformationSettingsService(self.db).get_settings()
-        effective_summary_type = "manual" if document.platform.startswith("custom_") else document.summary_type
-        prompt_platform = "custom" if effective_summary_type == "manual" else document.platform
-        period_end = document.summary_date + timedelta(days=6) if effective_summary_type == "weekly" else None
+        prompt_platform = "custom" if document.summary_task_config_id is None else document.platform
+        period_end = None
+        if document.summary_task_config_id is not None:
+            config = self.db.scalar(
+                select(InformationSummaryTaskConfig)
+                .where(InformationSummaryTaskConfig.id == document.summary_task_config_id)
+                .execution_options(include_deleted=True)
+            )
+            if config is not None:
+                period_end = document.summary_date + timedelta(days=max(config.start_days_before - 1, 0))
         prompt = self._build_summary_prompt(
             prompt_platform,
             document.summary_date,
             notes,
-            self._summary_instruction(settings, effective_summary_type),
-            summary_type=effective_summary_type,
+            self._summary_instruction(settings),
             period_end=period_end,
+            category=document.category,
         )
         return self._submit_summary_document(document, notes, prompt)
 
@@ -944,6 +1153,8 @@ class VideoInformationService:
             "failed": 0,
             "running": 0,
             "expired": 0,
+            "wechat_pushed": 0,
+            "wechat_failed": 0,
         }
         documents = list(
             self.db.scalars(
@@ -978,6 +1189,15 @@ class VideoInformationService:
                     document.error_message = None
                     document.generated_at = now
                     result["completed"] += 1
+                    self.db.commit()
+                    try:
+                        if self._push_summary_document_to_wechat(document, settings):
+                            result["wechat_pushed"] += 1
+                    except Exception as exc:
+                        result["wechat_failed"] += 1
+                        log_fetch_error(self.db, "wechat_push", "summary_document", str(document.id), repr(exc))
+                        self.db.commit()
+                    continue
                 elif poll_result.status == "failed":
                     document.status = "failed"
                     document.error_message = "Hermes summary generation failed"
@@ -1022,37 +1242,34 @@ class VideoInformationService:
             .order_by(InformationVideoNote.created_at.desc())
         ).all()
 
-    def push_daily_summary_to_wechat(self, platform: str = "bilibili", summary_date: date | None = None) -> dict[str, object]:
-        target_date = summary_date or date.today()
-        document = self.db.scalar(
-            select(InformationSummaryDocument).where(
-                InformationSummaryDocument.platform == platform,
-                InformationSummaryDocument.summary_type == "daily",
-                InformationSummaryDocument.summary_date == target_date,
-                InformationSummaryDocument.status == "done",
-                InformationSummaryDocument.document_text.is_not(None),
-            )
-        )
-        if document is None:
-            return {"pushed": 0, "document_id": None, "message": "no done daily summary document"}
-
-        settings = InformationSettingsService(self.db).get_settings()
+    def _push_summary_document_to_wechat(
+        self,
+        document: InformationSummaryDocument,
+        settings: dict[str, str],
+    ) -> bool:
+        if document.summary_task_config_id is None:
+            return False
+        config = self.db.get(InformationSummaryTaskConfig, document.summary_task_config_id)
+        if config is None or not config.enabled or not config.push_to_wechat:
+            return False
         if not settings.get("wechat_push_webhook_url", "").strip():
-            return {"pushed": 0, "document_id": document.id, "message": "wechat push webhook url is not configured"}
+            return False
+        if document.status != "done" or not document.document_text:
+            return False
         client = WechatPushClient(
             settings.get("wechat_push_webhook_url", ""),
             settings.get("wechat_push_token", ""),
         )
         result = client.push_summary(
             title=document.title,
-            content=document.document_text or "",
+            content=document.document_text,
             summary_date=document.summary_date.isoformat(),
             platform=document.platform,
             document_id=document.id,
         )
         if not result.ok:
-            raise RuntimeError(f"Wechat push failed: {compact_json(result.raw_response)}")
-        return {"pushed": 1, "document_id": document.id, "message": compact_json(result.raw_response)}
+            raise RuntimeError(f"Wechat push failed: config_id={config.id};response={compact_json(result.raw_response)}")
+        return True
 
     def _submit_summary_document(
         self,
@@ -1118,6 +1335,7 @@ class VideoInformationService:
         video_id: int | None = None,
         source_id: int | None = None,
         status: str | None = None,
+        category: str | None = None,
         published_from: date | None = None,
         published_to: date | None = None,
     ) -> list[InformationVideo]:
@@ -1128,6 +1346,8 @@ class VideoInformationService:
             statement = statement.where(InformationVideo.source_id == source_id)
         if status:
             statement = statement.where(InformationVideo.status == status)
+        if category:
+            statement = statement.where(InformationVideo.category == normalize_category(category))
         if published_from is not None:
             statement = statement.where(InformationVideo.published_at >= datetime.combine(published_from, time.min))
         if published_to is not None:
@@ -1250,10 +1470,20 @@ class VideoInformationService:
             return None
         return {"id": note.id, "raw_response": note.raw_response}
 
-    def list_summary_documents(self, limit: int = 100, summary_type: str | None = None) -> list[dict[str, object]]:
+    def list_summary_documents(
+        self,
+        limit: int = 100,
+        summary_task_config_id: int | None = None,
+        manual_summary: bool = False,
+        category: str | None = None,
+    ) -> list[dict[str, object]]:
         statement = select(InformationSummaryDocument)
-        if summary_type:
-            statement = statement.where(InformationSummaryDocument.summary_type == summary_type)
+        if manual_summary:
+            statement = statement.where(InformationSummaryDocument.summary_task_config_id.is_(None))
+        elif summary_task_config_id is not None:
+            statement = statement.where(InformationSummaryDocument.summary_task_config_id == summary_task_config_id)
+        if category:
+            statement = statement.where(InformationSummaryDocument.category == normalize_category(category))
         documents = list(
             self.db.scalars(
                 statement.order_by(InformationSummaryDocument.created_at.desc()).limit(limit)
@@ -1268,11 +1498,14 @@ class VideoInformationService:
         return self._summary_document_payload(document)
 
     def _summary_document_payload(self, document: InformationSummaryDocument) -> dict[str, object]:
+        summary_task_name = self._summary_task_name(document.summary_task_config_id)
         return {
             "id": document.id,
             "platform": document.platform,
-            "summary_type": document.summary_type,
+            "summary_task_config_id": document.summary_task_config_id,
+            "summary_task_name": summary_task_name or ("手动汇总" if document.summary_task_config_id is None else None),
             "summary_date": document.summary_date,
+            "category": document.category,
             "title": document.title,
             "status": document.status,
             "hermes_run_id": document.hermes_run_id,
@@ -1283,6 +1516,16 @@ class VideoInformationService:
             "updated_at": document.updated_at,
             "notes": self._summary_document_notes(document.id),
         }
+
+    def _summary_task_name(self, summary_task_config_id: int | None) -> str | None:
+        if summary_task_config_id is None:
+            return None
+        config = self.db.scalar(
+            select(InformationSummaryTaskConfig)
+            .where(InformationSummaryTaskConfig.id == summary_task_config_id)
+            .execution_options(include_deleted=True)
+        )
+        return config.task_name if config is not None else None
 
     def _summary_document_notes(self, document_id: int) -> list[dict[str, object]]:
         rows = self.db.execute(
@@ -1304,6 +1547,7 @@ class VideoInformationService:
                 "source_id": source.id if source is not None else video.source_id if video is not None else None,
                 "source_name": source.source_name if source is not None else video.author_name if video is not None else None,
                 "source_url": source.source_url if source is not None else None,
+                "category": video.category if video is not None else None,
                 "status": note.status,
                 "generated_at": note.generated_at,
             }
@@ -1422,25 +1666,46 @@ class VideoInformationService:
         return datetime.now() - timedelta(days=days)
 
     @staticmethod
-    def _previous_week_start(today: date | None = None) -> date:
-        current = today or date.today()
-        this_week_start = current - timedelta(days=current.weekday())
-        return this_week_start - timedelta(days=7)
-
-    @staticmethod
-    def _summary_instruction(settings: dict[str, str], summary_type: str) -> str:
-        if summary_type == "daily":
-            return settings.get("hermes_daily_summary_instruction", "")
-        if summary_type == "weekly":
-            return settings.get("hermes_weekly_summary_instruction", "")
+    def _summary_instruction(settings: dict[str, str]) -> str:
         return settings.get("hermes_summary_instruction", "")
 
     @staticmethod
-    def _summary_title(platform: str, summary_type: str, summary_date: date, period_end: date | None = None) -> str:
-        if summary_type == "weekly":
+    def _summary_title(
+        platform: str,
+        summary_date: date,
+        period_end: date | None = None,
+        category: str = DEFAULT_CATEGORY,
+    ) -> str:
+        category_text = normalize_category(category)
+        if period_end is not None and period_end != summary_date:
             end_date = period_end or summary_date + timedelta(days=6)
-            return f"{summary_date.isoformat()} 至 {end_date.isoformat()} {platform} 周汇总"
-        return f"{summary_date.isoformat()} {platform} 每日汇总"
+            return f"{summary_date.isoformat()} 至 {end_date.isoformat()} {platform} {category_text}汇总"
+        return f"{summary_date.isoformat()} {platform} {category_text}汇总"
+
+    @staticmethod
+    def _render_summary_title_template(
+        template: str,
+        *,
+        platform: str,
+        category: str,
+        start_date: date,
+        end_date: date,
+    ) -> str:
+        context = {
+            "platform": platform,
+            "category": normalize_category(category),
+            "start_date": start_date,
+            "end_date": end_date,
+            "date": start_date,
+        }
+        try:
+            title = _normalize_title_template(template).format(**context)
+        except Exception as exc:
+            raise ValueError(f"Invalid summary title template: {exc}") from exc
+        title = title.strip()
+        if not title:
+            raise ValueError("summary title template rendered empty title")
+        return title[:200]
 
     def _build_summary_prompt(
         self,
@@ -1448,8 +1713,8 @@ class VideoInformationService:
         summary_date: date,
         notes: list[InformationVideoNote],
         instruction: str = "",
-        summary_type: str = "daily",
         period_end: date | None = None,
+        category: str = DEFAULT_CATEGORY,
     ) -> str:
         blocks = []
         for idx, note in enumerate(notes, start=1):
@@ -1476,15 +1741,15 @@ class VideoInformationService:
             blocks.append(f"## 视频 {idx}\n" + "\n".join(metadata) + f"\n\n{note.note_text or ''}")
         instruction_text = instruction.strip()
         instruction_block = f"补充说明：\n{instruction_text}\n\n" if instruction_text else ""
-        summary_type_label = {"manual": "手动", "daily": "每日", "weekly": "每周"}.get(summary_type, summary_type)
         period_text = (
             f"{summary_date.isoformat()} 至 {(period_end or summary_date + timedelta(days=6)).isoformat()}"
-            if summary_type == "weekly"
+            if period_end is not None and period_end != summary_date
             else summary_date.isoformat()
         )
         return (
-            f"请将以下 {platform} 视频的 Bilinote 文字总结汇总成一篇中文{summary_type_label}汇总文档。\n"
+            f"请将以下 {platform} 视频的 Bilinote 文字总结汇总成一篇中文汇总文档。\n"
             f"汇总周期：{period_text}\n"
+            f"视频分类：{normalize_category(category)}\n"
             f"{instruction_block}"
             "要求：提炼主题、关键观点、可执行信息和待跟进事项；去重，按主题分组。\n"
             "重点标注要求：请主动识别值得关注的核心结论、风险信号、分歧观点和行动建议，使用 **重点：...** 或 **风险：...** 进行醒目标注。\n"

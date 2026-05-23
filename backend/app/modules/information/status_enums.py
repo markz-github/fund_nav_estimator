@@ -37,12 +37,6 @@ SUMMARY_DOCUMENT_STATUSES = (
     StatusOption("failed", "失败"),
 )
 
-SUMMARY_TYPES = (
-    StatusOption("manual", "手动汇总"),
-    StatusOption("daily", "日汇总"),
-    StatusOption("weekly", "周汇总"),
-)
-
 TASK_STATUSES = (
     StatusOption("running", "运行中"),
     StatusOption("success", "成功"),
@@ -61,16 +55,14 @@ FUND_NAV_TASK_TYPES = (
 
 INFORMATION_TASK_TYPES = (
     StatusOption("scan_information_videos", "扫描信息流视频"),
-    StatusOption("generate_information_video_notes", "处理信息源笔记"),
     StatusOption("submit_information_video_note_task", "提交信息源笔记任务"),
     StatusOption("poll_information_video_notes", "轮询信息源笔记任务"),
+    StatusOption("mark_information_video_notes_failed", "标记信息源笔记失败"),
     StatusOption("retry_information_video_note", "重试信息源笔记"),
     StatusOption("repoll_information_video_note", "重新轮询信息源笔记"),
-    StatusOption("generate_information_summary_documents", "生成信息流每日汇总"),
-    StatusOption("generate_information_weekly_summary_documents", "生成信息流周汇总"),
+    StatusOption("generate_information_summary_task_config", "生成配置汇总"),
     StatusOption("generate_information_custom_summary", "生成自定义视频笔记汇总"),
     StatusOption("retry_information_summary_document", "重试信息流汇总文档"),
-    StatusOption("push_information_summary_documents", "推送信息流每日汇总"),
 )
 
 

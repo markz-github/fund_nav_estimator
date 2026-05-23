@@ -27,3 +27,10 @@ class TaskLogOut(BaseModel):
         return status_label(TASK_STATUSES, self.status)
 
     model_config = {"from_attributes": True}
+
+
+class TaskLogPageOut(BaseModel):
+    items: list[TaskLogOut]
+    total: int
+    page: int
+    page_size: int

@@ -16,6 +16,7 @@ const navGroups = [
       { to: '/information/summaries', label: '笔记汇总' },
       { to: '/information/operations', label: '运行状态' },
       { to: '/information/settings', label: '接口设置' },
+      { to: '/information/summary-settings', label: '汇总设置' },
     ],
   },
 ]

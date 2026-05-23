@@ -11,6 +11,7 @@ from app.database import get_db
 from app.modules.information.schemas.video import (
     ActionResult,
     GenerateSummaryFromNotesRequest,
+    InformationCategoriesOut,
     GenerateVideoNotesRequest,
     InformationStatusOptionsOut,
     InformationSettingsOut,
@@ -18,6 +19,9 @@ from app.modules.information.schemas.video import (
     MarkVideoNotesFailedRequest,
     ScanVideosRequest,
     SummaryDocumentOut,
+    SummaryTaskConfigCreate,
+    SummaryTaskConfigOut,
+    SummaryTaskConfigUpdate,
     VideoNoteDetailOut,
     VideoNoteOut,
     VideoNoteRawResponseOut,
@@ -32,7 +36,6 @@ from app.modules.information.status_enums import (
     NOTE_STATUSES,
     SOURCE_STATUSES,
     SUMMARY_DOCUMENT_STATUSES,
-    SUMMARY_TYPES,
     TASK_STATUSES,
     VIDEO_STATUSES,
     status_options,
@@ -40,6 +43,7 @@ from app.modules.information.status_enums import (
 from app.modules.information.services.operation_log_service import finish_task, log_fetch_error, start_task, task_status_from_counts
 from app.modules.information.services.information_settings_service import InformationSettingsService
 from app.modules.information.services.video_information_service import VideoInformationService
+from app.scheduler.runtime import refresh_summary_task_config_jobs
 
 router = APIRouter(prefix="/information", tags=["information"])
 logger = logging.getLogger(__name__)
@@ -52,11 +56,51 @@ def get_status_options():
         "video_statuses": status_options(VIDEO_STATUSES),
         "note_statuses": status_options(NOTE_STATUSES),
         "summary_document_statuses": status_options(SUMMARY_DOCUMENT_STATUSES),
-        "summary_types": status_options(SUMMARY_TYPES),
         "task_statuses": status_options(TASK_STATUSES),
         "fund_nav_task_types": status_options(FUND_NAV_TASK_TYPES),
         "information_task_types": status_options(INFORMATION_TASK_TYPES),
     }
+
+
+@router.get("/categories", response_model=InformationCategoriesOut)
+def list_categories(db: Session = Depends(get_db)):
+    return {"categories": VideoInformationService(db).list_categories()}
+
+
+@router.get("/summary-task-configs", response_model=list[SummaryTaskConfigOut])
+def list_summary_task_configs(db: Session = Depends(get_db)):
+    return VideoInformationService(db).list_summary_task_configs()
+
+
+@router.post("/summary-task-configs", response_model=SummaryTaskConfigOut)
+def create_summary_task_config(payload: SummaryTaskConfigCreate, db: Session = Depends(get_db)):
+    try:
+        config = VideoInformationService(db).create_summary_task_config(payload)
+        refresh_summary_task_config_jobs()
+        return config
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/summary-task-configs/{config_id}", response_model=SummaryTaskConfigOut)
+def update_summary_task_config(config_id: int, payload: SummaryTaskConfigUpdate, db: Session = Depends(get_db)):
+    try:
+        config = VideoInformationService(db).update_summary_task_config(config_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if config is None:
+        raise HTTPException(status_code=404, detail="summary task config not found")
+    refresh_summary_task_config_jobs()
+    return config
+
+
+@router.delete("/summary-task-configs/{config_id}")
+def delete_summary_task_config(config_id: int, db: Session = Depends(get_db)):
+    deleted = VideoInformationService(db).delete_summary_task_config(config_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="summary task config not found")
+    refresh_summary_task_config_jobs()
+    return {"deleted": True}
 
 
 def _video_note_task_status(result: dict[str, int | str | None]) -> str:
@@ -132,6 +176,7 @@ def list_videos(
     video_id: int | None = None,
     source_id: int | None = None,
     status: str | None = None,
+    category: str | None = None,
     published_from: date | None = None,
     published_to: date | None = None,
     db: Session = Depends(get_db),
@@ -141,6 +186,7 @@ def list_videos(
         video_id=video_id,
         source_id=source_id,
         status=status,
+        category=category,
         published_from=published_from,
         published_to=published_to,
     )
@@ -181,10 +227,17 @@ def get_video_note_raw_response(note_id: int, db: Session = Depends(get_db)):
 @router.get("/summary-documents", response_model=list[SummaryDocumentOut])
 def list_summary_documents(
     limit: int = 100,
-    summary_type: str | None = None,
+    summary_task_config_id: int | None = None,
+    manual_summary: bool = False,
+    category: str | None = None,
     db: Session = Depends(get_db),
 ):
-    return VideoInformationService(db).list_summary_documents(limit=limit, summary_type=summary_type)
+    return VideoInformationService(db).list_summary_documents(
+        limit=limit,
+        summary_task_config_id=summary_task_config_id,
+        manual_summary=manual_summary,
+        category=category,
+    )
 
 
 @router.get("/summary-documents/{document_id}", response_model=SummaryDocumentOut)
@@ -271,7 +324,7 @@ def mark_video_notes_failed(
     task_log = start_task(
         db,
         "手动标记信息源笔记失败",
-        "generate_information_video_notes",
+        "mark_information_video_notes_failed",
         datetime.now(),
         target,
     )
@@ -346,34 +399,6 @@ def repoll_video_note(note_id: int, db: Session = Depends(get_db)):
     return ActionResult(status="success", message=message, count=1)
 
 
-@router.post("/actions/generate-summary", response_model=SummaryDocumentOut | None)
-def generate_summary(
-    platform: str = "bilibili",
-    summary_date: date | None = None,
-    db: Session = Depends(get_db),
-):
-    target_date = summary_date or date.today()
-    task_log = start_task(
-        db,
-        "手动生成信息流每日汇总",
-        "generate_information_summary_documents",
-        datetime.now(),
-        f"{platform}:{target_date}",
-    )
-    try:
-        document = VideoInformationService(db).create_daily_summary(platform=platform, summary_date=summary_date)
-    except Exception as exc:
-        log_fetch_error(db, "hermes", "summary_document", f"{platform}:{target_date}", repr(exc))
-        finish_task(db, task_log, "failed", repr(exc))
-        raise
-    if document is None:
-        finish_task(db, task_log, "skipped", "no completed notes to summarize")
-        return None
-    status = "success" if document.status in {"done", "running"} else "failed"
-    finish_task(db, task_log, status, f"document_id={document.id};status={document.status}")
-    return document
-
-
 @router.post("/actions/generate-summary-from-notes", response_model=SummaryDocumentOut)
 def generate_summary_from_notes(
     payload: GenerateSummaryFromNotesRequest,
@@ -390,7 +415,11 @@ def generate_summary_from_notes(
         target_id=target,
     )
     try:
-        document = VideoInformationService(db).create_custom_summary(payload.note_ids, title=payload.title)
+        document = VideoInformationService(db).create_custom_summary(
+            payload.note_ids,
+            title=payload.title,
+            summary_instruction=payload.summary_instruction,
+        )
     except ValueError as exc:
         finish_task(db, task_log, "failed", str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc

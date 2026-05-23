@@ -13,15 +13,24 @@ from app.database import Base
 class InformationSummaryDocument(Base):
     __tablename__ = "information_summary_documents"
     __table_args__ = (
-        Index("uk_information_summary_documents_platform_type_date", "platform", "summary_type", "summary_date", unique=True),
+        Index(
+            "uk_information_summary_documents_platform_date_category_task",
+            "platform",
+            "summary_date",
+            "category",
+            "summary_task_config_id",
+            unique=True,
+        ),
         Index("idx_information_summary_documents_status", "status"),
-        Index("idx_information_summary_documents_type_date", "summary_type", "summary_date"),
+        Index("idx_information_summary_documents_date_category", "summary_date", "category"),
+        Index("idx_information_summary_documents_task_config", "summary_task_config_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     platform: Mapped[str] = mapped_column(String(30), nullable=False)
-    summary_type: Mapped[str] = mapped_column(String(20), nullable=False, default="daily")
     summary_date: Mapped[date] = mapped_column(Date, nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False, default="财经", server_default="财经")
+    summary_task_config_id: Mapped[Optional[int]] = mapped_column(ForeignKey("information_summary_task_configs.id"))
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     hermes_run_id: Mapped[Optional[str]] = mapped_column(String(100))

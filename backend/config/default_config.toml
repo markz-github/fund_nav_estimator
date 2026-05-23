@@ -18,7 +18,4 @@ scheduler_refresh_quotes_cron = "0,30 9-15 * * mon-fri"
 scheduler_estimate_nav_cron = "5,35 9-15 * * mon-fri"
 scheduler_scan_videos_cron = "*/3 * * * *"
 scheduler_generate_video_notes_interval_seconds = 30
-scheduler_generate_summary_documents_cron = "0 7 * * *"
-scheduler_generate_weekly_summary_documents_cron = "30 7 * * mon"
 scheduler_poll_summary_documents_interval_seconds = 30
-scheduler_push_summary_documents_cron = "0 8 * * *"
