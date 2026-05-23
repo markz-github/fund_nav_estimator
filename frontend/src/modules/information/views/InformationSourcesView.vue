@@ -6,6 +6,7 @@ import { formatDateTime } from '../../../utils/datetime'
 import {
   createVideoSource,
   deleteVideoSource,
+  listInformationCategories,
   listVideoSources,
   scanVideos,
   updateVideoSource,
@@ -18,21 +19,38 @@ const loading = ref(false)
 const savingSource = ref(false)
 const scanning = ref(false)
 const message = ref('')
-const newSource = ref({ source_name: '', external_source_id: '', source_url: '', remark: '' })
+const categories = ref<string[]>(['财经'])
+const dialogMode = ref<'add' | 'edit' | null>(null)
+const editingSourceId = ref<number | null>(null)
+const sourceDraft = ref(emptySourceDraft())
 const selectedSourceIds = ref<number[]>([])
 
 const enabledSources = computed(() => sources.value.filter((source) => source.enabled))
+const sourceDialogOpen = computed(() => dialogMode.value !== null)
+const sourceDialogTitle = computed(() => (dialogMode.value === 'edit' ? '修改信息源' : '添加信息源'))
 const allSourcesSelected = computed(
   () =>
     enabledSources.value.length > 0 &&
     enabledSources.value.every((source) => selectedSourceIds.value.includes(source.id)),
 )
 
+function emptySourceDraft() {
+  return {
+    source_name: '',
+    external_source_id: '',
+    source_url: '',
+    category: '财经',
+    remark: '',
+  }
+}
+
 async function loadSources(options?: { keepMessage?: boolean }) {
   loading.value = true
   if (!options?.keepMessage) message.value = ''
   try {
-    sources.value = await listVideoSources()
+    const [sourceResult, categoryResult] = await Promise.all([listVideoSources(), listInformationCategories()])
+    sources.value = sourceResult
+    categories.value = categoryResult
     const sourceIdSet = new Set(sources.value.map((source) => source.id))
     selectedSourceIds.value = selectedSourceIds.value.filter((sourceId) => sourceIdSet.has(sourceId))
   } catch (error) {
@@ -43,24 +61,55 @@ async function loadSources(options?: { keepMessage?: boolean }) {
 }
 
 async function submitSource() {
-  if (!newSource.value.source_name.trim() || !newSource.value.external_source_id.trim()) return
+  if (!sourceDraft.value.source_name.trim() || !sourceDraft.value.external_source_id.trim()) return
   savingSource.value = true
   try {
-    await createVideoSource({
+    const payload = {
       platform: 'bilibili',
-      source_name: newSource.value.source_name.trim(),
-      external_source_id: newSource.value.external_source_id.trim(),
-      source_url: newSource.value.source_url.trim() || undefined,
-      remark: newSource.value.remark.trim() || undefined,
-    })
-    newSource.value = { source_name: '', external_source_id: '', source_url: '', remark: '' }
-    message.value = '信息源已添加。'
+      source_name: sourceDraft.value.source_name.trim(),
+      external_source_id: sourceDraft.value.external_source_id.trim(),
+      source_url: sourceDraft.value.source_url.trim() || undefined,
+      category: sourceDraft.value.category.trim() || '财经',
+      remark: sourceDraft.value.remark.trim() || undefined,
+    }
+    if (dialogMode.value === 'edit' && editingSourceId.value !== null) {
+      await updateVideoSource(editingSourceId.value, payload)
+      message.value = '信息源已保存。'
+    } else {
+      await createVideoSource(payload)
+      message.value = '信息源已添加。'
+    }
+    closeSourceDialog()
     await loadSources({ keepMessage: true })
   } catch (error) {
-    message.value = apiErrorMessage(error, '新增信息源失败，请检查 UID 或主页 URL。')
+    message.value = apiErrorMessage(error, dialogMode.value === 'edit' ? '保存信息源失败，请检查 UID 或主页 URL。' : '新增信息源失败，请检查 UID 或主页 URL。')
   } finally {
     savingSource.value = false
   }
+}
+
+function openAddDialog() {
+  sourceDraft.value = emptySourceDraft()
+  editingSourceId.value = null
+  dialogMode.value = 'add'
+}
+
+function openEditDialog(source: VideoSource) {
+  sourceDraft.value = {
+    source_name: source.source_name,
+    external_source_id: source.external_source_id,
+    source_url: source.source_url ?? '',
+    category: source.category || '财经',
+    remark: source.remark ?? '',
+  }
+  editingSourceId.value = source.id
+  dialogMode.value = 'edit'
+}
+
+function closeSourceDialog() {
+  if (savingSource.value) return
+  dialogMode.value = null
+  editingSourceId.value = null
 }
 
 async function toggleSource(source: VideoSource) {
@@ -112,6 +161,7 @@ onMounted(loadSources)
         <p class="subtitle">维护 B站来源账号，并手动扫描选中或全部启用账号。</p>
       </div>
       <div class="section-actions">
+        <button type="button" @click="openAddDialog">添加来源</button>
         <button class="ghost" :disabled="scanning" @click="runScan">
           {{ scanning ? '扫描中...' : selectedSourceIds.length ? `扫描选中 ${selectedSourceIds.length} 个账号` : '扫描全部账号' }}
         </button>
@@ -120,13 +170,9 @@ onMounted(loadSources)
 
     <p v-if="message" class="message">{{ message }}</p>
 
-    <form class="inline-add-form" @submit.prevent="submitSource">
-      <input v-model="newSource.source_name" placeholder="账号名称" />
-      <input v-model="newSource.external_source_id" placeholder="UID 或 space 主页 URL" />
-      <input v-model="newSource.source_url" placeholder="主页 URL，可选" />
-      <input v-model="newSource.remark" placeholder="备注" />
-      <button type="submit" :disabled="savingSource">{{ savingSource ? '保存中...' : '添加来源' }}</button>
-    </form>
+    <datalist id="source-categories">
+      <option v-for="category in categories" :key="category" :value="category" />
+    </datalist>
 
     <div class="table-card spaced-title">
       <table class="info-table sources-table">
@@ -136,6 +182,7 @@ onMounted(loadSources)
           <col class="col-platform" />
           <col class="col-source" />
           <col class="col-uid" />
+          <col class="col-category" />
           <col class="col-count" />
           <col class="col-count" />
           <col class="col-status-wide" />
@@ -157,6 +204,7 @@ onMounted(loadSources)
             <th>平台</th>
             <th>账号</th>
             <th>UID</th>
+            <th>分类</th>
             <th>视频数</th>
             <th>笔记数</th>
             <th>状态</th>
@@ -166,7 +214,7 @@ onMounted(loadSources)
         </thead>
         <tbody>
           <tr v-if="sources.length === 0">
-            <td colspan="10">暂无信息源。</td>
+            <td colspan="11">暂无信息源。</td>
           </tr>
           <tr v-for="source in sources" :key="source.id">
             <td>
@@ -186,6 +234,7 @@ onMounted(loadSources)
               </RouterLink>
             </td>
             <td class="mono">{{ source.external_source_id }}</td>
+            <td>{{ source.category }}</td>
             <td class="mono">
               <RouterLink :to="{ name: 'information-videos', query: { source_id: source.id } }">
                 {{ source.video_count }}
@@ -199,12 +248,34 @@ onMounted(loadSources)
             <td><span class="status-pill" :class="statusClass(source.status)">{{ source.status_label }}</span></td>
             <td>{{ formatDateTime(source.last_scanned_at) }}</td>
             <td>
-              <button class="ghost" type="button" @click="toggleSource(source)">{{ source.enabled ? '停用' : '启用' }}</button>
-              <button class="danger" type="button" @click="removeSource(source)">删除</button>
+              <div class="quick-actions">
+                <button class="ghost" type="button" :disabled="savingSource" @click="openEditDialog(source)">修改</button>
+                <button class="ghost" type="button" @click="toggleSource(source)">{{ source.enabled ? '停用' : '启用' }}</button>
+                <button class="danger" type="button" @click="removeSource(source)">删除</button>
+              </div>
             </td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="sourceDialogOpen" class="modal-backdrop" @click.self="closeSourceDialog">
+      <section class="confirm-dialog summary-task-dialog" role="dialog" aria-modal="true" aria-labelledby="source-dialog-title">
+        <h2 id="source-dialog-title">{{ sourceDialogTitle }}</h2>
+        <div class="settings-grid">
+          <label>账号名称<input v-model="sourceDraft.source_name" /></label>
+          <label>UID 或主页<input v-model="sourceDraft.external_source_id" placeholder="UID 或 space 主页 URL" /></label>
+          <label class="settings-wide">主页 URL<input v-model="sourceDraft.source_url" placeholder="可选" /></label>
+          <label>分类<input v-model="sourceDraft.category" list="source-categories" placeholder="财经" /></label>
+          <label class="settings-wide">备注<input v-model="sourceDraft.remark" /></label>
+        </div>
+        <div class="dialog-actions">
+          <button class="ghost" type="button" :disabled="savingSource" @click="closeSourceDialog">取消</button>
+          <button type="button" :disabled="savingSource" @click="submitSource">
+            {{ savingSource ? '保存中...' : (dialogMode === 'edit' ? '保存修改' : '添加来源') }}
+          </button>
+        </div>
+      </section>
     </div>
   </main>
 </template>

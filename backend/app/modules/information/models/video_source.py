@@ -22,6 +22,7 @@ class InformationVideoSource(Base):
     source_name: Mapped[str] = mapped_column(String(100), nullable=False)
     source_url: Mapped[Optional[str]] = mapped_column(String(500))
     external_source_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False, default="财经", server_default="财经")
     enabled: Mapped[int] = mapped_column(nullable=False, default=1)
     last_scanned_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     remark: Mapped[Optional[str]] = mapped_column(String(255))

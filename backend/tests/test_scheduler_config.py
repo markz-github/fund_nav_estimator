@@ -25,11 +25,9 @@ from app.modules.information.models.video_note import InformationVideoNote
 from app.modules.information.models.video_source import InformationVideoSource
 from app.scheduler.jobs import (
     create_scheduler,
-    generate_information_summary_documents_job,
-    generate_information_weekly_summary_documents_job,
+    generate_information_summary_task_config_job,
     generate_information_video_notes_job,
     poll_information_summary_documents_job,
-    push_information_summary_documents_job,
     scan_information_videos_job,
 )
 
@@ -45,10 +43,7 @@ def settings(fund_enabled: bool, information_enabled: bool):
         scheduler_estimate_nav_cron="5,35 9-15 * * mon-fri",
         scheduler_scan_videos_cron="*/3 * * * *",
         scheduler_generate_video_notes_interval_seconds=30,
-        scheduler_generate_summary_documents_cron="0 7 * * *",
-        scheduler_generate_weekly_summary_documents_cron="30 7 * * mon",
         scheduler_poll_summary_documents_interval_seconds=30,
-        scheduler_push_summary_documents_cron="0 8 * * *",
     )
 
 
@@ -85,7 +80,10 @@ class SchedulerConfigTests(unittest.TestCase):
         )
 
     def test_create_scheduler_can_register_only_information_jobs(self) -> None:
-        with patch("app.scheduler.jobs.get_settings", return_value=settings(False, True)):
+        with (
+            patch("app.scheduler.jobs.get_settings", return_value=settings(False, True)),
+            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
+        ):
             scheduler = create_scheduler()
 
         self.assertEqual(
@@ -93,10 +91,9 @@ class SchedulerConfigTests(unittest.TestCase):
             {
                 "scan_information_videos",
                 "generate_information_video_notes",
-                "generate_information_summary_documents",
-                "generate_information_weekly_summary_documents",
+                "generate_information_summary_task_config_1",
+                "generate_information_summary_task_config_2",
                 "poll_information_summary_documents",
-                "push_information_summary_documents",
             },
         )
 
@@ -370,7 +367,7 @@ class SchedulerConfigTests(unittest.TestCase):
         finally:
             db.close()
 
-        self.assertEqual(logs[0]["error_message"], "Bilinote 服务不可用")
+        self.assertEqual(logs["items"][0]["error_message"], "Bilinote 服务不可用")
 
     def test_task_log_list_does_not_enrich_success_submit_with_old_note_error(self) -> None:
         db = self.SessionLocal()
@@ -419,46 +416,31 @@ class SchedulerConfigTests(unittest.TestCase):
         finally:
             db.close()
 
-        self.assertIsNone(logs[0]["error_message"])
+        self.assertIsNone(logs["items"][0]["error_message"])
 
-    def test_scheduled_summary_job_does_not_log_when_no_document_created(self) -> None:
+    def test_scheduled_summary_task_config_job_does_not_log_when_no_document_created(self) -> None:
         service = Mock()
-        service.create_daily_summary.return_value = None
+        service.run_summary_task_config.return_value = None
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
             patch("app.scheduler.jobs.VideoInformationService", return_value=service),
         ):
-            generate_information_summary_documents_job()
+            generate_information_summary_task_config_job(7)
 
         self.assertEqual(self.task_logs(), [])
 
-    def test_scheduled_summary_job_uses_yesterday_as_summary_date(self) -> None:
+    def test_scheduled_summary_task_config_job_uses_config_id(self) -> None:
         service = Mock()
-        service.create_daily_summary.return_value = None
+        service.run_summary_task_config.return_value = None
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
             patch("app.scheduler.jobs.VideoInformationService", return_value=service),
         ):
-            generate_information_summary_documents_job()
+            generate_information_summary_task_config_job(7)
 
-        expected_date = date.today() - timedelta(days=1)
-        service.create_daily_summary.assert_called_once_with(platform="bilibili", summary_date=expected_date)
-
-    def test_scheduled_weekly_summary_job_uses_previous_monday(self) -> None:
-        service = Mock()
-        service.create_weekly_summary.return_value = None
-
-        with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
-        ):
-            generate_information_weekly_summary_documents_job()
-
-        today = date.today()
-        expected_week_start = today - timedelta(days=today.weekday() + 7)
-        service.create_weekly_summary.assert_called_once_with(platform="bilibili", week_start=expected_week_start)
+        service.run_summary_task_config.assert_called_once_with(7)
 
     def test_scheduled_summary_poll_job_does_not_log_empty_poll(self) -> None:
         service = Mock()
@@ -516,23 +498,6 @@ class SchedulerConfigTests(unittest.TestCase):
             poll_information_summary_documents_job()
 
         self.assertEqual(self.task_logs(), [])
-
-    def test_scheduled_wechat_push_does_not_log_when_no_document_pushed(self) -> None:
-        service = Mock()
-        service.push_daily_summary_to_wechat.return_value = {
-            "pushed": 0,
-            "document_id": None,
-            "message": "no done daily summary document",
-        }
-
-        with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
-        ):
-            push_information_summary_documents_job()
-
-        self.assertEqual(self.task_logs(), [])
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,6 +30,7 @@ class InformationVideo(Base):
     content_text: Mapped[Optional[str]] = mapped_column(Text().with_variant(LONGTEXT, "mysql"))
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer)
     author_name: Mapped[Optional[str]] = mapped_column(String(100))
+    category: Mapped[str] = mapped_column(String(50), nullable=False, default="财经", server_default="财经")
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="discovered")
     raw_response: Mapped[Optional[str]] = mapped_column(Text().with_variant(LONGTEXT, "mysql"))

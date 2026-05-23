@@ -182,10 +182,7 @@ SCHEDULER_REFRESH_QUOTES_CRON=0,30 9-15 * * mon-fri
 SCHEDULER_ESTIMATE_NAV_CRON=5,35 9-15 * * mon-fri
 SCHEDULER_SCAN_VIDEOS_CRON=*/3 * * * *
 SCHEDULER_GENERATE_VIDEO_NOTES_INTERVAL_SECONDS=30
-SCHEDULER_GENERATE_SUMMARY_DOCUMENTS_CRON=0 7 * * *
-SCHEDULER_GENERATE_WEEKLY_SUMMARY_DOCUMENTS_CRON=30 7 * * mon
 SCHEDULER_POLL_SUMMARY_DOCUMENTS_INTERVAL_SECONDS=30
-SCHEDULER_PUSH_SUMMARY_DOCUMENTS_CRON=0 8 * * *
 ```
 
 默认含义：
@@ -197,10 +194,9 @@ SCHEDULER_PUSH_SUMMARY_DOCUMENTS_CRON=0 8 * * *
 - `SCHEDULER_ESTIMATE_NAV_CRON`：工作日 09:05-15:35 每 30 分钟估算净值。
 - `SCHEDULER_SCAN_VIDEOS_CRON`：每 3 分钟扫描信息流信息源；定时任务每次只扫描 1 个启用账号，按最近扫描时间轮询，避免集中请求触发风控。
 - `SCHEDULER_GENERATE_VIDEO_NOTES_INTERVAL_SECONDS`：每 30 秒检查或提交 Bilinote 视频总结任务。
-- `SCHEDULER_GENERATE_SUMMARY_DOCUMENTS_CRON`：每天 07:00 针对昨天发布的视频对应笔记，提交 Hermes `/v1/runs` 汇总任务。
-- `SCHEDULER_GENERATE_WEEKLY_SUMMARY_DOCUMENTS_CRON`：每周一 07:30 针对上周一至上周日发布内容对应笔记，提交 Hermes `/v1/runs` 周汇总任务。
 - `SCHEDULER_POLL_SUMMARY_DOCUMENTS_INTERVAL_SECONDS`：每 30 秒检查 Hermes 汇总任务结果。
-- `SCHEDULER_PUSH_SUMMARY_DOCUMENTS_CRON`：每天 08:00 将昨天已完成的每日汇总文档推送到微信接口。
+
+信息流汇总任务的执行时间不再通过全局固定配置。后端启动时会读取 `information_summary_task_configs.cron_expression`，为每个启用的汇总任务配置注册定时任务；前端保存、新增、停用或删除汇总任务配置后，也会刷新已注册的汇总定时任务。是否推送微信由 `information_summary_task_configs.push_to_wechat` 控制；Hermes 汇总轮询完成并写入正文后，会立即判断该配置是否启用微信推送，启用时直接调用微信推送接口。
 
 Bilinote 总结任务还会读取 `information_settings.video_note_recent_days`，只对最近 N 天内发布或入库的视频提交总结任务。默认值为 `3`，设置为 `0` 表示不限制天数。
 
@@ -210,13 +206,12 @@ Bilinote 总结任务还会读取 `information_settings.video_note_recent_days`�
 
 ### 枚举使用约定
 
-数据库中的状态、类型等枚举值统一保存英文或数字编码，例如 `task_logs.task_type`、`task_logs.status`、`information_summary_documents.summary_type`。
+数据库中的状态、类型等枚举值统一保存英文或数字编码，例如 `task_logs.task_type`、`task_logs.status`。
 
 后端代码中的枚举定义统一维护在 `backend/app/modules/information/status_enums.py`，包括：
 
 - 信息源状态、视频状态、笔记状态、汇总文档状态和任务状态。
 - 基金模块任务类型、信息流模块任务类型。
-- 汇总类型：`manual`、`daily`、`weekly`。
 
 前端页面展示中文时，不在页面里硬编码英文到中文的映射；筛选下拉框也不在前端维护固定数组。前端应通过统一枚举接口查询选项：
 
@@ -260,17 +255,15 @@ Bilinote task expired after 1 day without result
 - `partial`：任务已完成，同时存在成功与失败或跳过。
 - `skipped`：任务已完成，但没有可处理对象，或业务上跳过执行。
 
-`generate_information_video_notes` 的任务日志只描述本次后端触发是否完成；Bilinote 外部等待状态保存在 `information_videos.status` 和 `information_video_notes.status`，不再把已结束的任务日志保留为 `running`。
-
 Bilinote 总结拆成两类任务日志：
 
 - `submit_information_video_note_task`：提交 `/api/generate_note`，创建笔记记录，并在 `task_logs.external_task_id` 记录 Bilinote 返回的 `task_id`。
 - `poll_information_video_notes`：定时扫描 `information_video_notes.status = running` 的记录，调用 `/api/task_status/{task_id}` 获取结果。
+- `mark_information_video_notes_failed`：手动将选中的笔记任务标记为失败。
 
 Hermes 汇总也拆成两类任务日志：
 
-- `generate_information_summary_documents` / `generate_information_custom_summary` / `retry_information_summary_document`：提交 Hermes run，创建或复用汇总文档，并在文档中保存 `hermes_run_id`。
-- `generate_information_weekly_summary_documents`：提交上周一至上周日发布内容对应笔记的 Hermes 周汇总任务。
+- `generate_information_summary_task_config` / `generate_information_custom_summary` / `retry_information_summary_document`：提交 Hermes run，创建或复用汇总文档，并在文档中保存 `hermes_run_id`。其中 `generate_information_summary_task_config` 来自汇总任务配置表的定时触发。
 - `poll_information_summary_documents`：定时扫描 `information_summary_documents.status = running` 的记录，调用 Hermes 状态接口获取最终汇总正文。
 
 信息流定时任务会精简空跑日志：没有启用信息源、扫描没有新增视频、没有 running Bilinote 任务、没有待提交总结视频、没有可汇总笔记时，不写入 `task_logs`。手动触发的任务仍会写入日志，包括 `skipped` 结果。
@@ -337,6 +330,10 @@ Hermes 汇总也拆成两类任务日志：
 - `DELETE /api/information/video-sources/{source_id}`
 - `GET /api/information/settings`
 - `PUT /api/information/settings`
+- `GET /api/information/summary-task-configs`
+- `POST /api/information/summary-task-configs`
+- `PATCH /api/information/summary-task-configs/{config_id}`
+- `DELETE /api/information/summary-task-configs/{config_id}`
 - `GET /api/information/videos`
 - `GET /api/information/video-notes`
 - `GET /api/information/summary-documents`
@@ -344,7 +341,6 @@ Hermes 汇总也拆成两类任务日志：
 - `POST /api/information/summary-documents/{document_id}/retry`
 - `POST /api/information/actions/scan-videos`
 - `POST /api/information/actions/generate-video-notes`
-- `POST /api/information/actions/generate-summary`
 
 ## 开发文档
 

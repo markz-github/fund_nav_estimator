@@ -9,6 +9,7 @@ import InformationNoteDetailView from '../modules/information/views/InformationN
 import InformationSettingsView from '../modules/information/views/InformationSettingsView.vue'
 import InformationSummariesView from '../modules/information/views/InformationSummariesView.vue'
 import InformationSummaryDetailView from '../modules/information/views/InformationSummaryDetailView.vue'
+import InformationSummarySettingsView from '../modules/information/views/InformationSummarySettingsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -75,6 +76,11 @@ const router = createRouter({
       path: '/information/settings',
       name: 'information-settings',
       component: InformationSettingsView,
+    },
+    {
+      path: '/information/summary-settings',
+      name: 'information-summary-settings',
+      component: InformationSummarySettingsView,
     },
     {
       path: '/funds/:fundCode',

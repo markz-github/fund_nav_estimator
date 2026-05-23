@@ -4,7 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { formatDateTime } from '../../../utils/datetime'
 import MarkdownContent from '../components/MarkdownContent.vue'
-import { getInformationStatusOptions, getSummaryDocument, type StatusOption, type SummaryDocument } from '../api/videos'
+import { getSummaryDocument, type SummaryDocument } from '../api/videos'
 import { statusClass } from '../utils/status'
 
 const route = useRoute()
@@ -12,13 +12,8 @@ const router = useRouter()
 const document = ref<SummaryDocument | null>(null)
 const loading = ref(false)
 const message = ref('')
-const summaryTypes = ref<StatusOption[]>([])
 
 const documentId = computed(() => Number(route.params.documentId))
-
-function summaryTypeLabel(type: string) {
-  return summaryTypes.value.find((option) => option.value === type)?.label ?? type
-}
 
 async function loadDocument() {
   if (!Number.isFinite(documentId.value) || documentId.value <= 0) return
@@ -34,15 +29,6 @@ async function loadDocument() {
   }
 }
 
-async function loadOptions() {
-  try {
-    const options = await getInformationStatusOptions()
-    summaryTypes.value = options.summary_types
-  } catch {
-    summaryTypes.value = []
-  }
-}
-
 function goBack() {
   if (window.history.state?.back) {
     router.back()
@@ -52,7 +38,6 @@ function goBack() {
 }
 
 onMounted(() => {
-  loadOptions()
   loadDocument()
 })
 watch(documentId, loadDocument)
@@ -65,7 +50,7 @@ watch(documentId, loadDocument)
         <p class="eyebrow">Summary Detail</p>
         <h1>{{ document.title }}</h1>
         <p class="subtitle">
-          {{ summaryTypeLabel(document.summary_type) }} · {{ document.summary_date }} · {{ document.platform }} · <span class="mono">document: {{ document.id }}</span>
+          {{ document.summary_task_name || '手动汇总' }} · {{ document.summary_date }} · {{ document.platform }} · <span class="mono">document: {{ document.id }}</span>
         </p>
       </div>
       <div class="section-actions">

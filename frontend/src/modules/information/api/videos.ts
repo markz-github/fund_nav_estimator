@@ -6,6 +6,7 @@ export interface VideoSource {
   source_name: string
   source_url?: string | null
   external_source_id: string
+  category: string
   enabled: number
   last_scanned_at?: string | null
   remark?: string | null
@@ -29,8 +30,6 @@ export interface InformationSettings {
   hermes_run_path: string
   hermes_status_path_template: string
   hermes_summary_instruction: string
-  hermes_daily_summary_instruction: string
-  hermes_weekly_summary_instruction: string
   wechat_push_webhook_url: string
   wechat_push_token: string
   video_note_recent_days: string
@@ -50,6 +49,7 @@ export interface InformationVideo {
   published_at?: string | null
   status: string
   status_label: string
+  category: string
 }
 
 export interface VideoNote {
@@ -87,8 +87,10 @@ export interface VideoNoteRawResponse {
 export interface SummaryDocument {
   id: number
   platform: string
-  summary_type: string
+  summary_task_config_id?: number | null
+  summary_task_name?: string | null
   summary_date: string
+  category: string
   title: string
   status: string
   status_label: string
@@ -109,6 +111,7 @@ export interface SummaryDocumentNote {
   source_id?: number | null
   source_name?: string | null
   source_url?: string | null
+  category?: string | null
   status: string
   status_label: string
   generated_at?: string | null
@@ -124,7 +127,6 @@ export interface InformationStatusOptions {
   video_statuses: StatusOption[]
   note_statuses: StatusOption[]
   summary_document_statuses: StatusOption[]
-  summary_types: StatusOption[]
   task_statuses: StatusOption[]
   fund_nav_task_types: StatusOption[]
   information_task_types: StatusOption[]
@@ -134,6 +136,7 @@ export interface InformationVideoFilters {
   videoId?: number | null
   sourceId?: number | null
   status?: string
+  category?: string
   publishedFrom?: string
   publishedTo?: string
 }
@@ -155,11 +158,51 @@ export async function getInformationStatusOptions() {
   return data
 }
 
+export interface SummaryTaskConfig {
+  id: number
+  task_name: string
+  platform: string
+  category: string
+  start_days_before: number
+  cron_expression: string
+  title_template: string
+  summary_instruction: string
+  push_to_wechat: number
+  enabled: number
+  created_at: string
+  updated_at: string
+}
+
+export async function listInformationCategories() {
+  const { data } = await apiClient.get<{ categories: string[] }>('/information/categories')
+  return data.categories
+}
+
+export async function listSummaryTaskConfigs() {
+  const { data } = await apiClient.get<SummaryTaskConfig[]>('/information/summary-task-configs')
+  return data
+}
+
+export async function createSummaryTaskConfig(payload: Partial<SummaryTaskConfig>) {
+  const { data } = await apiClient.post<SummaryTaskConfig>('/information/summary-task-configs', payload)
+  return data
+}
+
+export async function updateSummaryTaskConfig(id: number, payload: Partial<SummaryTaskConfig>) {
+  const { data } = await apiClient.patch<SummaryTaskConfig>(`/information/summary-task-configs/${id}`, payload)
+  return data
+}
+
+export async function deleteSummaryTaskConfig(id: number) {
+  await apiClient.delete(`/information/summary-task-configs/${id}`)
+}
+
 export async function createVideoSource(payload: {
   platform: string
   source_name: string
   source_url?: string
   external_source_id: string
+  category?: string
   remark?: string
 }) {
   const { data } = await apiClient.post<VideoSource>('/information/video-sources', payload)
@@ -191,6 +234,7 @@ export async function listInformationVideos(filters?: InformationVideoFilters) {
       video_id: filters?.videoId || undefined,
       source_id: filters?.sourceId || undefined,
       status: filters?.status || undefined,
+      category: filters?.category || undefined,
       published_from: apiDate(filters?.publishedFrom),
       published_to: apiDate(filters?.publishedTo),
     },
@@ -223,10 +267,12 @@ export async function getVideoNoteRawResponse(noteId: number) {
   return data
 }
 
-export async function listSummaryDocuments(filters?: { summaryType?: string }) {
+export async function listSummaryDocuments(filters?: { summaryTaskConfigId?: number | null; manualSummary?: boolean; category?: string }) {
   const { data } = await apiClient.get<SummaryDocument[]>('/information/summary-documents', {
     params: {
-      summary_type: filters?.summaryType || undefined,
+      summary_task_config_id: filters?.summaryTaskConfigId || undefined,
+      manual_summary: filters?.manualSummary || undefined,
+      category: filters?.category || undefined,
     },
   })
   return data
@@ -280,17 +326,10 @@ export async function repollVideoNote(noteId: number) {
   return data
 }
 
-export async function generateSummary() {
-  const { data } = await apiClient.post<SummaryDocument | null>('/information/actions/generate-summary', undefined, {
-    timeout: 180000,
-  })
-  return data
-}
-
-export async function generateSummaryFromNotes(noteIds: number[], title?: string) {
+export async function generateSummaryFromNotes(noteIds: number[], title?: string, summaryInstruction?: string) {
   const { data } = await apiClient.post<SummaryDocument>(
     '/information/actions/generate-summary-from-notes',
-    { note_ids: noteIds, title: title?.trim() || undefined },
+    { note_ids: noteIds, title: title?.trim() || undefined, summary_instruction: summaryInstruction?.trim() || undefined },
     { timeout: 180000 },
   )
   return data

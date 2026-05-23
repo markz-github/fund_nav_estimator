@@ -25,10 +25,54 @@ class InformationStatusOptionsOut(BaseModel):
     video_statuses: list[StatusOptionOut]
     note_statuses: list[StatusOptionOut]
     summary_document_statuses: list[StatusOptionOut]
-    summary_types: list[StatusOptionOut]
     task_statuses: list[StatusOptionOut]
     fund_nav_task_types: list[StatusOptionOut]
     information_task_types: list[StatusOptionOut]
+
+
+class InformationCategoriesOut(BaseModel):
+    categories: list[str]
+
+
+class SummaryTaskConfigCreate(BaseModel):
+    task_name: str
+    platform: str = "bilibili"
+    category: str = "财经"
+    start_days_before: int = 1
+    cron_expression: str = "0 7 * * *"
+    title_template: str = "{start_date:%Y-%m-%d} {platform} {category}汇总"
+    summary_instruction: str = ""
+    push_to_wechat: int = 0
+    enabled: int = 1
+
+
+class SummaryTaskConfigUpdate(BaseModel):
+    task_name: str | None = None
+    platform: str | None = None
+    category: str | None = None
+    start_days_before: int | None = None
+    cron_expression: str | None = None
+    title_template: str | None = None
+    summary_instruction: str | None = None
+    push_to_wechat: int | None = None
+    enabled: int | None = None
+
+
+class SummaryTaskConfigOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_name: str
+    platform: str
+    category: str
+    start_days_before: int
+    cron_expression: str
+    title_template: str
+    summary_instruction: str
+    push_to_wechat: int
+    enabled: int
+    created_at: datetime
+    updated_at: datetime
 
 
 class VideoSourceCreate(BaseModel):
@@ -36,6 +80,7 @@ class VideoSourceCreate(BaseModel):
     source_name: str
     source_url: str | None = None
     external_source_id: str
+    category: str = "财经"
     remark: str | None = None
 
 
@@ -43,6 +88,7 @@ class VideoSourceUpdate(BaseModel):
     source_name: str | None = None
     source_url: str | None = None
     external_source_id: str | None = None
+    category: str | None = None
     enabled: int | None = None
     remark: str | None = None
 
@@ -55,6 +101,7 @@ class VideoSourceOut(BaseModel):
     source_name: str
     source_url: str | None
     external_source_id: str
+    category: str
     enabled: int
     last_scanned_at: datetime | None
     remark: str | None
@@ -88,8 +135,6 @@ class InformationSettingsOut(BaseModel):
     hermes_run_path: str
     hermes_status_path_template: str
     hermes_summary_instruction: str
-    hermes_daily_summary_instruction: str
-    hermes_weekly_summary_instruction: str
     wechat_push_webhook_url: str
     wechat_push_token: str
     video_note_recent_days: str
@@ -109,8 +154,6 @@ class InformationSettingsUpdate(BaseModel):
     hermes_run_path: str | None = None
     hermes_status_path_template: str | None = None
     hermes_summary_instruction: str | None = None
-    hermes_daily_summary_instruction: str | None = None
-    hermes_weekly_summary_instruction: str | None = None
     wechat_push_webhook_url: str | None = None
     wechat_push_token: str | None = None
     video_note_recent_days: str | None = None
@@ -138,6 +181,7 @@ class VideoOut(BaseModel):
     published_at: datetime | None
     duration_seconds: int | None = None
     status: str
+    category: str
     created_at: datetime
     updated_at: datetime
 
@@ -165,6 +209,7 @@ class MarkVideoNotesFailedRequest(BaseModel):
 class GenerateSummaryFromNotesRequest(BaseModel):
     note_ids: list[int]
     title: str | None = None
+    summary_instruction: str | None = None
 
 
 class VideoNoteOut(BaseModel):
@@ -221,6 +266,7 @@ class SummaryDocumentNoteOut(BaseModel):
     source_id: int | None = None
     source_name: str | None = None
     source_url: str | None = None
+    category: str | None = None
     status: str
     generated_at: datetime | None = None
 
@@ -235,8 +281,10 @@ class SummaryDocumentOut(BaseModel):
 
     id: int
     platform: str
-    summary_type: str
+    summary_task_config_id: int | None = None
+    summary_task_name: str | None = None
     summary_date: date
+    category: str
     title: str
     status: str
     hermes_run_id: str | None

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -9,7 +9,7 @@ from app.modules.information.models.data_fetch_error import DataFetchError
 from app.modules.information.models.task_log import TaskLog
 from app.modules.information.models.video import InformationVideo
 from app.modules.information.models.video_note import InformationVideoNote
-from app.modules.information.schemas.task import TaskLogOut
+from app.modules.information.schemas.task import TaskLogOut, TaskLogPageOut
 from app.modules.information.status_enums import INFORMATION_TASK_TYPES as INFORMATION_TASK_TYPE_OPTIONS
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -70,14 +70,18 @@ def _task_log_out(db: Session, log: TaskLog) -> dict[str, object]:
     }
 
 
-@router.get("/logs", response_model=list[TaskLogOut])
+@router.get("/logs", response_model=TaskLogPageOut)
 def list_task_logs(
-    limit: int = 100,
+    limit: int = 20,
+    page: int = 1,
+    page_size: int | None = None,
     module: str | None = None,
     task_type: str | None = None,
     status: str | None = None,
     db: Session = Depends(get_db),
 ):
+    effective_page_size = max(1, min(page_size or limit, 200))
+    effective_page = max(1, page)
     statement = select(TaskLog)
     if module == "information":
         statement = statement.where(TaskLog.task_type.in_(INFORMATION_TASK_TYPES))
@@ -87,5 +91,18 @@ def list_task_logs(
         statement = statement.where(TaskLog.task_type == task_type)
     if status:
         statement = statement.where(TaskLog.status == status)
-    logs = db.scalars(statement.order_by(TaskLog.started_at.desc()).limit(limit)).all()
-    return [_task_log_out(db, log) for log in logs]
+    total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+    if total > 0:
+        max_page = (total + effective_page_size - 1) // effective_page_size
+        effective_page = min(effective_page, max_page)
+    logs = db.scalars(
+        statement.order_by(TaskLog.started_at.desc())
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+    ).all()
+    return {
+        "items": [_task_log_out(db, log) for log in logs],
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+    }

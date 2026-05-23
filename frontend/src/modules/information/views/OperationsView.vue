@@ -9,6 +9,9 @@ import { statusClass } from '../utils/status'
 const route = useRoute()
 const router = useRouter()
 const taskLogs = ref<TaskLog[]>([])
+const totalLogs = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(20)
 const loading = ref(false)
 const message = ref('')
 const selectedTaskType = ref('')
@@ -44,17 +47,26 @@ function filterQuery() {
   return {
     ...(selectedTaskType.value ? { task_type: selectedTaskType.value } : {}),
     ...(selectedStatus.value ? { status: selectedStatus.value } : {}),
+    ...(currentPage.value > 1 ? { page: String(currentPage.value) } : {}),
   }
 }
+
+const totalPages = computed(() => Math.max(1, Math.ceil(totalLogs.value / pageSize.value)))
 
 async function loadOperations() {
   loading.value = true
   message.value = ''
   try {
-    taskLogs.value = await listTaskLogs(operationModule.value, {
+    const result = await listTaskLogs(operationModule.value, {
       taskType: selectedTaskType.value,
       status: selectedStatus.value,
+      page: currentPage.value,
+      pageSize: pageSize.value,
     })
+    taskLogs.value = result.items
+    totalLogs.value = result.total
+    currentPage.value = result.page
+    pageSize.value = result.page_size
   } catch (error) {
     message.value = '运行状态加载失败，请确认后端服务是否正常。'
   } finally {
@@ -76,9 +88,21 @@ async function loadOptions() {
 function applyQueryFilters() {
   selectedTaskType.value = typeof route.query.task_type === 'string' ? route.query.task_type : ''
   selectedStatus.value = typeof route.query.status === 'string' ? route.query.status : ''
+  const queryPage = Number(route.query.page)
+  currentPage.value = Number.isFinite(queryPage) && queryPage > 0 ? Math.floor(queryPage) : 1
 }
 
 async function applyFilters() {
+  currentPage.value = 1
+  await router.replace({
+    name: operationModule.value === 'fund_nav' ? 'fund-nav-operations' : 'information-operations',
+    query: filterQuery(),
+  })
+  await loadOperations()
+}
+
+async function goToPage(page: number) {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value)
   await router.replace({
     name: operationModule.value === 'fund_nav' ? 'fund-nav-operations' : 'information-operations',
     query: filterQuery(),
@@ -132,6 +156,7 @@ onMounted(() => {
 watch(operationModule, () => {
   selectedTaskType.value = ''
   selectedStatus.value = ''
+  currentPage.value = 1
   loadOperations()
 })
 
@@ -166,7 +191,7 @@ watch(
         <p class="eyebrow">Task Logs</p>
         <h2>任务日志</h2>
       </div>
-      <span>{{ taskLogs.length }} 条</span>
+      <span>第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalLogs }} 条</span>
     </section>
 
     <form class="filter-bar compact-filter" @submit.prevent="applyFilters">
@@ -271,6 +296,11 @@ watch(
         </tbody>
       </table>
     </div>
+    <nav class="pagination-bar" aria-label="任务日志分页">
+      <button class="ghost" type="button" :disabled="loading || currentPage <= 1" @click="goToPage(currentPage - 1)">上一页</button>
+      <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
+      <button class="ghost" type="button" :disabled="loading || currentPage >= totalPages" @click="goToPage(currentPage + 1)">下一页</button>
+    </nav>
     <div
       v-if="popover.visible"
       class="log-text-popover"

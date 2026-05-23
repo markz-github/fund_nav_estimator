@@ -4,6 +4,7 @@ from app.modules.information.models.summary_document import (
     InformationSummaryDocument,
     InformationSummaryDocumentItem,
 )
+from app.modules.information.models.summary_task_config import InformationSummaryTaskConfig
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
@@ -27,6 +28,7 @@ __all__ = [
     "InformationSetting",
     "InformationSummaryDocument",
     "InformationSummaryDocumentItem",
+    "InformationSummaryTaskConfig",
     "InformationVideo",
     "InformationVideoNote",
     "InformationVideoSource",

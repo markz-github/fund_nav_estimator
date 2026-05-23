@@ -5,6 +5,7 @@ import { apiErrorMessage } from '../../../api/client'
 import { formatDateTime } from '../../../utils/datetime'
 import {
   generateSummaryFromNotes,
+  getInformationSettings,
   getInformationStatusOptions,
   listVideoNotes,
   listVideoSources,
@@ -34,6 +35,9 @@ const generatingSummary = ref(false)
 const message = ref('')
 const selectedNoteIds = ref<number[]>([])
 const customSummaryTitle = ref('')
+const customSummaryInstruction = ref('')
+const defaultSummaryInstruction = ref('')
+const summaryDialogOpen = ref(false)
 const repollingNoteId = ref<number | null>(null)
 
 const filteredNotes = computed(() =>
@@ -97,6 +101,15 @@ async function loadStatusOptions() {
     noteStatusOptions.value = result.note_statuses
   } catch (error) {
     message.value = apiErrorMessage(error, '状态枚举加载失败。')
+  }
+}
+
+async function loadDefaultSummaryInstruction() {
+  try {
+    const settings = await getInformationSettings()
+    defaultSummaryInstruction.value = settings.hermes_summary_instruction || ''
+  } catch {
+    defaultSummaryInstruction.value = ''
   }
 }
 
@@ -199,17 +212,34 @@ function toggleAllSelectableNotes(checked: boolean) {
   selectedNoteIds.value = checked ? selectableNotes.value.map((note) => note.id) : []
 }
 
-async function runCustomSummary() {
+function openCustomSummaryDialog() {
   if (selectedNoteIds.value.length === 0) {
     message.value = '请先选择已完成的笔记。'
     return
   }
+  customSummaryInstruction.value = defaultSummaryInstruction.value
+  summaryDialogOpen.value = true
+}
+
+function closeCustomSummaryDialog() {
+  if (generatingSummary.value) return
+  summaryDialogOpen.value = false
+}
+
+async function runCustomSummary() {
+  if (selectedNoteIds.value.length === 0) {
+    message.value = '请先选择已完成的笔记。'
+    summaryDialogOpen.value = false
+    return
+  }
   generatingSummary.value = true
   try {
-    const result = await generateSummaryFromNotes(selectedNoteIds.value, customSummaryTitle.value)
+    const result = await generateSummaryFromNotes(selectedNoteIds.value, customSummaryTitle.value, customSummaryInstruction.value)
     message.value = `自定义汇总已提交：${result.title}`
     selectedNoteIds.value = []
     customSummaryTitle.value = ''
+    customSummaryInstruction.value = defaultSummaryInstruction.value
+    summaryDialogOpen.value = false
   } catch (error) {
     message.value = apiErrorMessage(error, '自定义汇总生成失败，请查看运行状态。')
   } finally {
@@ -233,6 +263,7 @@ async function repollFailedNote(note: VideoNote) {
 onMounted(() => {
   applyQueryFilters()
   loadStatusOptions()
+  loadDefaultSummaryInstruction()
   loadSources()
   loadNotes()
 })
@@ -268,18 +299,11 @@ watch(
       </div>
       <div class="section-actions">
         <span>{{ sortedNotes.length }} / {{ notes.length }} 条</span>
-        <input
-          v-model="customSummaryTitle"
-          class="inline-title-input"
-          type="text"
-          maxlength="200"
-          placeholder="汇总名称（可选）"
-        />
         <button
           class="ghost"
           type="button"
           :disabled="generatingSummary || selectedNoteIds.length === 0"
-          @click="runCustomSummary"
+          @click="openCustomSummaryDialog"
         >
           {{ generatingSummary ? '汇总中...' : selectedNoteIds.length ? `汇总选中 ${selectedNoteIds.length} 条` : '汇总选中笔记' }}
         </button>
@@ -402,6 +426,27 @@ watch(
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="summaryDialogOpen" class="modal-backdrop" @click.self="closeCustomSummaryDialog">
+      <section class="confirm-dialog custom-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="custom-summary-title">
+        <h2 id="custom-summary-title">手动汇总</h2>
+        <p class="dialog-copy">已选择 <strong>{{ selectedNoteIds.length }}</strong> 条笔记。</p>
+        <label>
+          汇总名称
+          <input v-model="customSummaryTitle" maxlength="200" placeholder="可选，留空则自动生成" />
+        </label>
+        <label>
+          汇总说明
+          <textarea v-model="customSummaryInstruction" rows="8" placeholder="可选，默认使用信息流设置中的默认汇总说明。" />
+        </label>
+        <div class="dialog-actions">
+          <button class="ghost" type="button" :disabled="generatingSummary" @click="closeCustomSummaryDialog">取消</button>
+          <button type="button" :disabled="generatingSummary" @click="runCustomSummary">
+            {{ generatingSummary ? '提交中...' : '提交汇总' }}
+          </button>
+        </div>
+      </section>
     </div>
   </main>
 </template>
