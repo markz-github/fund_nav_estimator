@@ -5,7 +5,7 @@ import { apiErrorMessage } from '../../../api/client'
 import { formatDateTime } from '../../../utils/datetime'
 import {
   listInformationCategories,
-  listSummaryDocuments,
+  listSummaryDocumentsPage,
   listSummaryTaskConfigs,
   retrySummaryDocument,
   type SummaryDocument,
@@ -16,6 +16,9 @@ import { statusClass } from '../utils/status'
 const route = useRoute()
 const router = useRouter()
 const documents = ref<SummaryDocument[]>([])
+const totalDocuments = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(20)
 const loading = ref(false)
 const retryingDocumentId = ref<number | null>(null)
 const message = ref('')
@@ -25,6 +28,7 @@ const selectedCategory = ref('')
 const summaryTaskConfigs = ref<SummaryTaskConfig[]>([])
 const categories = ref<string[]>(['财经'])
 const MANUAL_SUMMARY_FILTER = 'manual'
+const totalPages = computed(() => Math.max(1, Math.ceil(totalDocuments.value / pageSize.value)))
 const notesDialogDocument = computed(() => documents.value.find((item) => item.id === notesDialogDocumentId.value) ?? null)
 
 function summaryTaskLabel(document: SummaryDocument) {
@@ -36,11 +40,17 @@ async function loadDocuments(options?: { keepMessage?: boolean }) {
   if (!options?.keepMessage) message.value = ''
   try {
     const manualSummary = selectedSummaryTaskConfigId.value === MANUAL_SUMMARY_FILTER
-    documents.value = await listSummaryDocuments({
+    const result = await listSummaryDocumentsPage({
+      page: currentPage.value,
+      pageSize: pageSize.value,
       summaryTaskConfigId: selectedSummaryTaskConfigId.value && !manualSummary ? Number(selectedSummaryTaskConfigId.value) : undefined,
       manualSummary,
       category: selectedCategory.value,
     })
+    documents.value = result.items
+    totalDocuments.value = result.total
+    currentPage.value = result.page
+    pageSize.value = result.page_size
   } catch (error) {
     message.value = apiErrorMessage(error, '笔记汇总加载失败。')
   } finally {
@@ -61,14 +71,18 @@ async function loadOptions() {
 function applyQueryFilters() {
   selectedSummaryTaskConfigId.value = typeof route.query.summary_task_config_id === 'string' ? route.query.summary_task_config_id : ''
   selectedCategory.value = typeof route.query.category === 'string' ? route.query.category : ''
+  const queryPage = Number(route.query.page)
+  currentPage.value = Number.isFinite(queryPage) && queryPage > 0 ? Math.floor(queryPage) : 1
 }
 
 async function applySummaryFilter() {
+  currentPage.value = 1
   await router.replace({
     name: 'information-summaries',
     query: {
       ...(selectedSummaryTaskConfigId.value ? { summary_task_config_id: selectedSummaryTaskConfigId.value } : {}),
       ...(selectedCategory.value ? { category: selectedCategory.value } : {}),
+      ...(currentPage.value > 1 ? { page: String(currentPage.value) } : {}),
     },
   })
   await loadDocuments()
@@ -77,7 +91,21 @@ async function applySummaryFilter() {
 function resetSummaryFilter() {
   selectedSummaryTaskConfigId.value = ''
   selectedCategory.value = ''
+  currentPage.value = 1
   applySummaryFilter()
+}
+
+async function goToPage(page: number) {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value)
+  await router.replace({
+    name: 'information-summaries',
+    query: {
+      ...(selectedSummaryTaskConfigId.value ? { summary_task_config_id: selectedSummaryTaskConfigId.value } : {}),
+      ...(selectedCategory.value ? { category: selectedCategory.value } : {}),
+      ...(currentPage.value > 1 ? { page: String(currentPage.value) } : {}),
+    },
+  })
+  await loadDocuments()
 }
 
 async function retryDocument(documentId: number) {
@@ -126,7 +154,7 @@ watch(
         <p class="subtitle">查看手动汇总和汇总任务生成的 Hermes 文档。</p>
       </div>
       <div class="section-actions">
-        <span>{{ documents.length }} 篇</span>
+        <span>第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalDocuments }} 篇</span>
       </div>
     </section>
 
@@ -222,6 +250,12 @@ watch(
         </tbody>
       </table>
     </div>
+
+    <nav class="pagination-bar" aria-label="笔记汇总分页">
+      <button class="ghost" type="button" :disabled="loading || currentPage <= 1" @click="goToPage(currentPage - 1)">上一页</button>
+      <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
+      <button class="ghost" type="button" :disabled="loading || currentPage >= totalPages" @click="goToPage(currentPage + 1)">下一页</button>
+    </nav>
 
     <div v-if="notesDialogDocument" class="modal-backdrop" @click.self="closeNotesDialog">
       <section class="related-notes-dialog" role="dialog" aria-modal="true" aria-labelledby="related-notes-title">

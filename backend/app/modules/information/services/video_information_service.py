@@ -20,6 +20,7 @@ from app.modules.information.models.video import InformationVideo
 from app.modules.information.models.video_note import InformationVideoNote
 from app.modules.information.models.video_source import InformationVideoSource
 from app.modules.information.schemas.video import (
+    ManualLinkCreate,
     SummaryTaskConfigCreate,
     SummaryTaskConfigUpdate,
     VideoSourceCreate,
@@ -90,6 +91,22 @@ def _normalize_instruction(value: str | None) -> str:
     return (value or "").strip()
 
 
+def _page_params(page: int, page_size: int | None, limit: int = 100) -> tuple[int, int, int]:
+    effective_page_size = max(1, min(page_size or limit, 200))
+    effective_page = max(1, page)
+    offset = (effective_page - 1) * effective_page_size
+    return effective_page, effective_page_size, offset
+
+
+def _normalize_ingest_method(value: str | None) -> str | None:
+    method = (value or "").strip().lower()
+    if not method:
+        return None
+    if method not in {"scan", "manual"}:
+        raise ValueError("ingest_method must be scan or manual")
+    return method
+
+
 class VideoInformationService:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -100,37 +117,65 @@ class VideoInformationService:
         if enabled_only:
             statement = statement.where(InformationVideoSource.enabled == 1)
         sources = list(self.db.scalars(statement).all())
-        result = []
-        for source in sources:
-            video_count = self.db.scalar(
-                select(func.count(InformationVideo.id)).where(InformationVideo.source_id == source.id)
-            ) or 0
-            note_count = self.db.scalar(
-                select(func.count(InformationVideoNote.id))
-                .join(InformationVideo, InformationVideo.id == InformationVideoNote.video_id)
-                .where(
-                    InformationVideo.source_id == source.id,
-                    InformationVideoNote.status == "done",
-                )
-            ) or 0
-            result.append(
-                {
-                    "id": source.id,
-                    "platform": source.platform,
-                    "source_name": source.source_name,
-                    "source_url": source.source_url,
-                    "external_source_id": source.external_source_id,
-                    "category": source.category,
-                    "enabled": source.enabled,
-                    "last_scanned_at": source.last_scanned_at,
-                    "remark": source.remark,
-                    "video_count": video_count,
-                    "note_count": note_count,
-                    "created_at": source.created_at,
-                    "updated_at": source.updated_at,
-                }
+        return [self._source_payload(source) for source in sources]
+
+    def list_sources_page(
+        self,
+        enabled_only: bool = False,
+        page: int = 1,
+        page_size: int | None = None,
+        limit: int = 20,
+    ) -> dict[str, object]:
+        statement = select(InformationVideoSource)
+        if enabled_only:
+            statement = statement.where(InformationVideoSource.enabled == 1)
+        total = self.db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+        effective_page, effective_page_size, offset = _page_params(page, page_size, limit)
+        if total > 0:
+            max_page = (total + effective_page_size - 1) // effective_page_size
+            effective_page = min(effective_page, max_page)
+            offset = (effective_page - 1) * effective_page_size
+        sources = list(
+            self.db.scalars(
+                statement.order_by(InformationVideoSource.created_at.desc())
+                .offset(offset)
+                .limit(effective_page_size)
+            ).all()
+        )
+        return {
+            "items": [self._source_payload(source) for source in sources],
+            "total": total,
+            "page": effective_page,
+            "page_size": effective_page_size,
+        }
+
+    def _source_payload(self, source: InformationVideoSource) -> dict[str, object]:
+        video_count = self.db.scalar(
+            select(func.count(InformationVideo.id)).where(InformationVideo.source_id == source.id)
+        ) or 0
+        note_count = self.db.scalar(
+            select(func.count(InformationVideoNote.id))
+            .join(InformationVideo, InformationVideo.id == InformationVideoNote.video_id)
+            .where(
+                InformationVideo.source_id == source.id,
+                InformationVideoNote.status == "done",
             )
-        return result
+        ) or 0
+        return {
+            "id": source.id,
+            "platform": source.platform,
+            "source_name": source.source_name,
+            "source_url": source.source_url,
+            "external_source_id": source.external_source_id,
+            "category": source.category,
+            "enabled": source.enabled,
+            "last_scanned_at": source.last_scanned_at,
+            "remark": source.remark,
+            "video_count": video_count,
+            "note_count": note_count,
+            "created_at": source.created_at,
+            "updated_at": source.updated_at,
+        }
 
     def list_categories(self) -> list[str]:
         values: set[str] = {DEFAULT_CATEGORY}
@@ -359,6 +404,7 @@ class VideoInformationService:
                             existing.duration_seconds = snapshot.duration_seconds
                             existing.author_name = snapshot.author_name
                             existing.category = normalize_category(source.category)
+                            existing.ingest_method = "scan"
                             existing.published_at = snapshot.published_at
                             existing.status = snapshot_status
                             existing.raw_response = json.dumps(snapshot.raw_response, ensure_ascii=False)
@@ -374,6 +420,7 @@ class VideoInformationService:
                             existing.duration_seconds = snapshot.duration_seconds
                             existing.author_name = snapshot.author_name
                             existing.category = normalize_category(source.category)
+                            existing.ingest_method = "scan"
                             existing.published_at = snapshot.published_at
                             existing.status = "invalid_content"
                             existing.raw_response = json.dumps(snapshot.raw_response, ensure_ascii=False)
@@ -398,6 +445,7 @@ class VideoInformationService:
                             duration_seconds=snapshot.duration_seconds,
                             author_name=snapshot.author_name,
                             category=normalize_category(source.category),
+                            ingest_method="scan",
                             published_at=snapshot.published_at,
                             status=snapshot_status,
                             raw_response=json.dumps(snapshot.raw_response, ensure_ascii=False),
@@ -464,6 +512,99 @@ class VideoInformationService:
         if self.last_scan_errors:
             result["error_message"] = ";".join(self.last_scan_errors)
         return result
+
+    def add_manual_link(self, payload: ManualLinkCreate) -> InformationVideo:
+        link = payload.url.strip()
+        category = normalize_category(payload.category)
+        if not category:
+            raise ValueError("分类不能为空")
+        settings = InformationSettingsService(self.db).get_settings()
+        bilibili_cookie = settings.get("bilibili_cookie", "").strip()
+        adapter = get_video_source_adapter("bilibili")
+        snapshot = adapter.fetch_link(link, bilibili_cookie=bilibili_cookie)
+        source = self._manual_source(snapshot.platform, category)
+        published_at = datetime.now()
+        article_filter_keywords = self._parse_keywords(settings.get("article_filter_keywords", ""))
+        is_invalid_content = self._apply_article_filter(
+            snapshot,
+            article_filter_keywords,
+            context="manual link add",
+            source_id=source.id,
+        )
+        status = "invalid_content" if is_invalid_content else "note_pending"
+        existing = self.db.scalar(
+            select(InformationVideo)
+            .where(
+                InformationVideo.platform == snapshot.platform,
+                InformationVideo.external_video_id == snapshot.external_video_id,
+            )
+            .execution_options(include_deleted=True)
+        )
+        if existing is not None:
+            existing.is_deleted = 0
+            existing.source_id = source.id
+            existing.title = snapshot.title[:300]
+            existing.video_url = snapshot.video_url
+            existing.content_type = snapshot.content_type
+            existing.content_text = snapshot.content_text
+            existing.duration_seconds = snapshot.duration_seconds
+            existing.author_name = snapshot.author_name
+            existing.category = category
+            existing.ingest_method = "manual"
+            existing.published_at = published_at
+            existing.status = status
+            existing.raw_response = json.dumps(snapshot.raw_response, ensure_ascii=False)
+            self.db.commit()
+            self.db.refresh(existing)
+            return existing
+
+        video = InformationVideo(
+            source_id=source.id,
+            platform=snapshot.platform,
+            external_video_id=snapshot.external_video_id,
+            title=snapshot.title[:300],
+            video_url=snapshot.video_url,
+            content_type=snapshot.content_type,
+            content_text=snapshot.content_text,
+            duration_seconds=snapshot.duration_seconds,
+            author_name=snapshot.author_name,
+            category=category,
+            ingest_method="manual",
+            published_at=published_at,
+            status=status,
+            raw_response=json.dumps(snapshot.raw_response, ensure_ascii=False),
+        )
+        self.db.add(video)
+        self.db.commit()
+        self.db.refresh(video)
+        return video
+
+    def _manual_source(self, platform: str, category: str) -> InformationVideoSource:
+        external_source_id = f"manual:{category}"[:100]
+        source = self.db.scalar(
+            select(InformationVideoSource).where(
+                InformationVideoSource.platform == platform,
+                InformationVideoSource.external_source_id == external_source_id,
+            )
+        )
+        if source is not None:
+            source.source_name = "手动录入"
+            source.source_url = None
+            source.category = category
+            source.enabled = 1
+            return source
+        source = InformationVideoSource(
+            platform=platform,
+            source_name="手动录入",
+            source_url=None,
+            external_source_id=external_source_id,
+            category=category,
+            enabled=1,
+            remark="手动添加链接自动创建",
+        )
+        self.db.add(source)
+        self.db.flush()
+        return source
 
     def generate_pending_notes(self, limit: int = 5, video_ids: list[int] | None = None) -> dict[str, int]:
         poll_result = self.poll_running_notes(video_ids=video_ids)
@@ -1336,6 +1477,7 @@ class VideoInformationService:
         source_id: int | None = None,
         status: str | None = None,
         category: str | None = None,
+        ingest_method: str | None = None,
         published_from: date | None = None,
         published_to: date | None = None,
     ) -> list[InformationVideo]:
@@ -1348,6 +1490,9 @@ class VideoInformationService:
             statement = statement.where(InformationVideo.status == status)
         if category:
             statement = statement.where(InformationVideo.category == normalize_category(category))
+        normalized_ingest_method = _normalize_ingest_method(ingest_method)
+        if normalized_ingest_method:
+            statement = statement.where(InformationVideo.ingest_method == normalized_ingest_method)
         if published_from is not None:
             statement = statement.where(InformationVideo.published_at >= datetime.combine(published_from, time.min))
         if published_to is not None:
@@ -1358,10 +1503,56 @@ class VideoInformationService:
             ).all()
         )
 
+    def list_videos_page(
+        self,
+        limit: int = 20,
+        page: int = 1,
+        page_size: int | None = None,
+        video_id: int | None = None,
+        source_id: int | None = None,
+        status: str | None = None,
+        category: str | None = None,
+        ingest_method: str | None = None,
+        published_from: date | None = None,
+        published_to: date | None = None,
+    ) -> dict[str, object]:
+        statement = select(InformationVideo)
+        if video_id is not None:
+            statement = statement.where(InformationVideo.id == video_id)
+        if source_id is not None:
+            statement = statement.where(InformationVideo.source_id == source_id)
+        if status:
+            statement = statement.where(InformationVideo.status == status)
+        if category:
+            statement = statement.where(InformationVideo.category == normalize_category(category))
+        normalized_ingest_method = _normalize_ingest_method(ingest_method)
+        if normalized_ingest_method:
+            statement = statement.where(InformationVideo.ingest_method == normalized_ingest_method)
+        if published_from is not None:
+            statement = statement.where(InformationVideo.published_at >= datetime.combine(published_from, time.min))
+        if published_to is not None:
+            statement = statement.where(InformationVideo.published_at <= datetime.combine(published_to, time.max))
+        total = self.db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+        effective_page, effective_page_size, offset = _page_params(page, page_size, limit)
+        if total > 0:
+            max_page = (total + effective_page_size - 1) // effective_page_size
+            effective_page = min(effective_page, max_page)
+            offset = (effective_page - 1) * effective_page_size
+        items = list(
+            self.db.scalars(
+                statement.order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
+                .offset(offset)
+                .limit(effective_page_size)
+            ).all()
+        )
+        return {"items": items, "total": total, "page": effective_page, "page_size": effective_page_size}
+
     def list_notes(
         self,
         limit: int = 100,
         source_id: int | None = None,
+        video_id: int | None = None,
+        status: str | None = None,
         published_from: date | None = None,
         published_to: date | None = None,
     ) -> list[dict[str, object]]:
@@ -1373,11 +1564,65 @@ class VideoInformationService:
         )
         if source_id is not None:
             statement = statement.where(InformationVideo.source_id == source_id)
+        if video_id is not None:
+            statement = statement.where(InformationVideoNote.video_id == video_id)
+        if status:
+            statement = statement.where(InformationVideoNote.status == status)
         if published_from is not None:
             statement = statement.where(InformationVideo.published_at >= datetime.combine(published_from, time.min))
         if published_to is not None:
             statement = statement.where(InformationVideo.published_at <= datetime.combine(published_to, time.max))
         rows = self.db.execute(statement).all()
+        return self._video_note_rows_payload(rows)
+
+    def list_notes_page(
+        self,
+        limit: int = 20,
+        page: int = 1,
+        page_size: int | None = None,
+        source_id: int | None = None,
+        video_id: int | None = None,
+        status: str | None = None,
+        published_from: date | None = None,
+        published_to: date | None = None,
+    ) -> dict[str, object]:
+        statement = select(InformationVideoNote, InformationVideo.title).join(
+            InformationVideo,
+            InformationVideo.id == InformationVideoNote.video_id,
+        )
+        if source_id is not None:
+            statement = statement.where(InformationVideo.source_id == source_id)
+        if video_id is not None:
+            statement = statement.where(InformationVideoNote.video_id == video_id)
+        if status:
+            statement = statement.where(InformationVideoNote.status == status)
+        if published_from is not None:
+            statement = statement.where(InformationVideo.published_at >= datetime.combine(published_from, time.min))
+        if published_to is not None:
+            statement = statement.where(InformationVideo.published_at <= datetime.combine(published_to, time.max))
+        total = self.db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+        effective_page, effective_page_size, offset = _page_params(page, page_size, limit)
+        if total > 0:
+            max_page = (total + effective_page_size - 1) // effective_page_size
+            effective_page = min(effective_page, max_page)
+            offset = (effective_page - 1) * effective_page_size
+        rows = self.db.execute(
+            statement.order_by(
+                InformationVideo.published_at.desc(),
+                InformationVideo.created_at.desc(),
+                InformationVideoNote.created_at.desc(),
+            )
+            .offset(offset)
+            .limit(effective_page_size)
+        ).all()
+        return {
+            "items": self._video_note_rows_payload(rows),
+            "total": total,
+            "page": effective_page,
+            "page_size": effective_page_size,
+        }
+
+    def _video_note_rows_payload(self, rows) -> list[dict[str, object]]:
         video_ids = [note.video_id for note, _ in rows]
         videos_by_id = {
             video.id: video
@@ -1490,6 +1735,42 @@ class VideoInformationService:
             ).all()
         )
         return [self._summary_document_payload(document) for document in documents]
+
+    def list_summary_documents_page(
+        self,
+        limit: int = 20,
+        page: int = 1,
+        page_size: int | None = None,
+        summary_task_config_id: int | None = None,
+        manual_summary: bool = False,
+        category: str | None = None,
+    ) -> dict[str, object]:
+        statement = select(InformationSummaryDocument)
+        if manual_summary:
+            statement = statement.where(InformationSummaryDocument.summary_task_config_id.is_(None))
+        elif summary_task_config_id is not None:
+            statement = statement.where(InformationSummaryDocument.summary_task_config_id == summary_task_config_id)
+        if category:
+            statement = statement.where(InformationSummaryDocument.category == normalize_category(category))
+        total = self.db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+        effective_page, effective_page_size, offset = _page_params(page, page_size, limit)
+        if total > 0:
+            max_page = (total + effective_page_size - 1) // effective_page_size
+            effective_page = min(effective_page, max_page)
+            offset = (effective_page - 1) * effective_page_size
+        documents = list(
+            self.db.scalars(
+                statement.order_by(InformationSummaryDocument.created_at.desc())
+                .offset(offset)
+                .limit(effective_page_size)
+            ).all()
+        )
+        return {
+            "items": [self._summary_document_payload(document) for document in documents],
+            "total": total,
+            "page": effective_page,
+            "page_size": effective_page_size,
+        }
 
     def get_summary_document(self, document_id: int) -> dict[str, object] | None:
         document = self.db.get(InformationSummaryDocument, document_id)

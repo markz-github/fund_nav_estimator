@@ -7,7 +7,7 @@ import {
   createVideoSource,
   deleteVideoSource,
   listInformationCategories,
-  listVideoSources,
+  listVideoSourcesPage,
   scanVideos,
   updateVideoSource,
   type VideoSource,
@@ -15,6 +15,9 @@ import {
 import { statusClass } from '../utils/status'
 
 const sources = ref<VideoSource[]>([])
+const totalSources = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(20)
 const loading = ref(false)
 const savingSource = ref(false)
 const scanning = ref(false)
@@ -24,10 +27,21 @@ const dialogMode = ref<'add' | 'edit' | null>(null)
 const editingSourceId = ref<number | null>(null)
 const sourceDraft = ref(emptySourceDraft())
 const selectedSourceIds = ref<number[]>([])
+const confirmAction = ref<'disable' | 'delete' | null>(null)
+const confirmSource = ref<VideoSource | null>(null)
 
 const enabledSources = computed(() => sources.value.filter((source) => source.enabled))
 const sourceDialogOpen = computed(() => dialogMode.value !== null)
 const sourceDialogTitle = computed(() => (dialogMode.value === 'edit' ? '修改信息源' : '添加信息源'))
+const confirmDialogOpen = computed(() => confirmAction.value !== null && confirmSource.value !== null)
+const confirmDialogTitle = computed(() => (confirmAction.value === 'delete' ? '删除信息源' : '停用信息源'))
+const confirmDialogText = computed(() => {
+  const source = confirmSource.value
+  if (!source) return ''
+  if (confirmAction.value === 'delete') return `确认删除信息源“${source.source_name}”吗？删除后该来源将不再显示。`
+  return `确认停用信息源“${source.source_name}”吗？停用后不会再参与自动或手动扫描。`
+})
+const totalPages = computed(() => Math.max(1, Math.ceil(totalSources.value / pageSize.value)))
 const allSourcesSelected = computed(
   () =>
     enabledSources.value.length > 0 &&
@@ -48,8 +62,14 @@ async function loadSources(options?: { keepMessage?: boolean }) {
   loading.value = true
   if (!options?.keepMessage) message.value = ''
   try {
-    const [sourceResult, categoryResult] = await Promise.all([listVideoSources(), listInformationCategories()])
-    sources.value = sourceResult
+    const [sourceResult, categoryResult] = await Promise.all([
+      listVideoSourcesPage({ page: currentPage.value, pageSize: pageSize.value }),
+      listInformationCategories(),
+    ])
+    sources.value = sourceResult.items
+    totalSources.value = sourceResult.total
+    currentPage.value = sourceResult.page
+    pageSize.value = sourceResult.page_size
     categories.value = categoryResult
     const sourceIdSet = new Set(sources.value.map((source) => source.id))
     selectedSourceIds.value = selectedSourceIds.value.filter((sourceId) => sourceIdSet.has(sourceId))
@@ -113,13 +133,51 @@ function closeSourceDialog() {
 }
 
 async function toggleSource(source: VideoSource) {
-  await updateVideoSource(source.id, { enabled: source.enabled ? 0 : 1 })
+  if (source.enabled) {
+    openConfirmDialog('disable', source)
+    return
+  }
+  await updateVideoSource(source.id, { enabled: 1 })
   await loadSources()
 }
 
+function openConfirmDialog(action: 'disable' | 'delete', source: VideoSource) {
+  confirmAction.value = action
+  confirmSource.value = source
+}
+
+function closeConfirmDialog() {
+  if (savingSource.value) return
+  confirmAction.value = null
+  confirmSource.value = null
+}
+
 async function removeSource(source: VideoSource) {
-  await deleteVideoSource(source.id)
-  await loadSources()
+  openConfirmDialog('delete', source)
+}
+
+async function confirmDangerAction() {
+  const action = confirmAction.value
+  const source = confirmSource.value
+  if (!action || !source) return
+  savingSource.value = true
+  try {
+    if (action === 'delete') {
+      await deleteVideoSource(source.id)
+      message.value = `信息源“${source.source_name}”已删除。`
+    } else {
+      await updateVideoSource(source.id, { enabled: 0 })
+      selectedSourceIds.value = selectedSourceIds.value.filter((sourceId) => sourceId !== source.id)
+      message.value = `信息源“${source.source_name}”已停用。`
+    }
+    confirmAction.value = null
+    confirmSource.value = null
+    await loadSources({ keepMessage: true })
+  } catch (error) {
+    message.value = apiErrorMessage(error, action === 'delete' ? '删除信息源失败。' : '停用信息源失败。')
+  } finally {
+    savingSource.value = false
+  }
 }
 
 async function runScan() {
@@ -149,6 +207,11 @@ function toggleAllSources(checked: boolean) {
   selectedSourceIds.value = checked ? enabledSources.value.map((source) => source.id) : []
 }
 
+async function goToPage(page: number) {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value)
+  await loadSources()
+}
+
 onMounted(loadSources)
 </script>
 
@@ -161,6 +224,7 @@ onMounted(loadSources)
         <p class="subtitle">维护 B站来源账号，并手动扫描选中或全部启用账号。</p>
       </div>
       <div class="section-actions">
+        <span>第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalSources }} 个</span>
         <button type="button" @click="openAddDialog">添加来源</button>
         <button class="ghost" :disabled="scanning" @click="runScan">
           {{ scanning ? '扫描中...' : selectedSourceIds.length ? `扫描选中 ${selectedSourceIds.length} 个账号` : '扫描全部账号' }}
@@ -250,14 +314,20 @@ onMounted(loadSources)
             <td>
               <div class="quick-actions">
                 <button class="ghost" type="button" :disabled="savingSource" @click="openEditDialog(source)">修改</button>
-                <button class="ghost" type="button" @click="toggleSource(source)">{{ source.enabled ? '停用' : '启用' }}</button>
-                <button class="danger" type="button" @click="removeSource(source)">删除</button>
+                <button class="ghost" type="button" :disabled="savingSource" @click="toggleSource(source)">{{ source.enabled ? '停用' : '启用' }}</button>
+                <button class="danger" type="button" :disabled="savingSource" @click="removeSource(source)">删除</button>
               </div>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <nav class="pagination-bar" aria-label="信息源分页">
+      <button class="ghost" type="button" :disabled="loading || currentPage <= 1" @click="goToPage(currentPage - 1)">上一页</button>
+      <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
+      <button class="ghost" type="button" :disabled="loading || currentPage >= totalPages" @click="goToPage(currentPage + 1)">下一页</button>
+    </nav>
 
     <div v-if="sourceDialogOpen" class="modal-backdrop" @click.self="closeSourceDialog">
       <section class="confirm-dialog summary-task-dialog" role="dialog" aria-modal="true" aria-labelledby="source-dialog-title">
@@ -273,6 +343,19 @@ onMounted(loadSources)
           <button class="ghost" type="button" :disabled="savingSource" @click="closeSourceDialog">取消</button>
           <button type="button" :disabled="savingSource" @click="submitSource">
             {{ savingSource ? '保存中...' : (dialogMode === 'edit' ? '保存修改' : '添加来源') }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="confirmDialogOpen" class="modal-backdrop" @click.self="closeConfirmDialog">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="source-confirm-title">
+        <h2 id="source-confirm-title">{{ confirmDialogTitle }}</h2>
+        <p class="dialog-copy">{{ confirmDialogText }}</p>
+        <div class="dialog-actions">
+          <button class="ghost" type="button" :disabled="savingSource" @click="closeConfirmDialog">取消</button>
+          <button class="danger" type="button" :disabled="savingSource" @click="confirmDangerAction">
+            {{ savingSource ? '处理中...' : '确认' }}
           </button>
         </div>
       </section>

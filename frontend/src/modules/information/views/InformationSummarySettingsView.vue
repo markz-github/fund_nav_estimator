@@ -22,6 +22,8 @@ const message = ref('')
 const dialogMode = ref<'add' | 'edit' | null>(null)
 const editingSummaryTaskId = ref<number | null>(null)
 const summaryTaskDraft = ref(emptySummaryTask())
+const confirmAction = ref<'disable' | 'delete' | null>(null)
+const confirmSummaryTask = ref<SummaryTaskConfig | null>(null)
 
 function emptySummaryTask() {
   return {
@@ -77,6 +79,14 @@ function renderSummaryTitleSample(task: {
 const summaryTaskDialogOpen = computed(() => dialogMode.value !== null)
 const summaryTaskDialogTitle = computed(() => (dialogMode.value === 'edit' ? '修改汇总任务' : '添加汇总任务'))
 const summaryTaskSample = computed(() => renderSummaryTitleSample(summaryTaskDraft.value))
+const confirmDialogOpen = computed(() => confirmAction.value !== null && confirmSummaryTask.value !== null)
+const confirmDialogTitle = computed(() => (confirmAction.value === 'delete' ? '删除汇总任务' : '停用汇总任务'))
+const confirmDialogText = computed(() => {
+  const task = confirmSummaryTask.value
+  if (!task) return ''
+  if (confirmAction.value === 'delete') return `确认删除汇总任务“${task.task_name}”吗？删除后不会再按该配置生成新汇总。`
+  return `确认停用汇总任务“${task.task_name}”吗？停用后定时汇总将不再执行。`
+})
 
 async function loadPage() {
   loading.value = true
@@ -194,13 +204,53 @@ async function saveSummaryTaskDialog() {
 }
 
 async function toggleSummaryTaskConfig(config: SummaryTaskConfig) {
-  await updateSummaryTaskConfig(config.id, { enabled: config.enabled ? 0 : 1 })
+  if (config.enabled) {
+    openConfirmDialog('disable', config)
+    return
+  }
+  await updateSummaryTaskConfig(config.id, { enabled: 1 })
   await loadPage()
 }
 
 async function removeSummaryTaskConfig(config: SummaryTaskConfig) {
-  await deleteSummaryTaskConfig(config.id)
-  await loadPage()
+  openConfirmDialog('delete', config)
+}
+
+function openConfirmDialog(action: 'disable' | 'delete', config: SummaryTaskConfig) {
+  confirmAction.value = action
+  confirmSummaryTask.value = config
+}
+
+function closeConfirmDialog() {
+  if (saving.value) return
+  confirmAction.value = null
+  confirmSummaryTask.value = null
+}
+
+async function confirmDangerAction() {
+  const action = confirmAction.value
+  const config = confirmSummaryTask.value
+  if (!action || !config) return
+  saving.value = true
+  message.value = ''
+  try {
+    let successMessage = ''
+    if (action === 'delete') {
+      await deleteSummaryTaskConfig(config.id)
+      successMessage = `汇总任务“${config.task_name}”已删除。`
+    } else {
+      await updateSummaryTaskConfig(config.id, { enabled: 0 })
+      successMessage = `汇总任务“${config.task_name}”已停用。`
+    }
+    confirmAction.value = null
+    confirmSummaryTask.value = null
+    await loadPage()
+    message.value = successMessage
+  } catch (error) {
+    message.value = apiErrorMessage(error, action === 'delete' ? '删除汇总任务失败。' : '停用汇总任务失败。')
+  } finally {
+    saving.value = false
+  }
 }
 
 onMounted(loadPage)
@@ -291,8 +341,8 @@ onMounted(loadPage)
             <td>
               <div class="quick-actions">
                 <button class="ghost" type="button" :disabled="saving" @click="openEditDialog(config)">修改</button>
-                <button class="ghost" type="button" @click="toggleSummaryTaskConfig(config)">{{ config.enabled ? '停用' : '启用' }}</button>
-                <button class="danger" type="button" @click="removeSummaryTaskConfig(config)">删除</button>
+                <button class="ghost" type="button" :disabled="saving" @click="toggleSummaryTaskConfig(config)">{{ config.enabled ? '停用' : '启用' }}</button>
+                <button class="danger" type="button" :disabled="saving" @click="removeSummaryTaskConfig(config)">删除</button>
               </div>
             </td>
           </tr>
@@ -330,6 +380,19 @@ onMounted(loadPage)
         <div class="dialog-actions">
           <button class="ghost" type="button" :disabled="saving" @click="closeAddDialog">取消</button>
           <button type="button" :disabled="saving" @click="saveSummaryTaskDialog">{{ saving ? '保存中...' : (dialogMode === 'edit' ? '保存修改' : '添加任务') }}</button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="confirmDialogOpen" class="modal-backdrop" @click.self="closeConfirmDialog">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="summary-task-confirm-title">
+        <h2 id="summary-task-confirm-title">{{ confirmDialogTitle }}</h2>
+        <p class="dialog-copy">{{ confirmDialogText }}</p>
+        <div class="dialog-actions">
+          <button class="ghost" type="button" :disabled="saving" @click="closeConfirmDialog">取消</button>
+          <button class="danger" type="button" :disabled="saving" @click="confirmDangerAction">
+            {{ saving ? '处理中...' : '确认' }}
+          </button>
         </div>
       </section>
     </div>

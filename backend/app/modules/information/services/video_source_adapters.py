@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from typing import Protocol
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -44,6 +45,9 @@ class VideoSourceAdapter(Protocol):
         limit: int = 20,
         bilibili_cookie: str | None = None,
     ) -> list[VideoSnapshot]:
+        ...
+
+    def fetch_link(self, video_url: str, bilibili_cookie: str | None = None) -> VideoSnapshot:
         ...
 
 
@@ -155,6 +159,118 @@ class BilibiliVideoSourceAdapter:
         )
         return snapshots
 
+    def fetch_link(self, video_url: str, bilibili_cookie: str | None = None) -> VideoSnapshot:
+        resolved_url = self._resolve_url(video_url, bilibili_cookie)
+        parsed = self._parse_bilibili_url(resolved_url)
+        headers = self._build_headers("0", bilibili_cookie)
+        if parsed["type"] == "video":
+            return self._fetch_video_detail(str(parsed["id"]), resolved_url, headers)
+        return self._fetch_article_detail(str(parsed["id"]), str(parsed["type"]), resolved_url, headers)
+
+    def _fetch_video_detail(self, bvid: str, original_url: str, headers: dict[str, str]) -> VideoSnapshot:
+        url = "https://api.bilibili.com/x/web-interface/view"
+        params = {"aid": bvid[2:]} if bvid.lower().startswith("av") else {"bvid": bvid}
+        logger.info("external request system=bilibili method=GET url=%s params=%s", sanitize_external_url(url), external_log_json(params))
+        response = requests.get(url, params=params, headers={**headers, "Referer": original_url}, timeout=60)
+        payload = response_log_body(response)
+        logger.info(
+            "external response system=bilibili method=GET url=%s status=%s body=%s",
+            sanitize_external_url(url),
+            response.status_code,
+            external_log_json(payload),
+        )
+        response.raise_for_status()
+        if not isinstance(payload, dict):
+            payload = {"data": payload}
+        code = payload.get("code")
+        if code not in (None, 0):
+            message = str(payload.get("message") or "unknown bilibili api error")
+            raise RuntimeError(f"Bilibili API returned code={code};message={message}")
+        data = payload.get("data") or {}
+        owner = data.get("owner") or {}
+        actual_bvid = str(data.get("bvid") or bvid).strip()
+        pubdate = data.get("pubdate") or data.get("ctime")
+        published_at = datetime.fromtimestamp(pubdate) if isinstance(pubdate, (int, float)) else None
+        return VideoSnapshot(
+            platform=self.platform,
+            external_video_id=actual_bvid,
+            title=str(data.get("title") or actual_bvid).strip() or actual_bvid,
+            video_url=f"https://www.bilibili.com/video/{actual_bvid}",
+            author_name=str(owner.get("name") or "").strip() or None,
+            published_at=published_at,
+            raw_response=payload,
+            content_type="video",
+            duration_seconds=self._duration_seconds(data.get("duration")),
+        )
+
+    def _fetch_article_detail(self, content_id: str, content_kind: str, original_url: str, headers: dict[str, str]) -> VideoSnapshot:
+        if content_kind == "read":
+            snapshot = self._fetch_read_article_detail(content_id, original_url, headers)
+            if snapshot is not None:
+                return snapshot
+
+        url = "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail"
+        params = {"id": content_id, "features": "itemOpusStyle"}
+        logger.info("external request system=bilibili method=GET url=%s params=%s", sanitize_external_url(url), external_log_json(params))
+        response = requests.get(url, params=params, headers={**headers, "Referer": original_url}, timeout=60)
+        payload = response_log_body(response)
+        logger.info(
+            "external response system=bilibili method=GET url=%s status=%s body=%s",
+            sanitize_external_url(url),
+            response.status_code,
+            external_log_json(payload),
+        )
+        response.raise_for_status()
+        if not isinstance(payload, dict):
+            payload = {"data": payload}
+        code = payload.get("code")
+        if code not in (None, 0):
+            message = str(payload.get("message") or "unknown bilibili api error")
+            raise RuntimeError(f"Bilibili API returned code={code};message={message}")
+        item = (payload.get("data") or {}).get("item") or {}
+        snapshot = self._article_snapshot_from_dynamic_item(self._manual_source(), item)
+        if snapshot is None:
+            raise ValueError("无法从该 B站图文链接获取正文")
+        return snapshot
+
+    def _fetch_read_article_detail(self, article_id: str, original_url: str, headers: dict[str, str]) -> VideoSnapshot | None:
+        url = "https://api.bilibili.com/x/article/view"
+        params = {"id": article_id}
+        logger.info("external request system=bilibili method=GET url=%s params=%s", sanitize_external_url(url), external_log_json(params))
+        response = requests.get(url, params=params, headers={**headers, "Referer": original_url}, timeout=60)
+        payload = response_log_body(response)
+        logger.info(
+            "external response system=bilibili method=GET url=%s status=%s body=%s",
+            sanitize_external_url(url),
+            response.status_code,
+            external_log_json(payload),
+        )
+        response.raise_for_status()
+        if not isinstance(payload, dict):
+            payload = {"data": payload}
+        code = payload.get("code")
+        if code not in (None, 0):
+            return None
+        data = payload.get("data") or {}
+        content_text = self._extract_article_text(data)
+        if not content_text:
+            return None
+        author = data.get("author") or {}
+        timestamp = data.get("publish_time") or data.get("ctime")
+        published_at = datetime.fromtimestamp(timestamp) if isinstance(timestamp, (int, float)) else None
+        external_id = f"article_cv{article_id}"
+        return VideoSnapshot(
+            platform=self.platform,
+            external_video_id=external_id,
+            title=str(data.get("title") or external_id).strip() or external_id,
+            video_url=original_url,
+            author_name=str(author.get("name") or data.get("author_name") or "").strip() or None,
+            published_at=published_at,
+            raw_response=payload,
+            content_type="article",
+            content_text=content_text,
+        )
+
     def _fetch_latest_articles(
         self,
         source: InformationVideoSource,
@@ -259,12 +375,13 @@ class BilibiliVideoSourceAdapter:
             url = f"https:{url}"
         if not url:
             url = f"https://www.bilibili.com/opus/{external_id}"
+        author_name = str(author.get("name") or source.source_name or "").strip() or None
         return VideoSnapshot(
             platform=self.platform,
             external_video_id=external_video_id,
             title=title or external_video_id,
             video_url=url,
-            author_name=source.source_name,
+            author_name=author_name,
             published_at=published_at,
             raw_response=item,
             content_type="article",
@@ -283,7 +400,7 @@ class BilibiliVideoSourceAdapter:
     def _collect_text_values(cls, value, values: list[str]) -> None:
         if isinstance(value, dict):
             for key, child in value.items():
-                if key in {"text", "raw_text", "summary", "desc"} and isinstance(child, str):
+                if key in {"text", "raw_text", "summary", "desc", "content"} and isinstance(child, str):
                     values.append(child)
                 else:
                     cls._collect_text_values(child, values)
@@ -336,6 +453,64 @@ class BilibiliVideoSourceAdapter:
         if cookie:
             headers["Cookie"] = cookie
         return headers
+
+    @staticmethod
+    def _resolve_url(video_url: str, bilibili_cookie: str | None = None) -> str:
+        text = str(video_url or "").strip()
+        if not text:
+            raise ValueError("链接不能为空")
+        if not re.match(r"^https?://", text, re.IGNORECASE):
+            text = f"https://{text}"
+        parsed = urlparse(text)
+        if parsed.netloc.lower() not in {"b23.tv", "bili2233.cn"}:
+            return text
+        headers = BilibiliVideoSourceAdapter._build_headers("0", bilibili_cookie)
+        response = requests.get(text, headers=headers, allow_redirects=True, timeout=30)
+        response.raise_for_status()
+        return response.url or text
+
+    @staticmethod
+    def _parse_bilibili_url(video_url: str) -> dict[str, str]:
+        parsed = urlparse(video_url)
+        host = parsed.netloc.lower()
+        path = parsed.path.strip("/")
+        if "bilibili.com" not in host:
+            raise ValueError("目前只支持 B站链接")
+
+        video_match = re.search(r"(BV[0-9A-Za-z]+)", path)
+        if video_match:
+            return {"type": "video", "id": video_match.group(1)}
+        av_match = re.search(r"(?:^|/)av(\d+)(?:/|$)", path, re.IGNORECASE)
+        if av_match:
+            return {"type": "video", "id": f"av{av_match.group(1)}"}
+        opus_match = re.search(r"(?:^|/)opus/(\d+)", path)
+        if opus_match:
+            return {"type": "opus", "id": opus_match.group(1)}
+        dynamic_match = re.search(r"(?:^|/)(?:dynamic|t)/(\d+)", path)
+        if dynamic_match:
+            return {"type": "dynamic", "id": dynamic_match.group(1)}
+        if host == "t.bilibili.com" and path.isdigit():
+            return {"type": "dynamic", "id": path}
+        read_match = re.search(r"(?:^|/)read/(?:cv)?(\d+)", path, re.IGNORECASE)
+        if read_match:
+            return {"type": "read", "id": read_match.group(1)}
+
+        query = parse_qs(parsed.query)
+        for key in ("bvid", "BVID"):
+            if query.get(key):
+                return {"type": "video", "id": query[key][0]}
+        if query.get("id"):
+            return {"type": "dynamic", "id": query["id"][0]}
+        raise ValueError("无法识别该 B站链接的内容类型")
+
+    @staticmethod
+    def _manual_source() -> InformationVideoSource:
+        return InformationVideoSource(
+            platform="bilibili",
+            source_name="手动录入",
+            external_source_id="manual",
+            category="手动录入",
+        )
 
     @staticmethod
     def _duration_seconds(value) -> int | None:
