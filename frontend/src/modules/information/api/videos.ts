@@ -16,6 +16,13 @@ export interface VideoSource {
   status_label: string
 }
 
+export interface PageResult<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface InformationSettings {
   bilibili_cookie: string
   article_filter_keywords: string
@@ -45,6 +52,8 @@ export interface InformationVideo {
   video_url: string
   content_type: string
   duration_seconds?: number | null
+  ingest_method: string
+  ingest_method_label: string
   author_name?: string | null
   published_at?: string | null
   status: string
@@ -137,6 +146,7 @@ export interface InformationVideoFilters {
   sourceId?: number | null
   status?: string
   category?: string
+  ingestMethod?: string
   publishedFrom?: string
   publishedTo?: string
 }
@@ -150,6 +160,17 @@ function apiDate(value?: string) {
 
 export async function listVideoSources() {
   const { data } = await apiClient.get<VideoSource[]>('/information/video-sources')
+  return data
+}
+
+export async function listVideoSourcesPage(filters?: { page?: number; pageSize?: number; enabledOnly?: boolean }) {
+  const { data } = await apiClient.get<PageResult<VideoSource>>('/information/video-sources/page', {
+    params: {
+      page: filters?.page || undefined,
+      page_size: filters?.pageSize || undefined,
+      enabled_only: filters?.enabledOnly || undefined,
+    },
+  })
   return data
 }
 
@@ -235,6 +256,7 @@ export async function listInformationVideos(filters?: InformationVideoFilters) {
       source_id: filters?.sourceId || undefined,
       status: filters?.status || undefined,
       category: filters?.category || undefined,
+      ingest_method: filters?.ingestMethod || undefined,
       published_from: apiDate(filters?.publishedFrom),
       published_to: apiDate(filters?.publishedTo),
     },
@@ -242,14 +264,63 @@ export async function listInformationVideos(filters?: InformationVideoFilters) {
   return data
 }
 
+export async function listInformationVideosPage(filters?: InformationVideoFilters & { page?: number; pageSize?: number }) {
+  const { data } = await apiClient.get<PageResult<InformationVideo>>('/information/videos/page', {
+    params: {
+      page: filters?.page || undefined,
+      page_size: filters?.pageSize || undefined,
+      video_id: filters?.videoId || undefined,
+      source_id: filters?.sourceId || undefined,
+      status: filters?.status || undefined,
+      category: filters?.category || undefined,
+      ingest_method: filters?.ingestMethod || undefined,
+      published_from: apiDate(filters?.publishedFrom),
+      published_to: apiDate(filters?.publishedTo),
+    },
+  })
+  return data
+}
+
+export async function addManualInformationLink(payload: { url: string; category: string }) {
+  const { data } = await apiClient.post<InformationVideo>('/information/videos/manual-link', payload, { timeout: 60000 })
+  return data
+}
+
 export async function listVideoNotes(filters?: {
   sourceId?: number | null
+  videoId?: number | null
+  status?: string
   publishedFrom?: string
   publishedTo?: string
 }) {
   const { data } = await apiClient.get<VideoNote[]>('/information/video-notes', {
     params: {
       source_id: filters?.sourceId || undefined,
+      video_id: filters?.videoId || undefined,
+      status: filters?.status || undefined,
+      published_from: apiDate(filters?.publishedFrom),
+      published_to: apiDate(filters?.publishedTo),
+    },
+  })
+  return data
+}
+
+export async function listVideoNotesPage(filters?: {
+  sourceId?: number | null
+  videoId?: number | null
+  status?: string
+  publishedFrom?: string
+  publishedTo?: string
+  page?: number
+  pageSize?: number
+}) {
+  const { data } = await apiClient.get<PageResult<VideoNote>>('/information/video-notes/page', {
+    params: {
+      page: filters?.page || undefined,
+      page_size: filters?.pageSize || undefined,
+      source_id: filters?.sourceId || undefined,
+      video_id: filters?.videoId || undefined,
+      status: filters?.status || undefined,
       published_from: apiDate(filters?.publishedFrom),
       published_to: apiDate(filters?.publishedTo),
     },
@@ -270,6 +341,25 @@ export async function getVideoNoteRawResponse(noteId: number) {
 export async function listSummaryDocuments(filters?: { summaryTaskConfigId?: number | null; manualSummary?: boolean; category?: string }) {
   const { data } = await apiClient.get<SummaryDocument[]>('/information/summary-documents', {
     params: {
+      summary_task_config_id: filters?.summaryTaskConfigId || undefined,
+      manual_summary: filters?.manualSummary || undefined,
+      category: filters?.category || undefined,
+    },
+  })
+  return data
+}
+
+export async function listSummaryDocumentsPage(filters?: {
+  summaryTaskConfigId?: number | null
+  manualSummary?: boolean
+  category?: string
+  page?: number
+  pageSize?: number
+}) {
+  const { data } = await apiClient.get<PageResult<SummaryDocument>>('/information/summary-documents/page', {
+    params: {
+      page: filters?.page || undefined,
+      page_size: filters?.pageSize || undefined,
       summary_task_config_id: filters?.summaryTaskConfigId || undefined,
       manual_summary: filters?.manualSummary || undefined,
       category: filters?.category || undefined,

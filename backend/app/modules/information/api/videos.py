@@ -16,16 +16,21 @@ from app.modules.information.schemas.video import (
     InformationStatusOptionsOut,
     InformationSettingsOut,
     InformationSettingsUpdate,
+    ManualLinkCreate,
     MarkVideoNotesFailedRequest,
     ScanVideosRequest,
     SummaryDocumentOut,
+    SummaryDocumentPageOut,
     SummaryTaskConfigCreate,
     SummaryTaskConfigOut,
     SummaryTaskConfigUpdate,
     VideoNoteDetailOut,
     VideoNoteOut,
+    VideoNotePageOut,
     VideoNoteRawResponseOut,
     VideoOut,
+    VideoPageOut,
+    VideoSourcePageOut,
     VideoSourceCreate,
     VideoSourceOut,
     VideoSourceUpdate,
@@ -133,6 +138,22 @@ def list_video_sources(enabled_only: bool = False, db: Session = Depends(get_db)
     return VideoInformationService(db).list_sources(enabled_only=enabled_only)
 
 
+@router.get("/video-sources/page", response_model=VideoSourcePageOut)
+def list_video_sources_page(
+    enabled_only: bool = False,
+    limit: int = 20,
+    page: int = 1,
+    page_size: int | None = None,
+    db: Session = Depends(get_db),
+):
+    return VideoInformationService(db).list_sources_page(
+        enabled_only=enabled_only,
+        limit=limit,
+        page=page,
+        page_size=page_size,
+    )
+
+
 @router.post("/video-sources", response_model=VideoSourceOut)
 def create_video_source(payload: VideoSourceCreate, db: Session = Depends(get_db)):
     try:
@@ -177,6 +198,7 @@ def list_videos(
     source_id: int | None = None,
     status: str | None = None,
     category: str | None = None,
+    ingest_method: str | None = None,
     published_from: date | None = None,
     published_to: date | None = None,
     db: Session = Depends(get_db),
@@ -187,15 +209,70 @@ def list_videos(
         source_id=source_id,
         status=status,
         category=category,
+        ingest_method=ingest_method,
         published_from=published_from,
         published_to=published_to,
     )
+
+
+@router.get("/videos/page", response_model=VideoPageOut)
+def list_videos_page(
+    limit: int = 20,
+    page: int = 1,
+    page_size: int | None = None,
+    video_id: int | None = None,
+    source_id: int | None = None,
+    status: str | None = None,
+    category: str | None = None,
+    ingest_method: str | None = None,
+    published_from: date | None = None,
+    published_to: date | None = None,
+    db: Session = Depends(get_db),
+):
+    return VideoInformationService(db).list_videos_page(
+        limit=limit,
+        page=page,
+        page_size=page_size,
+        video_id=video_id,
+        source_id=source_id,
+        status=status,
+        category=category,
+        ingest_method=ingest_method,
+        published_from=published_from,
+        published_to=published_to,
+    )
+
+
+@router.post("/videos/manual-link", response_model=VideoOut)
+def add_manual_link(payload: ManualLinkCreate, db: Session = Depends(get_db)):
+    task_log = start_task(
+        db,
+        "手动添加信息链接",
+        "add_information_manual_link",
+        datetime.now(),
+        payload.url,
+        target_type="link",
+        target_id=payload.url[:200],
+    )
+    try:
+        video = VideoInformationService(db).add_manual_link(payload)
+    except ValueError as exc:
+        finish_task(db, task_log, "failed", str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        log_fetch_error(db, "internal", "manual_link", payload.url, repr(exc))
+        finish_task(db, task_log, "failed", repr(exc))
+        raise
+    finish_task(db, task_log, "success", f"video_id={video.id};status={video.status};category={video.category}")
+    return video
 
 
 @router.get("/video-notes", response_model=list[VideoNoteOut])
 def list_video_notes(
     limit: int = 100,
     source_id: int | None = None,
+    video_id: int | None = None,
+    status: str | None = None,
     published_from: date | None = None,
     published_to: date | None = None,
     db: Session = Depends(get_db),
@@ -203,6 +280,32 @@ def list_video_notes(
     return VideoInformationService(db).list_notes(
         limit=limit,
         source_id=source_id,
+        video_id=video_id,
+        status=status,
+        published_from=published_from,
+        published_to=published_to,
+    )
+
+
+@router.get("/video-notes/page", response_model=VideoNotePageOut)
+def list_video_notes_page(
+    limit: int = 20,
+    page: int = 1,
+    page_size: int | None = None,
+    source_id: int | None = None,
+    video_id: int | None = None,
+    status: str | None = None,
+    published_from: date | None = None,
+    published_to: date | None = None,
+    db: Session = Depends(get_db),
+):
+    return VideoInformationService(db).list_notes_page(
+        limit=limit,
+        page=page,
+        page_size=page_size,
+        source_id=source_id,
+        video_id=video_id,
+        status=status,
         published_from=published_from,
         published_to=published_to,
     )
@@ -234,6 +337,26 @@ def list_summary_documents(
 ):
     return VideoInformationService(db).list_summary_documents(
         limit=limit,
+        summary_task_config_id=summary_task_config_id,
+        manual_summary=manual_summary,
+        category=category,
+    )
+
+
+@router.get("/summary-documents/page", response_model=SummaryDocumentPageOut)
+def list_summary_documents_page(
+    limit: int = 20,
+    page: int = 1,
+    page_size: int | None = None,
+    summary_task_config_id: int | None = None,
+    manual_summary: bool = False,
+    category: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return VideoInformationService(db).list_summary_documents_page(
+        limit=limit,
+        page=page,
+        page_size=page_size,
         summary_task_config_id=summary_task_config_id,
         manual_summary=manual_summary,
         category=category,

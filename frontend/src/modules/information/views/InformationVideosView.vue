@@ -4,10 +4,11 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { formatDateTime } from '../../../utils/datetime'
 import {
+  addManualInformationLink,
   generateVideoNotes,
   getInformationStatusOptions,
   listInformationCategories,
-  listInformationVideos,
+  listInformationVideosPage,
   listVideoNotes,
   listVideoSources,
   markVideoNotesFailed,
@@ -25,6 +26,9 @@ const route = useRoute()
 const router = useRouter()
 const sources = ref<VideoSource[]>([])
 const videos = ref<InformationVideo[]>([])
+const totalVideos = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(20)
 const notes = ref<VideoNote[]>([])
 const videoStatusOptions = ref<StatusOption[]>([])
 const categories = ref<string[]>(['财经'])
@@ -33,6 +37,12 @@ const runningAction = ref('')
 const message = ref('')
 const selectedVideoIds = ref<number[]>([])
 const retryingVideoId = ref<number | null>(null)
+const manualLinkDialogOpen = ref(false)
+const savingManualLink = ref(false)
+const manualLinkDraft = ref({
+  url: '',
+  category: '',
+})
 const sortBy = ref<'published_at' | 'title' | 'source' | 'status'>('published_at')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 const videoFilters = ref({
@@ -40,6 +50,7 @@ const videoFilters = ref({
   sourceId: '',
   status: '',
   category: '',
+  ingestMethod: '',
   publishedFrom: defaultPublishedFrom(),
   publishedTo: '',
 })
@@ -55,6 +66,7 @@ const notesByVideoId = computed(() => {
 const allVideosSelected = computed(
   () => sortedVideos.value.length > 0 && sortedVideos.value.every((video) => selectedVideoIds.value.includes(video.id)),
 )
+const totalPages = computed(() => Math.max(1, Math.ceil(totalVideos.value / pageSize.value)))
 const sortedVideos = computed(() => {
   const items = [...videos.value]
   items.sort((left, right) => {
@@ -93,20 +105,26 @@ async function loadAll(options?: { keepMessage?: boolean }) {
   try {
     const [sourceResult, videoResult, noteResult] = await Promise.all([
       listVideoSources(),
-      listInformationVideos({
+      listInformationVideosPage({
+        page: currentPage.value,
+        pageSize: pageSize.value,
         videoId: videoFilters.value.videoId ? Number(videoFilters.value.videoId) : undefined,
         sourceId: videoFilters.value.sourceId ? Number(videoFilters.value.sourceId) : undefined,
         status: videoFilters.value.status || undefined,
         category: videoFilters.value.category || undefined,
+        ingestMethod: videoFilters.value.ingestMethod || undefined,
         publishedFrom: videoFilters.value.publishedFrom || undefined,
         publishedTo: videoFilters.value.publishedTo || undefined,
       }),
       listVideoNotes(),
     ])
     sources.value = sourceResult
-    videos.value = videoResult
+    videos.value = videoResult.items
+    totalVideos.value = videoResult.total
+    currentPage.value = videoResult.page
+    pageSize.value = videoResult.page_size
     notes.value = noteResult
-    const videoIdSet = new Set(videoResult.map((video) => video.id))
+    const videoIdSet = new Set(videoResult.items.map((video) => video.id))
     selectedVideoIds.value = selectedVideoIds.value.filter((videoId) => videoIdSet.has(videoId))
   } catch (error) {
     message.value = apiErrorMessage(error, '信息源数据加载失败，请确认后端服务和数据库。')
@@ -126,13 +144,14 @@ async function loadStatusOptions() {
 }
 
 function applyQueryFilters() {
-  const hasQueryFilter = Boolean(route.query.video_id || route.query.source_id || route.query.status)
+  const hasQueryFilter = Boolean(route.query.video_id || route.query.source_id || route.query.status || route.query.category || route.query.ingest_method)
   const allDatesSelected = route.query.date_range === 'all'
   videoFilters.value = {
     videoId: typeof route.query.video_id === 'string' ? route.query.video_id : '',
     sourceId: typeof route.query.source_id === 'string' ? route.query.source_id : '',
     status: typeof route.query.status === 'string' ? route.query.status : '',
     category: typeof route.query.category === 'string' ? route.query.category : '',
+    ingestMethod: typeof route.query.ingest_method === 'string' ? route.query.ingest_method : '',
     publishedFrom:
       allDatesSelected
         ? ''
@@ -143,6 +162,8 @@ function applyQueryFilters() {
           : defaultPublishedFrom(),
     publishedTo: allDatesSelected ? '' : displayDateValue(route.query.published_to),
   }
+  const queryPage = Number(route.query.page)
+  currentPage.value = Number.isFinite(queryPage) && queryPage > 0 ? Math.floor(queryPage) : 1
 }
 
 function filterQuery() {
@@ -152,9 +173,11 @@ function filterQuery() {
     source_id: videoFilters.value.sourceId || undefined,
     status: videoFilters.value.status || undefined,
     category: videoFilters.value.category || undefined,
+    ingest_method: videoFilters.value.ingestMethod || undefined,
     published_from: videoFilters.value.publishedFrom || undefined,
     published_to: videoFilters.value.publishedTo || undefined,
     date_range: hasDateFilter ? undefined : 'all',
+    page: currentPage.value > 1 ? String(currentPage.value) : undefined,
   }
 }
 
@@ -195,6 +218,47 @@ async function retryFailedVideo(video: InformationVideo) {
   }
 }
 
+function openManualLinkDialog() {
+  manualLinkDraft.value = {
+    url: '',
+    category: videoFilters.value.category || '',
+  }
+  manualLinkDialogOpen.value = true
+}
+
+function closeManualLinkDialog() {
+  if (savingManualLink.value) return
+  manualLinkDialogOpen.value = false
+}
+
+async function submitManualLink() {
+  const url = manualLinkDraft.value.url.trim()
+  const category = manualLinkDraft.value.category.trim()
+  if (!url || !category) {
+    message.value = '请填写链接和分类。'
+    return
+  }
+  savingManualLink.value = true
+  try {
+    const video = await addManualInformationLink({ url, category })
+    message.value = `已添加内容 ${video.id}，后续将按现有队列生成笔记。`
+    manualLinkDialogOpen.value = false
+    currentPage.value = 1
+    await router.replace({
+      name: 'information-videos',
+      query: {
+        video_id: String(video.id),
+        date_range: 'all',
+      },
+    })
+    await loadAll({ keepMessage: true })
+  } catch (error) {
+    message.value = apiErrorMessage(error, '添加链接失败，请确认链接可访问且属于支持的平台。')
+  } finally {
+    savingManualLink.value = false
+  }
+}
+
 function toggleVideoSelection(videoId: number, checked: boolean) {
   if (checked) {
     selectedVideoIds.value = Array.from(new Set([...selectedVideoIds.value, videoId]))
@@ -208,6 +272,7 @@ function toggleAllVideos(checked: boolean) {
 }
 
 async function applyVideoFilters() {
+  currentPage.value = 1
   await router.replace({ name: 'information-videos', query: filterQuery() })
   await loadAll()
 }
@@ -218,9 +283,17 @@ async function resetVideoFilters() {
     sourceId: '',
     status: '',
     category: '',
+    ingestMethod: '',
     publishedFrom: defaultPublishedFrom(),
     publishedTo: '',
   }
+  currentPage.value = 1
+  await router.replace({ name: 'information-videos', query: filterQuery() })
+  await loadAll()
+}
+
+async function goToPage(page: number) {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value)
   await router.replace({ name: 'information-videos', query: filterQuery() })
   await loadAll()
 }
@@ -279,7 +352,8 @@ watch(
         <h2>信息源与笔记</h2>
       </div>
       <div class="section-actions">
-        <span>{{ sortedVideos.length }} 条</span>
+        <span>第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalVideos }} 条</span>
+        <button type="button" @click="openManualLinkDialog">添加链接</button>
         <button class="ghost" :disabled="runningAction === 'notes'" @click="runAction('notes')">
           {{ runningAction === 'notes' ? '生成中...' : selectedVideoIds.length ? `生成选中 ${selectedVideoIds.length} 条笔记` : '生成待处理笔记' }}
         </button>
@@ -323,6 +397,14 @@ watch(
           </select>
         </label>
         <label>
+          入库方式
+          <select v-model="videoFilters.ingestMethod">
+            <option value="">全部方式</option>
+            <option value="scan">扫描入库</option>
+            <option value="manual">手动添加</option>
+          </select>
+        </label>
+        <label>
           发布开始
           <DateField v-model="videoFilters.publishedFrom" placeholder="开始日期" />
         </label>
@@ -343,6 +425,7 @@ watch(
           <col class="col-check" />
           <col class="col-id" />
           <col class="col-type" />
+          <col class="col-ingest" />
           <col class="col-title" />
           <col class="col-source" />
           <col class="col-category" />
@@ -364,6 +447,7 @@ watch(
             </th>
             <th>ID</th>
             <th>类型</th>
+            <th>入库方式</th>
             <th>
               <button class="sort-header" type="button" @click="toggleSort('title')">标题 <span>{{ sortIndicator('title') }}</span></button>
             </th>
@@ -383,7 +467,7 @@ watch(
         </thead>
         <tbody>
           <tr v-if="sortedVideos.length === 0">
-            <td colspan="10">暂无内容。</td>
+            <td colspan="11">暂无内容。</td>
           </tr>
           <tr v-for="video in sortedVideos" :key="video.id">
             <td>
@@ -398,6 +482,11 @@ watch(
             <td>
               <span class="status-pill" :class="video.content_type === 'article' ? 'status-muted' : 'status-ok'">
                 {{ video.content_type === 'article' ? '图文' : '视频' }}
+              </span>
+            </td>
+            <td>
+              <span class="status-pill" :class="video.ingest_method === 'manual' ? 'status-warn' : 'status-muted'">
+                {{ video.ingest_method_label }}
               </span>
             </td>
             <td><a :href="video.video_url" target="_blank" rel="noreferrer">{{ video.title }}</a></td>
@@ -430,6 +519,35 @@ watch(
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <nav class="pagination-bar" aria-label="信息分页">
+      <button class="ghost" type="button" :disabled="loading || currentPage <= 1" @click="goToPage(currentPage - 1)">上一页</button>
+      <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
+      <button class="ghost" type="button" :disabled="loading || currentPage >= totalPages" @click="goToPage(currentPage + 1)">下一页</button>
+    </nav>
+
+    <div v-if="manualLinkDialogOpen" class="modal-backdrop" @click.self="closeManualLinkDialog">
+      <section class="confirm-dialog summary-task-dialog" role="dialog" aria-modal="true" aria-labelledby="manual-link-title">
+        <h2 id="manual-link-title">添加链接</h2>
+        <form class="settings-grid" @submit.prevent="submitManualLink">
+          <label class="settings-wide">
+            链接
+            <input v-model="manualLinkDraft.url" type="url" required placeholder="https://www.bilibili.com/video/BV..." />
+          </label>
+          <label>
+            分类
+            <input v-model="manualLinkDraft.category" list="manual-link-categories" required placeholder="输入或选择分类" />
+            <datalist id="manual-link-categories">
+              <option v-for="category in categories" :key="category" :value="category" />
+            </datalist>
+          </label>
+          <div class="form-actions settings-wide">
+            <button class="ghost" type="button" :disabled="savingManualLink" @click="closeManualLinkDialog">取消</button>
+            <button type="submit" :disabled="savingManualLink">{{ savingManualLink ? '添加中...' : '添加' }}</button>
+          </div>
+        </form>
+      </section>
     </div>
   </main>
 </template>

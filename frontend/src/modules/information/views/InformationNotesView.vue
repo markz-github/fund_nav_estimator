@@ -7,7 +7,7 @@ import {
   generateSummaryFromNotes,
   getInformationSettings,
   getInformationStatusOptions,
-  listVideoNotes,
+  listVideoNotesPage,
   listVideoSources,
   repollVideoNote,
   type StatusOption,
@@ -22,6 +22,9 @@ const route = useRoute()
 const router = useRouter()
 const sources = ref<VideoSource[]>([])
 const notes = ref<VideoNote[]>([])
+const totalNotes = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(20)
 const noteStatusOptions = ref<StatusOption[]>([])
 const selectedStatus = ref('')
 const selectedVideoId = ref('')
@@ -40,16 +43,8 @@ const defaultSummaryInstruction = ref('')
 const summaryDialogOpen = ref(false)
 const repollingNoteId = ref<number | null>(null)
 
-const filteredNotes = computed(() =>
-  notes.value.filter((note) => {
-    if (selectedStatus.value && note.status !== selectedStatus.value) return false
-    if (selectedVideoId.value && note.video_id !== Number(selectedVideoId.value)) return false
-    if (selectedSourceId.value && note.source_id !== Number(selectedSourceId.value)) return false
-    return true
-  }),
-)
 const sortedNotes = computed(() => {
-  const items = [...filteredNotes.value]
+  const items = [...notes.value]
   items.sort((left, right) => {
     const direction = sortOrder.value === 'asc' ? 1 : -1
     return noteSortValue(left, sortBy.value).localeCompare(noteSortValue(right, sortBy.value), 'zh-Hans-CN') * direction
@@ -58,6 +53,7 @@ const sortedNotes = computed(() => {
 })
 
 const selectableNotes = computed(() => sortedNotes.value.filter((note) => note.status === 'done' && note.note_text))
+const totalPages = computed(() => Math.max(1, Math.ceil(totalNotes.value / pageSize.value)))
 const hasActiveFilters = computed(
   () =>
     Boolean(selectedStatus.value || selectedVideoId.value || selectedSourceId.value || publishedTo.value) ||
@@ -73,11 +69,19 @@ async function loadNotes() {
   loading.value = true
   message.value = ''
   try {
-    notes.value = await listVideoNotes({
+    const result = await listVideoNotesPage({
+      page: currentPage.value,
+      pageSize: pageSize.value,
       sourceId: selectedSourceId.value ? Number(selectedSourceId.value) : undefined,
+      videoId: selectedVideoId.value ? Number(selectedVideoId.value) : undefined,
+      status: selectedStatus.value || undefined,
       publishedFrom: publishedFrom.value || undefined,
       publishedTo: publishedTo.value || undefined,
     })
+    notes.value = result.items
+    totalNotes.value = result.total
+    currentPage.value = result.page
+    pageSize.value = result.page_size
     const noteIdSet = new Set(notes.value.map((note) => note.id))
     selectedNoteIds.value = selectedNoteIds.value.filter((noteId) => noteIdSet.has(noteId))
   } catch (error) {
@@ -128,6 +132,8 @@ function applyQueryFilters() {
         ? ''
         : defaultPublishedFrom()
   publishedTo.value = allDatesSelected ? '' : displayDateValue(route.query.published_to)
+  const queryPage = Number(route.query.page)
+  currentPage.value = Number.isFinite(queryPage) && queryPage > 0 ? Math.floor(queryPage) : 1
 }
 
 function filterQuery() {
@@ -139,10 +145,12 @@ function filterQuery() {
     published_from: publishedFrom.value || undefined,
     published_to: publishedTo.value || undefined,
     date_range: hasDateFilter ? undefined : 'all',
+    page: currentPage.value > 1 ? String(currentPage.value) : undefined,
   }
 }
 
 async function applyFilters() {
+  currentPage.value = 1
   await router.replace({ name: 'information-notes', query: filterQuery() })
   await loadNotes()
 }
@@ -153,7 +161,14 @@ async function resetFilter() {
   selectedSourceId.value = ''
   publishedFrom.value = defaultPublishedFrom()
   publishedTo.value = ''
+  currentPage.value = 1
   await router.replace({ name: 'information-notes' })
+  await loadNotes()
+}
+
+async function goToPage(page: number) {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value)
+  await router.replace({ name: 'information-notes', query: filterQuery() })
   await loadNotes()
 }
 
@@ -298,7 +313,7 @@ watch(
         <h2>笔记列表</h2>
       </div>
       <div class="section-actions">
-        <span>{{ sortedNotes.length }} / {{ notes.length }} 条</span>
+        <span>第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalNotes }} 条</span>
         <button
           class="ghost"
           type="button"
@@ -427,6 +442,12 @@ watch(
         </tbody>
       </table>
     </div>
+
+    <nav class="pagination-bar" aria-label="笔记分页">
+      <button class="ghost" type="button" :disabled="loading || currentPage <= 1" @click="goToPage(currentPage - 1)">上一页</button>
+      <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
+      <button class="ghost" type="button" :disabled="loading || currentPage >= totalPages" @click="goToPage(currentPage + 1)">下一页</button>
+    </nav>
 
     <div v-if="summaryDialogOpen" class="modal-backdrop" @click.self="closeCustomSummaryDialog">
       <section class="confirm-dialog custom-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="custom-summary-title">

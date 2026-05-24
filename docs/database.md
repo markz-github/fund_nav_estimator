@@ -240,6 +240,7 @@ CREATE TABLE information_videos (
     duration_seconds INT NULL COMMENT '视频时长秒数',
     author_name VARCHAR(100) NULL COMMENT '作者名称',
     category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，默认继承信息源分类',
+    ingest_method VARCHAR(30) NOT NULL DEFAULT 'scan' COMMENT '入库方式：scan扫描入库，manual手动添加',
     published_at DATETIME NULL COMMENT '发布时间',
     status VARCHAR(30) NOT NULL DEFAULT 'discovered' COMMENT '处理状态',
     raw_response LONGTEXT NULL COMMENT '扫描原始响应',
@@ -308,6 +309,12 @@ ALTER TABLE information_video_sources
     ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，如财经' AFTER external_source_id;
 ALTER TABLE information_videos
     ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，默认继承信息源分类' AFTER author_name;
+ALTER TABLE information_videos
+    ADD COLUMN ingest_method VARCHAR(30) NOT NULL DEFAULT 'scan' COMMENT '入库方式：scan扫描入库，manual手动添加' AFTER category;
+UPDATE information_videos v
+JOIN information_video_sources s ON s.id = v.source_id
+SET v.ingest_method = 'manual'
+WHERE s.external_source_id LIKE 'manual:%';
 ALTER TABLE information_summary_documents
     ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '汇总限定的信息分类' AFTER summary_date;
 ALTER TABLE information_summary_documents

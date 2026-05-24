@@ -326,7 +326,7 @@ table {
 }
 
 .videos-table {
-  min-width: 1220px;
+  min-width: 1320px;
 }
 
 .notes-table {
@@ -355,6 +355,10 @@ table {
 
 .col-type {
   width: 96px;
+}
+
+.col-ingest {
+  width: 112px;
 }
 
 .col-platform {
@@ -925,6 +929,12 @@ tbody tr {
 
 .settings-wide {
   grid-column: 1 / -1;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .document-list {

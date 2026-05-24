@@ -31,6 +31,7 @@ class InformationVideo(Base):
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer)
     author_name: Mapped[Optional[str]] = mapped_column(String(100))
     category: Mapped[str] = mapped_column(String(50), nullable=False, default="财经", server_default="财经")
+    ingest_method: Mapped[str] = mapped_column(String(30), nullable=False, default="scan", server_default="scan")
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="discovered")
     raw_response: Mapped[Optional[str]] = mapped_column(Text().with_variant(LONGTEXT, "mysql"))
@@ -45,4 +46,13 @@ class InformationVideo(Base):
 
     @property
     def source_name(self) -> str | None:
+        if (
+            self.ingest_method == "manual"
+            and self.author_name
+        ):
+            return self.author_name
         return self.source.source_name if self.source is not None else None
+
+    @property
+    def ingest_method_label(self) -> str:
+        return "手动添加" if self.ingest_method == "manual" else "扫描入库"

@@ -121,6 +121,13 @@ class VideoSourceOut(BaseModel):
         return status_label(SOURCE_STATUSES, self.status)
 
 
+class VideoSourcePageOut(BaseModel):
+    items: list[VideoSourceOut]
+    total: int
+    page: int
+    page_size: int
+
+
 class InformationSettingsOut(BaseModel):
     bilibili_cookie: str
     article_filter_keywords: str
@@ -180,6 +187,8 @@ class VideoOut(BaseModel):
     source_name: str | None
     published_at: datetime | None
     duration_seconds: int | None = None
+    ingest_method: str
+    ingest_method_label: str
     status: str
     category: str
     created_at: datetime
@@ -191,9 +200,29 @@ class VideoOut(BaseModel):
         return status_label(VIDEO_STATUSES, self.status)
 
 
+class VideoPageOut(BaseModel):
+    items: list[VideoOut]
+    total: int
+    page: int
+    page_size: int
+
+
 class ScanVideosRequest(BaseModel):
     source_ids: list[int] | None = None
     limit: int = 20
+
+
+class ManualLinkCreate(BaseModel):
+    url: str
+    category: str
+
+    @field_validator("url", "category")
+    @classmethod
+    def not_blank(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("不能为空")
+        return text
 
 
 class GenerateVideoNotesRequest(BaseModel):
@@ -237,6 +266,13 @@ class VideoNoteOut(BaseModel):
     @property
     def status_label(self) -> str:
         return status_label(NOTE_STATUSES, self.status)
+
+
+class VideoNotePageOut(BaseModel):
+    items: list[VideoNoteOut]
+    total: int
+    page: int
+    page_size: int
 
 
 class VideoNoteDetailOut(VideoNoteOut):
@@ -299,6 +335,13 @@ class SummaryDocumentOut(BaseModel):
     @property
     def status_label(self) -> str:
         return status_label(SUMMARY_DOCUMENT_STATUSES, self.status)
+
+
+class SummaryDocumentPageOut(BaseModel):
+    items: list[SummaryDocumentOut]
+    total: int
+    page: int
+    page_size: int
 
 
 class ActionResult(BaseModel):
