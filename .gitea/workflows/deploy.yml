@@ -149,6 +149,18 @@ jobs:
               exit 1
             fi
 
+            python3 -m venv backend/.ci-venv
+            backend/.ci-venv/bin/python -m pip install --upgrade pip \
+              -i "$PIP_INDEX_URL" \
+              --trusted-host "$PIP_TRUSTED_HOST" \
+              --timeout 120 2>&1 | tee -a .deploy.log
+            backend/.ci-venv/bin/python -m pip install -r backend/requirements-dev.txt \
+              -i "$PIP_INDEX_URL" \
+              --trusted-host "$PIP_TRUSTED_HOST" \
+              --timeout 120 2>&1 | tee -a .deploy.log
+            backend/.ci-venv/bin/python -B -m pytest backend/tests 2>&1 | tee -a .deploy.log
+            test ${PIPESTATUS[0]} -eq 0
+
             run_with_retry "Deploy backend service" docker compose -f docker-compose.yml up -d --build --remove-orphans backend
             echo "BACKEND_DEPLOY_RESULT=成功" >> "$GITHUB_ENV"
             echo "BACKEND_DEPLOY_RESULT=成功" >> .deploy.log

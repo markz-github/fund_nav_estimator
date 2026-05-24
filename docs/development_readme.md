@@ -36,6 +36,16 @@ py -3.14 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
+开发和运行测试时安装开发依赖：
+
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-dev.txt
+```
+
+`requirements.txt` 只放后端运行依赖；`requirements-dev.txt` 引用运行依赖，并额外安装 pytest 等开发/测试工具。
+
 不激活虚拟环境也可以直接启动：
 
 ```powershell
@@ -47,7 +57,7 @@ cd m:\VscodeProjects\基金当日净值预测\backend
 
 ```powershell
 cd m:\VscodeProjects\基金当日净值预测\backend
-.\.venv\Scripts\python.exe -B -m unittest discover tests
+.\.venv\Scripts\python.exe -B -m pytest tests
 ```
 
 后台隐藏启动可使用：
