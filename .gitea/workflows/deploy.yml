@@ -27,12 +27,10 @@ jobs:
           : > .deploy.log
           deploy_frontend=false
           deploy_backend=false
-          deploy_backend_base=false
 
           if [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" || "${GITHUB_RUN_ATTEMPT:-1}" != "1" ]]; then
             deploy_frontend=true
             deploy_backend=true
-            deploy_backend_base=true
             echo "Manual or rerun deployment requested; deploying frontend and backend."
           else
             before_sha="${{ github.event.before }}"
@@ -61,29 +59,22 @@ jobs:
               deploy_backend=true
             fi
 
-            if printf '%s\n' "$changed_files" | grep -Eq '^(backend/requirements\.txt|backend/Dockerfile\.base|docker/python-runtime/|\.gitea/workflows/deploy\.yml)'; then
-              deploy_backend_base=true
-              deploy_backend=true
-            fi
           fi
 
           echo "DEPLOY_FRONTEND=${deploy_frontend}"
           echo "DEPLOY_BACKEND=${deploy_backend}"
-          echo "DEPLOY_BACKEND_BASE=${deploy_backend_base}"
           {
             echo "DEPLOY_FRONTEND=${deploy_frontend}"
             echo "DEPLOY_BACKEND=${deploy_backend}"
-            echo "DEPLOY_BACKEND_BASE=${deploy_backend_base}"
             echo "FRONTEND_DEPLOY_RESULT=未执行"
             echo "BACKEND_DEPLOY_RESULT=未执行"
           } >> .deploy.log
           echo "DEPLOY_FRONTEND=${deploy_frontend}" >> "$GITHUB_ENV"
           echo "DEPLOY_BACKEND=${deploy_backend}" >> "$GITHUB_ENV"
-          echo "DEPLOY_BACKEND_BASE=${deploy_backend_base}" >> "$GITHUB_ENV"
           echo "FRONTEND_DEPLOY_RESULT=未执行" >> "$GITHUB_ENV"
           echo "BACKEND_DEPLOY_RESULT=未执行" >> "$GITHUB_ENV"
           echo "COMPOSE_PROJECT_NAME=fund-nav-estimator-${DEPLOY_ENV}" >> "$GITHUB_ENV"
-          echo "BACKEND_BASE_IMAGE=192.168.50.50:13000/markz/fund-nav-estimator-backend-base:py3.14" >> "$GITHUB_ENV"
+          echo "BACKEND_BASE_IMAGE=192.168.50.50:13000/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621" >> "$GITHUB_ENV"
 
       - name: Deploy frontend
         env:
@@ -146,28 +137,6 @@ jobs:
             backend/.ci-venv/bin/python -B -m pytest backend/tests 2>&1 | tee -a .deploy.log
           else
             echo "No backend changes detected; skipping backend tests." | tee -a .deploy.log
-          fi
-
-      - name: Build backend base image
-        env:
-          PIP_INDEX_URL: https://pypi.mirrors.ustc.edu.cn/simple/
-          PIP_TRUSTED_HOST: pypi.mirrors.ustc.edu.cn
-        run: |
-          set -o pipefail
-
-          echo "DEPLOY_BACKEND_BASE=${DEPLOY_BACKEND_BASE}" | tee -a .deploy.log
-
-          if [[ "$DEPLOY_BACKEND_BASE" == "true" ]]; then
-            echo "Building backend base image: ${BACKEND_BASE_IMAGE}" | tee -a .deploy.log
-            docker build \
-              -f backend/Dockerfile.base \
-              --build-arg PIP_INDEX_URL="$PIP_INDEX_URL" \
-              --build-arg PIP_TRUSTED_HOST="$PIP_TRUSTED_HOST" \
-              -t "$BACKEND_BASE_IMAGE" \
-              backend 2>&1 | tee -a .deploy.log
-            docker push "$BACKEND_BASE_IMAGE" 2>&1 | tee -a .deploy.log
-          else
-            echo "Backend runtime dependencies unchanged; skipping backend base image build." | tee -a .deploy.log
           fi
 
       - name: Deploy backend

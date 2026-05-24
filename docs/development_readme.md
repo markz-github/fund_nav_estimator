@@ -146,21 +146,21 @@ http://127.0.0.1:5173/fund-nav
 
 后端 Docker 镜像分为两层：
 
-- 项目级基础镜像：`192.168.50.50:13000/markz/fund-nav-estimator-backend-base:py3.14`，由 `backend/Dockerfile.base` 构建，安装 `backend/requirements.txt` 中的运行依赖。
+- 项目级基础镜像：`192.168.50.50:13000/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621`，由 `backend/Dockerfile.base` 构建，安装 `backend/requirements.txt` 中的运行依赖。
 - 业务镜像：由 `backend/Dockerfile` 构建，基于项目级基础镜像，只复制 `app`、`config` 和 `scripts`。
 
 自动部署中，后端测试使用 runner 上的临时虚拟环境和 `requirements-dev.txt`；生产业务镜像只依赖项目级基础镜像，不安装 pytest。
 
-当 `backend/requirements.txt` 或 `backend/Dockerfile.base` 变化时，自动部署会先运行后端测试，测试通过后构建并推送项目级基础镜像，再部署后端服务。可手动构建和推送：
+项目级基础镜像使用固定版本 tag。自动部署不会构建或推送基础镜像；当 `backend/requirements.txt` 或 `backend/Dockerfile.base` 变化时，应先独立构建并推送新的基础镜像 tag，再更新 `backend/Dockerfile`、`docker-compose.yml` 和 `.gitea/workflows/deploy.yml` 中的 `BACKEND_BASE_IMAGE` 默认值。
 
 ```powershell
 docker build -f backend/Dockerfile.base `
   --build-arg PIP_INDEX_URL=https://pypi.mirrors.ustc.edu.cn/simple/ `
   --build-arg PIP_TRUSTED_HOST=pypi.mirrors.ustc.edu.cn `
-  -t 192.168.50.50:13000/markz/fund-nav-estimator-backend-base:py3.14 `
+  -t 192.168.50.50:13000/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621 `
   backend
 
-docker push 192.168.50.50:13000/markz/fund-nav-estimator-backend-base:py3.14
+docker push 192.168.50.50:13000/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621
 ```
 
 ## 数据库初始化
