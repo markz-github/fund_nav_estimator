@@ -27,10 +27,12 @@ jobs:
           : > .deploy.log
           deploy_frontend=false
           deploy_backend=false
+          deploy_backend_base=false
 
           if [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" || "${GITHUB_RUN_ATTEMPT:-1}" != "1" ]]; then
             deploy_frontend=true
             deploy_backend=true
+            deploy_backend_base=true
             echo "Manual or rerun deployment requested; deploying frontend and backend."
           else
             before_sha="${{ github.event.before }}"
@@ -58,21 +60,30 @@ jobs:
             if printf '%s\n' "$changed_files" | grep -Eq '^(backend/|docker-compose\.yml|\.gitea/workflows/deploy\.yml)'; then
               deploy_backend=true
             fi
+
+            if printf '%s\n' "$changed_files" | grep -Eq '^(backend/requirements\.txt|backend/Dockerfile\.base|docker/python-runtime/|\.gitea/workflows/deploy\.yml)'; then
+              deploy_backend_base=true
+              deploy_backend=true
+            fi
           fi
 
           echo "DEPLOY_FRONTEND=${deploy_frontend}"
           echo "DEPLOY_BACKEND=${deploy_backend}"
+          echo "DEPLOY_BACKEND_BASE=${deploy_backend_base}"
           {
             echo "DEPLOY_FRONTEND=${deploy_frontend}"
             echo "DEPLOY_BACKEND=${deploy_backend}"
+            echo "DEPLOY_BACKEND_BASE=${deploy_backend_base}"
             echo "FRONTEND_DEPLOY_RESULT=未执行"
             echo "BACKEND_DEPLOY_RESULT=未执行"
           } >> .deploy.log
           echo "DEPLOY_FRONTEND=${deploy_frontend}" >> "$GITHUB_ENV"
           echo "DEPLOY_BACKEND=${deploy_backend}" >> "$GITHUB_ENV"
+          echo "DEPLOY_BACKEND_BASE=${deploy_backend_base}" >> "$GITHUB_ENV"
           echo "FRONTEND_DEPLOY_RESULT=未执行" >> "$GITHUB_ENV"
           echo "BACKEND_DEPLOY_RESULT=未执行" >> "$GITHUB_ENV"
           echo "COMPOSE_PROJECT_NAME=fund-nav-estimator-${DEPLOY_ENV}" >> "$GITHUB_ENV"
+          echo "BACKEND_BASE_IMAGE=192.168.50.50:13000/markz/fund-nav-estimator-backend-base:py3.14" >> "$GITHUB_ENV"
 
       - name: Deploy frontend
         env:
@@ -111,13 +122,59 @@ jobs:
             echo "FRONTEND_DEPLOY_RESULT=无需部署" >> .deploy.log
           fi
 
+      - name: Test backend
+        env:
+          PIP_INDEX_URL: https://pypi.mirrors.ustc.edu.cn/simple/
+          PIP_TRUSTED_HOST: pypi.mirrors.ustc.edu.cn
+        run: |
+          set -o pipefail
+
+          echo "DEPLOY_BACKEND=${DEPLOY_BACKEND}" | tee -a .deploy.log
+
+          if [[ "$DEPLOY_BACKEND" == "true" ]]; then
+            echo "Testing backend before deployment." | tee -a .deploy.log
+            rm -rf backend/.ci-venv
+            python3 -m venv backend/.ci-venv
+            backend/.ci-venv/bin/python -m pip install --upgrade pip \
+              -i "$PIP_INDEX_URL" \
+              --trusted-host "$PIP_TRUSTED_HOST" \
+              --timeout 120 2>&1 | tee -a .deploy.log
+            backend/.ci-venv/bin/python -m pip install -r backend/requirements-dev.txt \
+              -i "$PIP_INDEX_URL" \
+              --trusted-host "$PIP_TRUSTED_HOST" \
+              --timeout 120 2>&1 | tee -a .deploy.log
+            backend/.ci-venv/bin/python -B -m pytest backend/tests 2>&1 | tee -a .deploy.log
+          else
+            echo "No backend changes detected; skipping backend tests." | tee -a .deploy.log
+          fi
+
+      - name: Build backend base image
+        env:
+          PIP_INDEX_URL: https://pypi.mirrors.ustc.edu.cn/simple/
+          PIP_TRUSTED_HOST: pypi.mirrors.ustc.edu.cn
+        run: |
+          set -o pipefail
+
+          echo "DEPLOY_BACKEND_BASE=${DEPLOY_BACKEND_BASE}" | tee -a .deploy.log
+
+          if [[ "$DEPLOY_BACKEND_BASE" == "true" ]]; then
+            echo "Building backend base image: ${BACKEND_BASE_IMAGE}" | tee -a .deploy.log
+            docker build \
+              -f backend/Dockerfile.base \
+              --build-arg PIP_INDEX_URL="$PIP_INDEX_URL" \
+              --build-arg PIP_TRUSTED_HOST="$PIP_TRUSTED_HOST" \
+              -t "$BACKEND_BASE_IMAGE" \
+              backend 2>&1 | tee -a .deploy.log
+            docker push "$BACKEND_BASE_IMAGE" 2>&1 | tee -a .deploy.log
+          else
+            echo "Backend runtime dependencies unchanged; skipping backend base image build." | tee -a .deploy.log
+          fi
+
       - name: Deploy backend
         env:
           DEPLOY_ENV: test
           BACKEND_ENV_FILE: ${{ secrets.TEST_ENV }}
           BACKEND_PORT: 18000
-          PIP_INDEX_URL: https://pypi.mirrors.ustc.edu.cn/simple/
-          PIP_TRUSTED_HOST: pypi.mirrors.ustc.edu.cn
         run: |
           set -o pipefail
 
@@ -148,18 +205,6 @@ jobs:
               echo "backend/.env is required for backend deployment. Set the environment-specific Gitea secret TEST_ENV." | tee -a .deploy.log >&2
               exit 1
             fi
-
-            python3 -m venv backend/.ci-venv
-            backend/.ci-venv/bin/python -m pip install --upgrade pip \
-              -i "$PIP_INDEX_URL" \
-              --trusted-host "$PIP_TRUSTED_HOST" \
-              --timeout 120 2>&1 | tee -a .deploy.log
-            backend/.ci-venv/bin/python -m pip install -r backend/requirements-dev.txt \
-              -i "$PIP_INDEX_URL" \
-              --trusted-host "$PIP_TRUSTED_HOST" \
-              --timeout 120 2>&1 | tee -a .deploy.log
-            backend/.ci-venv/bin/python -B -m pytest backend/tests 2>&1 | tee -a .deploy.log
-            test ${PIPESTATUS[0]} -eq 0
 
             run_with_retry "Deploy backend service" docker compose -f docker-compose.yml up -d --build --remove-orphans backend
             echo "BACKEND_DEPLOY_RESULT=成功" >> "$GITHUB_ENV"
