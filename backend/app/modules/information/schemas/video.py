@@ -105,7 +105,7 @@ class VideoSourceOut(BaseModel):
     enabled: int
     last_scanned_at: datetime | None
     remark: str | None
-    video_count: int = 0
+    information_count: int = 0
     note_count: int = 0
     created_at: datetime
     updated_at: datetime

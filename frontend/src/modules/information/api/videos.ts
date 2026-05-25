@@ -10,7 +10,7 @@ export interface VideoSource {
   enabled: number
   last_scanned_at?: string | null
   remark?: string | null
-  video_count: number
+  information_count: number
   note_count: number
   status: string
   status_label: string

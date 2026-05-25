@@ -30,7 +30,11 @@ const selectedSourceIds = ref<number[]>([])
 const confirmAction = ref<'disable' | 'delete' | null>(null)
 const confirmSource = ref<VideoSource | null>(null)
 
-const enabledSources = computed(() => sources.value.filter((source) => source.enabled))
+function isSystemSource(source: VideoSource) {
+  return source.id < 0 || source.external_source_id === 'manual' || source.platform === 'system'
+}
+
+const enabledSources = computed(() => sources.value.filter((source) => source.enabled && !isSystemSource(source)))
 const sourceDialogOpen = computed(() => dialogMode.value !== null)
 const sourceDialogTitle = computed(() => (dialogMode.value === 'edit' ? '修改信息源' : '添加信息源'))
 const confirmDialogOpen = computed(() => confirmAction.value !== null && confirmSource.value !== null)
@@ -115,6 +119,7 @@ function openAddDialog() {
 }
 
 function openEditDialog(source: VideoSource) {
+  if (isSystemSource(source)) return
   sourceDraft.value = {
     source_name: source.source_name,
     external_source_id: source.external_source_id,
@@ -133,6 +138,7 @@ function closeSourceDialog() {
 }
 
 async function toggleSource(source: VideoSource) {
+  if (isSystemSource(source)) return
   if (source.enabled) {
     openConfirmDialog('disable', source)
     return
@@ -142,6 +148,7 @@ async function toggleSource(source: VideoSource) {
 }
 
 function openConfirmDialog(action: 'disable' | 'delete', source: VideoSource) {
+  if (isSystemSource(source)) return
   confirmAction.value = action
   confirmSource.value = source
 }
@@ -153,6 +160,7 @@ function closeConfirmDialog() {
 }
 
 async function removeSource(source: VideoSource) {
+  if (isSystemSource(source)) return
   openConfirmDialog('delete', source)
 }
 
@@ -269,7 +277,7 @@ onMounted(loadSources)
             <th>账号</th>
             <th>UID</th>
             <th>分类</th>
-            <th>视频数</th>
+            <th>信息数</th>
             <th>笔记数</th>
             <th>状态</th>
             <th>最近扫描</th>
@@ -286,7 +294,7 @@ onMounted(loadSources)
                 class="row-check"
                 type="checkbox"
                 :checked="selectedSourceIds.includes(source.id)"
-                :disabled="!source.enabled"
+                :disabled="!source.enabled || isSystemSource(source)"
                 @change="toggleSourceSelection(source.id, ($event.target as HTMLInputElement).checked)"
               />
             </td>
@@ -295,13 +303,14 @@ onMounted(loadSources)
             <td>
               <RouterLink :to="{ name: 'information-videos', query: { source_id: source.id } }">
                 {{ source.source_name }}
+                <span v-if="isSystemSource(source)" class="muted">系统内置</span>
               </RouterLink>
             </td>
             <td class="mono">{{ source.external_source_id }}</td>
             <td>{{ source.category }}</td>
             <td class="mono">
               <RouterLink :to="{ name: 'information-videos', query: { source_id: source.id } }">
-                {{ source.video_count }}
+                {{ source.information_count }}
               </RouterLink>
             </td>
             <td class="mono">
@@ -312,11 +321,12 @@ onMounted(loadSources)
             <td><span class="status-pill" :class="statusClass(source.status)">{{ source.status_label }}</span></td>
             <td>{{ formatDateTime(source.last_scanned_at) }}</td>
             <td>
-              <div class="quick-actions">
+              <div v-if="!isSystemSource(source)" class="quick-actions">
                 <button class="ghost" type="button" :disabled="savingSource" @click="openEditDialog(source)">修改</button>
                 <button class="ghost" type="button" :disabled="savingSource" @click="toggleSource(source)">{{ source.enabled ? '停用' : '启用' }}</button>
                 <button class="danger" type="button" :disabled="savingSource" @click="removeSource(source)">删除</button>
               </div>
+              <span v-else class="muted">系统内置</span>
             </td>
           </tr>
         </tbody>

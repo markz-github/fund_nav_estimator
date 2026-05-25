@@ -24,6 +24,7 @@ from app.modules.information.models.task_log import TaskLog
 from app.modules.information.models.video import InformationVideo
 from app.modules.information.models.video_note import InformationVideoNote
 from app.modules.information.models.video_source import InformationVideoSource
+from app.modules.information.schemas.video import ManualLinkCreate
 from app.modules.information.schemas.video import SummaryTaskConfigCreate
 from app.modules.information.schemas.video import VideoSourceCreate
 from app.modules.information.services.bilinote_client import BilinoteClient
@@ -499,6 +500,71 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(result, {"source_id": second_source.id, "created": 1})
         adapter.fetch_latest_videos.assert_called_once()
         self.assertEqual(adapter.fetch_latest_videos.call_args.args[0].id, second_source.id)
+
+    def test_scan_next_source_skips_manual_virtual_source(self) -> None:
+        self.db.add(
+            InformationVideoSource(
+                id=-1,
+                platform="system",
+                source_name="手动录入",
+                external_source_id="manual",
+                category="手动录入",
+                enabled=1,
+            )
+        )
+        self.db.add(
+            InformationVideoSource(
+                platform="bilibili",
+                source_name="手动录入",
+                external_source_id="manual:财经",
+                category="财经",
+                enabled=1,
+            )
+        )
+        self.db.commit()
+        adapter = Mock()
+
+        with patch(
+            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            return_value=adapter,
+        ):
+            result = VideoInformationService(self.db).scan_next_source()
+
+        self.assertEqual(result, {"source_id": None, "created": 0})
+        adapter.fetch_latest_videos.assert_not_called()
+
+    def test_manual_link_uses_single_builtin_source(self) -> None:
+        adapter = Mock()
+        adapter.fetch_link.return_value = VideoSnapshot(
+            platform="bilibili",
+            external_video_id="BV-manual-link",
+            title="手动添加视频",
+            video_url="https://www.bilibili.com/video/BV-manual-link",
+            author_name="手动作者",
+            published_at=datetime(2026, 5, 18, 10, 0, 0),
+            raw_response={"bvid": "BV-manual-link"},
+        )
+
+        with patch(
+            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            return_value=adapter,
+        ):
+            video = VideoInformationService(self.db).add_manual_link(
+                ManualLinkCreate(url="https://www.bilibili.com/video/BV-manual-link", category="科技")
+            )
+
+        source = self.db.get(InformationVideoSource, -1)
+        self.assertIsNotNone(source)
+        self.assertEqual(video.source_id, -1)
+        self.assertEqual(video.platform, "bilibili")
+        self.assertEqual(video.category, "科技")
+        self.assertEqual(source.platform, "system")
+        self.assertEqual(source.external_source_id, "manual")
+        self.assertEqual(source.enabled, 0)
+        sources = VideoInformationService(self.db).list_sources()
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0]["id"], -1)
+        self.assertEqual(sources[0]["information_count"], 1)
 
     def test_failed_scan_updates_last_scanned_at_to_avoid_immediate_retry_loop(self) -> None:
         service = VideoInformationService(self.db)
@@ -1580,7 +1646,7 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         sources = VideoInformationService(self.db).list_sources()
 
-        self.assertEqual(sources[0]["video_count"], 1)
+        self.assertEqual(sources[0]["information_count"], 1)
         self.assertEqual(sources[0]["note_count"], 1)
 
     def test_list_notes_can_filter_by_source(self) -> None:

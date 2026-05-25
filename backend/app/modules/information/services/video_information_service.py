@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 VIDEO_NOTE_EXPIRY = timedelta(days=1)
 SUMMARY_DOCUMENT_EXPIRY = timedelta(days=1)
 DEFAULT_CATEGORY = "财经"
+SYSTEM_MANUAL_SOURCE_ID = -1
+SYSTEM_MANUAL_SOURCE_PLATFORM = "system"
+SYSTEM_MANUAL_SOURCE_EXTERNAL_ID = "manual"
+SYSTEM_MANUAL_SOURCE_NAME = "手动录入"
+SYSTEM_MANUAL_SOURCE_CATEGORY = "手动录入"
 DEFAULT_SUMMARY_TASK_CONFIGS = (
     {
         "task_name": "财经昨日汇总",
@@ -173,13 +178,24 @@ def _normalize_ingest_method(value: str | None) -> str | None:
     return method
 
 
+def _scannable_source_filter():
+    return (
+        InformationVideoSource.id != SYSTEM_MANUAL_SOURCE_ID,
+        InformationVideoSource.external_source_id != SYSTEM_MANUAL_SOURCE_EXTERNAL_ID,
+        ~InformationVideoSource.external_source_id.like("manual:%"),
+    )
+
+
 class VideoInformationService:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.last_scan_errors: list[str] = []
 
     def list_sources(self, enabled_only: bool = False) -> list[dict[str, object]]:
-        statement = select(InformationVideoSource).order_by(InformationVideoSource.created_at.desc())
+        statement = select(InformationVideoSource).order_by(
+            (InformationVideoSource.id == SYSTEM_MANUAL_SOURCE_ID).desc(),
+            InformationVideoSource.created_at.desc(),
+        )
         if enabled_only:
             statement = statement.where(InformationVideoSource.enabled == 1)
         sources = list(self.db.scalars(statement).all())
@@ -203,7 +219,10 @@ class VideoInformationService:
             offset = (effective_page - 1) * effective_page_size
         sources = list(
             self.db.scalars(
-                statement.order_by(InformationVideoSource.created_at.desc())
+                statement.order_by(
+                    (InformationVideoSource.id == SYSTEM_MANUAL_SOURCE_ID).desc(),
+                    InformationVideoSource.created_at.desc(),
+                )
                 .offset(offset)
                 .limit(effective_page_size)
             ).all()
@@ -216,7 +235,7 @@ class VideoInformationService:
         }
 
     def _source_payload(self, source: InformationVideoSource) -> dict[str, object]:
-        video_count = self.db.scalar(
+        information_count = self.db.scalar(
             select(func.count(InformationVideo.id)).where(InformationVideo.source_id == source.id)
         ) or 0
         note_count = self.db.scalar(
@@ -237,7 +256,7 @@ class VideoInformationService:
             "enabled": source.enabled,
             "last_scanned_at": source.last_scanned_at,
             "remark": source.remark,
-            "video_count": video_count,
+            "information_count": information_count,
             "note_count": note_count,
             "created_at": source.created_at,
             "updated_at": source.updated_at,
@@ -401,7 +420,10 @@ class VideoInformationService:
         limit: int = 20,
     ) -> int:
         self.last_scan_errors = []
-        statement = select(InformationVideoSource).where(InformationVideoSource.enabled == 1)
+        statement = select(InformationVideoSource).where(
+            InformationVideoSource.enabled == 1,
+            *_scannable_source_filter(),
+        )
         if source_ids:
             statement = statement.where(InformationVideoSource.id.in_(source_ids))
         elif source_id is not None:
@@ -568,6 +590,7 @@ class VideoInformationService:
         source = self.db.scalar(
             select(InformationVideoSource)
             .where(InformationVideoSource.enabled == 1)
+            .where(*_scannable_source_filter())
             .order_by(InformationVideoSource.last_scanned_at.is_not(None), InformationVideoSource.last_scanned_at.asc())
         )
         if source is None:
@@ -588,7 +611,7 @@ class VideoInformationService:
         bilibili_cookie = settings.get("bilibili_cookie", "").strip()
         adapter = get_video_source_adapter("bilibili")
         snapshot = adapter.fetch_link(link, bilibili_cookie=bilibili_cookie)
-        source = self._manual_source(snapshot.platform, category)
+        source = self._manual_source()
         published_at = datetime.now()
         article_filter_keywords = self._parse_keywords(settings.get("article_filter_keywords", ""))
         is_invalid_content = self._apply_article_filter(
@@ -645,28 +668,31 @@ class VideoInformationService:
         self.db.refresh(video)
         return video
 
-    def _manual_source(self, platform: str, category: str) -> InformationVideoSource:
-        external_source_id = f"manual:{category}"[:100]
+    def _manual_source(self) -> InformationVideoSource:
         source = self.db.scalar(
-            select(InformationVideoSource).where(
-                InformationVideoSource.platform == platform,
-                InformationVideoSource.external_source_id == external_source_id,
-            )
+            select(InformationVideoSource)
+            .where(InformationVideoSource.id == SYSTEM_MANUAL_SOURCE_ID)
+            .execution_options(include_deleted=True)
         )
         if source is not None:
-            source.source_name = "手动录入"
+            source.is_deleted = 0
+            source.platform = SYSTEM_MANUAL_SOURCE_PLATFORM
+            source.source_name = SYSTEM_MANUAL_SOURCE_NAME
             source.source_url = None
-            source.category = category
-            source.enabled = 1
+            source.external_source_id = SYSTEM_MANUAL_SOURCE_EXTERNAL_ID
+            source.category = SYSTEM_MANUAL_SOURCE_CATEGORY
+            source.enabled = 0
+            source.remark = "系统内置手动录入来源"
             return source
         source = InformationVideoSource(
-            platform=platform,
-            source_name="手动录入",
+            id=SYSTEM_MANUAL_SOURCE_ID,
+            platform=SYSTEM_MANUAL_SOURCE_PLATFORM,
+            source_name=SYSTEM_MANUAL_SOURCE_NAME,
             source_url=None,
-            external_source_id=external_source_id,
-            category=category,
-            enabled=1,
-            remark="手动添加链接自动创建",
+            external_source_id=SYSTEM_MANUAL_SOURCE_EXTERNAL_ID,
+            category=SYSTEM_MANUAL_SOURCE_CATEGORY,
+            enabled=0,
+            remark="系统内置手动录入来源",
         )
         self.db.add(source)
         self.db.flush()
