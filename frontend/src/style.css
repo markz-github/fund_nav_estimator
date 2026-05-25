@@ -210,9 +210,9 @@ h1 {
 }
 
 .toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
   width: 100%;
   margin-bottom: 18px;
@@ -223,7 +223,7 @@ h1 {
   grid-template-columns: 140px 180px minmax(180px, 1fr) 120px minmax(120px, 1fr) auto;
   gap: 10px;
   align-items: center;
-  margin-left: auto;
+  justify-self: end;
   transition: grid-template-columns 180ms ease;
 }
 
@@ -1483,7 +1483,14 @@ tbody tr:hover {
   .dashboard-header,
   .toolbar {
     align-items: flex-start;
+  }
+
+  .dashboard-header {
     flex-direction: column;
+  }
+
+  .toolbar {
+    grid-template-columns: 1fr;
   }
 
   .brand-heading {
@@ -1493,7 +1500,7 @@ tbody tr:hover {
   .inline-add-form {
     width: 100%;
     grid-template-columns: 1fr;
-    margin-left: 0;
+    justify-self: stretch;
   }
 
   .inline-add-form:focus-within {
