@@ -150,7 +150,11 @@ h1 {
 
 .inline-add-form {
   display: grid;
+<<<<<<< Updated upstream
   grid-template-columns: 120px 160px auto;
+=======
+  grid-template-columns: 140px 180px auto;
+>>>>>>> Stashed changes
   gap: 10px;
   align-items: center;
   justify-self: end;
