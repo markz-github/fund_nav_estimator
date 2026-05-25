@@ -220,7 +220,15 @@ h1 {
 
 .inline-add-form {
   display: grid;
+<<<<<<< HEAD
   grid-template-columns: 140px 180px minmax(180px, 1fr) 120px minmax(120px, 1fr) auto;
+=======
+<<<<<<< Updated upstream
+  grid-template-columns: 120px 160px auto;
+=======
+  grid-template-columns: 140px 180px auto;
+>>>>>>> Stashed changes
+>>>>>>> 756b354e2be85aa29e8c62fff3f87287704c17d6
   gap: 10px;
   align-items: center;
   justify-self: end;
