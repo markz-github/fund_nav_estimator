@@ -18,6 +18,7 @@ from app.modules.information.schemas.video import (
     InformationStatusOptionsOut,
     InformationSettingsOut,
     InformationSettingsUpdate,
+    ManualLinkActionOut,
     ManualLinkCreate,
     MarkVideoNotesFailedRequest,
     ScanVideosRequest,
@@ -275,8 +276,7 @@ def list_videos_page(
     )
 
 
-@router.post("/videos/manual-link", response_model=VideoOut)
-def add_manual_link(payload: ManualLinkCreate, db: Session = Depends(get_db)):
+def _add_manual_link_with_log(payload: ManualLinkCreate, db: Session) -> VideoOut:
     task_log = start_task(
         db,
         "手动添加信息链接",
@@ -297,6 +297,22 @@ def add_manual_link(payload: ManualLinkCreate, db: Session = Depends(get_db)):
         raise
     finish_task(db, task_log, "success", f"video_id={video.id};status={video.status};category={video.category}")
     return video
+
+
+@router.post("/videos/manual-link", response_model=VideoOut)
+def add_manual_link(payload: ManualLinkCreate, db: Session = Depends(get_db)):
+    return _add_manual_link_with_log(payload, db)
+
+
+@router.post("/actions/add-manual-link", response_model=ManualLinkActionOut)
+def add_manual_link_action(payload: ManualLinkCreate, db: Session = Depends(get_db)):
+    video = _add_manual_link_with_log(payload, db)
+    return {
+        "status": "success",
+        "message": f"video_id={video.id};status={video.status};category={video.category}",
+        "count": 1,
+        "video": video,
+    }
 
 
 @router.get("/video-notes", response_model=list[VideoNoteOut])

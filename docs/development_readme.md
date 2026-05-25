@@ -373,6 +373,7 @@ Hermes 汇总也拆成两类任务日志：
 - `GET /api/information/summary-documents/{document_id}`
 - `POST /api/information/summary-documents/{document_id}/retry`
 - `POST /api/information/actions/scan-videos`
+- `POST /api/information/actions/add-manual-link`
 - `POST /api/information/actions/generate-video-notes`
 
 ## 开发文档

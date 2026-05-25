@@ -225,6 +225,18 @@ class ManualLinkCreate(BaseModel):
         return text
 
 
+class ManualLinkActionOut(BaseModel):
+    status: str
+    message: str
+    count: int = 0
+    video: VideoOut | None = None
+
+    @computed_field
+    @property
+    def status_label(self) -> str:
+        return status_label(TASK_STATUSES, self.status)
+
+
 class GenerateVideoNotesRequest(BaseModel):
     video_ids: list[int] | None = None
     limit: int = 5

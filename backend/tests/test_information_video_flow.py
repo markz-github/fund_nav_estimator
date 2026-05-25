@@ -16,6 +16,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 import app.models  # noqa: F401
 from app.database import Base
+from app.modules.information.api.videos import add_manual_link_action
 from app.modules.information.api.videos import run_summary_task_config_now
 from app.modules.information.models.summary_document import InformationSummaryDocumentItem
 from app.modules.information.models.summary_document import InformationSummaryDocument
@@ -560,6 +561,35 @@ class InformationVideoFlowTests(unittest.TestCase):
         source_page = VideoInformationService(self.db).list_sources_page(enabled_only=True)
         self.assertEqual(source_page["total"], 0)
         self.assertEqual(source_page["items"], [])
+
+    def test_manual_link_action_endpoint_result_logs_task(self) -> None:
+        adapter = Mock()
+        adapter.fetch_link.return_value = VideoSnapshot(
+            platform="bilibili",
+            external_video_id="BV-action-link",
+            title="外部接口添加视频",
+            video_url="https://www.bilibili.com/video/BV-action-link",
+            author_name="外部作者",
+            published_at=datetime(2026, 5, 25, 10, 0, 0),
+            raw_response={"bvid": "BV-action-link"},
+        )
+
+        with patch(
+            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            return_value=adapter,
+        ):
+            result = add_manual_link_action(
+                ManualLinkCreate(url="https://www.bilibili.com/video/BV-action-link", category="财经"),
+                db=self.db,
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["video"].source_id, -1)
+        self.assertEqual(result["video"].status, "note_pending")
+        task_log = self.db.query(TaskLog).filter_by(task_type="add_information_manual_link").one()
+        self.assertEqual(task_log.status, "success")
+        self.assertIn("video_id=", task_log.message)
 
     def test_failed_scan_updates_last_scanned_at_to_avoid_immediate_retry_loop(self) -> None:
         service = VideoInformationService(self.db)
