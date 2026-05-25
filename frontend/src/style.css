@@ -140,9 +140,9 @@ h1 {
 }
 
 .toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
   width: 100%;
   margin-bottom: 18px;
@@ -150,19 +150,16 @@ h1 {
 
 .inline-add-form {
   display: grid;
-<<<<<<< Updated upstream
   grid-template-columns: 120px 160px auto;
-=======
-  grid-template-columns: 140px 180px auto;
->>>>>>> Stashed changes
   gap: 10px;
   align-items: center;
-  justify-self: end;
+  flex: 0 0 auto;
+  margin-left: auto;
   transition: grid-template-columns 180ms ease;
 }
 
 .inline-add-form:focus-within {
-  grid-template-columns: 200px 260px auto;
+  grid-template-columns: 180px 220px auto;
 }
 
 .code-input,
@@ -586,14 +583,7 @@ tbody tr:hover {
   .dashboard-header,
   .toolbar {
     align-items: flex-start;
-  }
-
-  .dashboard-header {
     flex-direction: column;
-  }
-
-  .toolbar {
-    grid-template-columns: 1fr;
   }
 
   .brand-heading {
@@ -603,7 +593,7 @@ tbody tr:hover {
   .inline-add-form {
     width: 100%;
     grid-template-columns: 1fr;
-    justify-self: stretch;
+    margin-left: 0;
   }
 
   .inline-add-form:focus-within {
