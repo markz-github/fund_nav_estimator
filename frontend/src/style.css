@@ -214,6 +214,7 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  width: 100%;
   margin-bottom: 18px;
 }
 
@@ -654,43 +655,16 @@ tbody tr {
   padding: 0.66rem 0.9rem;
 }
 
-.table-card a:not(.link-button),
-.note-meta a,
-.document-card a,
-.clickable-link {
-  color: #126249;
-  font-weight: 700;
-  text-decoration: underline;
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 3px;
-}
-
-.table-card a:not(.link-button):hover,
-.note-meta a:hover,
-.document-card a:hover,
-.clickable-link:hover {
-  color: #0d4a38;
-  background: rgba(31, 116, 83, 0.08);
-}
-
-.table-card .summary-note-chips a {
-  color: #315346;
-  text-decoration: none;
-}
-
-.table-card .summary-note-chips a:hover {
-  background: #deebd9;
-}
-
-.page-link,
-.page-actions {
+.page-link {
   margin-top: 18px;
 }
 
 .page-actions {
   display: flex;
   flex-wrap: wrap;
+  flex: 1 1 auto;
   gap: 12px;
+  min-width: 0;
 }
 
 .danger {
