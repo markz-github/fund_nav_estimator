@@ -512,15 +512,6 @@ class InformationVideoFlowTests(unittest.TestCase):
                 enabled=1,
             )
         )
-        self.db.add(
-            InformationVideoSource(
-                platform="bilibili",
-                source_name="手动录入",
-                external_source_id="manual:财经",
-                category="财经",
-                enabled=1,
-            )
-        )
         self.db.commit()
         adapter = Mock()
 
@@ -560,11 +551,15 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(video.category, "科技")
         self.assertEqual(source.platform, "system")
         self.assertEqual(source.external_source_id, "manual")
-        self.assertEqual(source.enabled, 0)
+        self.assertEqual(source.enabled, 1)
         sources = VideoInformationService(self.db).list_sources()
         self.assertEqual(len(sources), 1)
         self.assertEqual(sources[0]["id"], -1)
         self.assertEqual(sources[0]["information_count"], 1)
+        self.assertEqual(VideoInformationService(self.db).list_sources(enabled_only=True), [])
+        source_page = VideoInformationService(self.db).list_sources_page(enabled_only=True)
+        self.assertEqual(source_page["total"], 0)
+        self.assertEqual(source_page["items"], [])
 
     def test_failed_scan_updates_last_scanned_at_to_avoid_immediate_retry_loop(self) -> None:
         service = VideoInformationService(self.db)

@@ -314,7 +314,57 @@ ALTER TABLE information_videos
 UPDATE information_videos v
 JOIN information_video_sources s ON s.id = v.source_id
 SET v.ingest_method = 'manual'
-WHERE s.external_source_id LIKE 'manual:%';
+WHERE s.external_source_id = 'manual'
+   OR s.source_name = '手动录入';
+INSERT INTO information_video_sources (
+    id,
+    platform,
+    source_name,
+    source_url,
+    external_source_id,
+    category,
+    enabled,
+    last_scanned_at,
+    remark,
+    is_deleted
+)
+VALUES (
+    -1,
+    'system',
+    '手动录入',
+    NULL,
+    'manual',
+    '手动录入',
+    1,
+    NULL,
+    '系统内置手动录入来源',
+    0
+)
+ON DUPLICATE KEY UPDATE
+    platform = VALUES(platform),
+    source_name = VALUES(source_name),
+    source_url = VALUES(source_url),
+    external_source_id = VALUES(external_source_id),
+    category = VALUES(category),
+    enabled = VALUES(enabled),
+    remark = VALUES(remark),
+    is_deleted = 0;
+UPDATE information_videos v
+JOIN information_video_sources s ON s.id = v.source_id
+SET
+    v.source_id = -1,
+    v.ingest_method = 'manual'
+WHERE s.external_source_id = 'manual'
+   OR s.source_name = '手动录入';
+UPDATE information_video_sources
+SET
+    enabled = 0,
+    is_deleted = 1
+WHERE id <> -1
+  AND (
+      external_source_id = 'manual'
+      OR source_name = '手动录入'
+  );
 ALTER TABLE information_summary_documents
     ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '汇总限定的信息分类' AFTER summary_date;
 ALTER TABLE information_summary_documents

@@ -182,7 +182,6 @@ def _scannable_source_filter():
     return (
         InformationVideoSource.id != SYSTEM_MANUAL_SOURCE_ID,
         InformationVideoSource.external_source_id != SYSTEM_MANUAL_SOURCE_EXTERNAL_ID,
-        ~InformationVideoSource.external_source_id.like("manual:%"),
     )
 
 
@@ -197,7 +196,10 @@ class VideoInformationService:
             InformationVideoSource.created_at.desc(),
         )
         if enabled_only:
-            statement = statement.where(InformationVideoSource.enabled == 1)
+            statement = statement.where(
+                InformationVideoSource.enabled == 1,
+                InformationVideoSource.id > 0,
+            )
         sources = list(self.db.scalars(statement).all())
         return [self._source_payload(source) for source in sources]
 
@@ -210,7 +212,10 @@ class VideoInformationService:
     ) -> dict[str, object]:
         statement = select(InformationVideoSource)
         if enabled_only:
-            statement = statement.where(InformationVideoSource.enabled == 1)
+            statement = statement.where(
+                InformationVideoSource.enabled == 1,
+                InformationVideoSource.id > 0,
+            )
         total = self.db.scalar(select(func.count()).select_from(statement.subquery())) or 0
         effective_page, effective_page_size, offset = _page_params(page, page_size, limit)
         if total > 0:
@@ -681,7 +686,7 @@ class VideoInformationService:
             source.source_url = None
             source.external_source_id = SYSTEM_MANUAL_SOURCE_EXTERNAL_ID
             source.category = SYSTEM_MANUAL_SOURCE_CATEGORY
-            source.enabled = 0
+            source.enabled = 1
             source.remark = "系统内置手动录入来源"
             return source
         source = InformationVideoSource(
@@ -691,7 +696,7 @@ class VideoInformationService:
             source_url=None,
             external_source_id=SYSTEM_MANUAL_SOURCE_EXTERNAL_ID,
             category=SYSTEM_MANUAL_SOURCE_CATEGORY,
-            enabled=0,
+            enabled=1,
             remark="系统内置手动录入来源",
         )
         self.db.add(source)
