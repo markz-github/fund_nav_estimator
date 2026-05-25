@@ -218,6 +218,15 @@ export async function deleteSummaryTaskConfig(id: number) {
   await apiClient.delete(`/information/summary-task-configs/${id}`)
 }
 
+export async function runSummaryTaskConfigNow(id: number) {
+  const { data } = await apiClient.post<{ status: string; message: string; document: SummaryDocument | null }>(
+    `/information/summary-task-configs/${id}/run-now`,
+    undefined,
+    { timeout: 180000 },
+  )
+  return data
+}
+
 export async function createVideoSource(payload: {
   platform: string
   source_name: string

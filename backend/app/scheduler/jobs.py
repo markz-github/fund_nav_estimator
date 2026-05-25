@@ -16,7 +16,7 @@ from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.market_service import MarketService
 from app.modules.information.services.operation_log_service import log_fetch_error, log_task, task_status_from_counts
-from app.modules.information.services.video_information_service import VideoInformationService
+from app.modules.information.services.video_information_service import VideoInformationService, _normalize_cron_expression
 
 SUMMARY_TASK_CONFIG_JOB_PREFIX = "generate_information_summary_task_config_"
 
@@ -341,7 +341,7 @@ def register_information_summary_task_config_jobs(scheduler: BackgroundScheduler
             scheduler.add_job(
                 generate_information_summary_task_config_job,
                 args=[config.id],
-                trigger=CronTrigger.from_crontab(config.cron_expression),
+                trigger=CronTrigger.from_crontab(_normalize_cron_expression(config.cron_expression)),
                 id=job_id,
                 name=config.task_name,
                 replace_existing=True,

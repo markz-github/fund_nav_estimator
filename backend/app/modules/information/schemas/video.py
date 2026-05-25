@@ -337,6 +337,17 @@ class SummaryDocumentOut(BaseModel):
         return status_label(SUMMARY_DOCUMENT_STATUSES, self.status)
 
 
+class GenerateSummaryTaskConfigNowOut(BaseModel):
+    status: str
+    message: str
+    document: SummaryDocumentOut | None = None
+
+    @computed_field
+    @property
+    def status_label(self) -> str:
+        return status_label(TASK_STATUSES, self.status)
+
+
 class SummaryDocumentPageOut(BaseModel):
     items: list[SummaryDocumentOut]
     total: int

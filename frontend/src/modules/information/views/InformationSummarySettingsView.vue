@@ -7,6 +7,7 @@ import {
   getInformationSettings,
   listInformationCategories,
   listSummaryTaskConfigs,
+  runSummaryTaskConfigNow,
   updateInformationSettings,
   updateSummaryTaskConfig,
   type InformationSettings,
@@ -24,6 +25,7 @@ const editingSummaryTaskId = ref<number | null>(null)
 const summaryTaskDraft = ref(emptySummaryTask())
 const confirmAction = ref<'disable' | 'delete' | null>(null)
 const confirmSummaryTask = ref<SummaryTaskConfig | null>(null)
+const runningConfigId = ref<number | null>(null)
 
 function emptySummaryTask() {
   return {
@@ -253,6 +255,23 @@ async function confirmDangerAction() {
   }
 }
 
+async function runSummaryTaskNow(config: SummaryTaskConfig) {
+  runningConfigId.value = config.id
+  message.value = ''
+  try {
+    const result = await runSummaryTaskConfigNow(config.id)
+    if (result.document) {
+      message.value = `汇总任务“${config.task_name}”已提交，文档 ${result.document.id} 当前状态：${result.document.status_label}。`
+    } else {
+      message.value = `汇总任务“${config.task_name}”本次没有生成文档：${result.message}`
+    }
+  } catch (error) {
+    message.value = apiErrorMessage(error, `执行汇总任务“${config.task_name}”失败。`)
+  } finally {
+    runningConfigId.value = null
+  }
+}
+
 onMounted(loadPage)
 </script>
 
@@ -341,6 +360,9 @@ onMounted(loadPage)
             <td>
               <div class="quick-actions">
                 <button class="ghost" type="button" :disabled="saving" @click="openEditDialog(config)">修改</button>
+                <button class="ghost" type="button" :disabled="saving || runningConfigId === config.id" @click="runSummaryTaskNow(config)">
+                  {{ runningConfigId === config.id ? '执行中...' : '立即执行' }}
+                </button>
                 <button class="ghost" type="button" :disabled="saving" @click="toggleSummaryTaskConfig(config)">{{ config.enabled ? '停用' : '启用' }}</button>
                 <button class="danger" type="button" :disabled="saving" @click="removeSummaryTaskConfig(config)">删除</button>
               </div>

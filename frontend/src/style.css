@@ -1200,6 +1200,19 @@ tbody tr {
   font-family: "Cascadia Code", monospace;
 }
 
+.markdown-math-block {
+  margin: 12px 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid rgba(36, 63, 47, 0.14);
+  border-radius: 8px;
+  background: #fbfcf8;
+}
+
+.markdown-math-block .katex-display {
+  margin: 0;
+}
+
 .markdown-body a {
   color: #1f5f47;
   text-decoration: underline;

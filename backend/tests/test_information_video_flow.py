@@ -16,6 +16,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 import app.models  # noqa: F401
 from app.database import Base
+from app.modules.information.api.videos import run_summary_task_config_now
 from app.modules.information.models.summary_document import InformationSummaryDocumentItem
 from app.modules.information.models.summary_document import InformationSummaryDocument
 from app.modules.information.models.summary_task_config import InformationSummaryTaskConfig
@@ -23,6 +24,7 @@ from app.modules.information.models.task_log import TaskLog
 from app.modules.information.models.video import InformationVideo
 from app.modules.information.models.video_note import InformationVideoNote
 from app.modules.information.models.video_source import InformationVideoSource
+from app.modules.information.schemas.video import SummaryTaskConfigCreate
 from app.modules.information.schemas.video import VideoSourceCreate
 from app.modules.information.services.bilinote_client import BilinoteClient
 from app.modules.information.services.information_settings_service import InformationSettingsService
@@ -1029,6 +1031,60 @@ class InformationVideoFlowTests(unittest.TestCase):
                 "format_markdown": True,
             },
         )
+
+    def test_wechat_push_client_removes_duplicate_leading_title(self) -> None:
+        response = Mock()
+        response.json.return_value = {"ok": True, "sent": 1}
+
+        with patch("app.modules.information.services.wechat_push_client.requests.post", return_value=response) as post:
+            WechatPushClient("http://wechat.local/api/wechat/push").push_summary(
+                title="每日汇总",
+                content="# 每日汇总\n\n## 要点\n- 内容",
+                summary_date="2026-05-19",
+                platform="bilibili",
+                document_id=12,
+            )
+
+        self.assertEqual(
+            post.call_args.kwargs["json"],
+            {
+                "text": "# 每日汇总\n\n## 要点\n- 内容",
+                "format_markdown": True,
+            },
+        )
+
+    def test_summary_task_config_normalizes_standard_numeric_weekday_cron(self) -> None:
+        config = VideoInformationService(self.db).create_summary_task_config(
+            SummaryTaskConfigCreate(
+                task_name="财经周汇总",
+                platform="bilibili",
+                category="财经",
+                start_days_before=7,
+                cron_expression="0 7 * * 1",
+            )
+        )
+
+        self.assertEqual(config.cron_expression, "0 7 * * mon")
+
+    def test_run_summary_task_config_now_logs_skipped_when_no_notes(self) -> None:
+        config = InformationSummaryTaskConfig(
+            task_name="手动立即汇总",
+            platform="bilibili",
+            category="财经",
+            start_days_before=1,
+            enabled=0,
+        )
+        self.db.add(config)
+        self.db.commit()
+
+        result = run_summary_task_config_now(config.id, db=self.db)
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertIsNone(result["document"])
+        task_log = self.db.query(TaskLog).filter_by(task_type="generate_information_summary_task_config").one()
+        self.assertEqual(task_log.target_type, "summary_task_config")
+        self.assertEqual(task_log.target_id, str(config.id))
+        self.assertEqual(task_log.status, "skipped")
 
     def test_list_videos_filters_and_orders_by_published_at_desc(self) -> None:
         first_source = InformationVideoSource(

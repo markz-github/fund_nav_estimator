@@ -19,15 +19,18 @@ if str(BACKEND_DIR) not in sys.path:
 import app.models  # noqa: F401
 from app.database import Base
 from app.modules.information.api.tasks import list_task_logs
+from app.modules.information.models.summary_task_config import InformationSummaryTaskConfig
 from app.modules.information.models.task_log import TaskLog
 from app.modules.information.models.video import InformationVideo
 from app.modules.information.models.video_note import InformationVideoNote
 from app.modules.information.models.video_source import InformationVideoSource
+from app.modules.information.services.video_information_service import VideoInformationService
 from app.scheduler.jobs import (
     create_scheduler,
     generate_information_summary_task_config_job,
     generate_information_video_notes_job,
     poll_information_summary_documents_job,
+    register_information_summary_task_config_jobs,
     scan_information_videos_job,
 )
 
@@ -96,6 +99,29 @@ class SchedulerConfigTests(unittest.TestCase):
                 "poll_information_summary_documents",
             },
         )
+
+    def test_register_summary_config_jobs_uses_standard_numeric_weekday_cron(self) -> None:
+        db = self.SessionLocal()
+        try:
+            service = VideoInformationService(db)
+            service.ensure_default_summary_task_configs()
+            config = db.query(InformationSummaryTaskConfig).filter_by(id=2).one()
+            config.cron_expression = "0 7 * * 1"
+            db.commit()
+        finally:
+            db.close()
+
+        with (
+            patch("app.scheduler.jobs.get_settings", return_value=settings(False, True)),
+            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
+        ):
+            scheduler = create_scheduler()
+            register_information_summary_task_config_jobs(scheduler)
+
+        job = scheduler.get_job("generate_information_summary_task_config_2")
+        next_fire = job.trigger.get_next_fire_time(None, datetime(2026, 5, 25, 6, 50, tzinfo=scheduler.timezone))
+
+        self.assertEqual(next_fire, datetime(2026, 5, 25, 7, 0, tzinfo=scheduler.timezone))
 
     def test_scheduled_video_notes_job_does_not_log_empty_poll_and_submit(self) -> None:
         service = Mock()

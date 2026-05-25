@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import re
 from typing import Any
 
 import requests
@@ -12,6 +13,23 @@ from app.modules.information.services.external_call_logging import sanitize_exte
 
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_title(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().strip("#").strip()).casefold()
+
+
+def _strip_duplicate_heading(content: str, title: str) -> str:
+    title_text = _normalize_title(title)
+    if not title_text:
+        return content
+    match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*(?:\r?\n|$)", content)
+    if not match:
+        return content
+    if _normalize_title(match.group(1)) != title_text:
+        return content
+    return content[match.end():].lstrip()
+
 
 @dataclass(frozen=True)
 class WechatPushResult:
@@ -36,8 +54,9 @@ class WechatPushClient:
     ) -> WechatPushResult:
         if not self.webhook_url:
             raise ValueError("Wechat push webhook URL is not configured")
+        content_text = _strip_duplicate_heading(content, title)
         payload = {
-            "text": f"# {title}\n\n{content}".strip(),
+            "text": f"# {title}\n\n{content_text}".strip(),
             "format_markdown": True,
         }
         logger.info(

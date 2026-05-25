@@ -1,18 +1,7 @@
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-function renderInlineMarkdown(value: string) {
-  return escapeHtml(value)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-}
+import MarkdownIt from 'markdown-it'
+import katex from 'katex'
+import type StateBlock from 'markdown-it/lib/rules_block/state_block.mjs'
+import type StateInline from 'markdown-it/lib/rules_inline/state_inline.mjs'
 
 export interface MarkdownHeading {
   id: string
@@ -28,129 +17,122 @@ function plainInlineText(value: string) {
     .trim()
 }
 
-function listDepth(indent: string) {
-  const spaces = indent.replace(/\t/g, '    ').length
-  if (spaces >= 4) return Math.floor(spaces / 4) + 1
-  if (spaces >= 2) return 2
-  return 1
+function renderMath(value: string, displayMode: boolean) {
+  return katex.renderToString(value, {
+    displayMode,
+    throwOnError: false,
+    strict: false,
+    trust: false,
+  })
 }
 
-function isTableSeparator(value: string) {
-  const cells = splitTableRow(value)
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))
+function markdownMathPlugin(md: MarkdownIt) {
+  md.block.ruler.before('fence', 'math_block', (state: StateBlock, startLine: number, endLine: number, silent: boolean) => {
+    const start = state.bMarks[startLine] + state.tShift[startLine]
+    const max = state.eMarks[startLine]
+    const firstLine = state.src.slice(start, max).trim()
+
+    if (!firstLine.startsWith('$$')) return false
+
+    const singleLine = firstLine.match(/^\$\$(.+)\$\$$/)
+    if (singleLine) {
+      if (silent) return true
+      const token = state.push('math_block', 'math', 0)
+      token.block = true
+      token.content = singleLine[1].trim()
+      token.map = [startLine, startLine + 1]
+      state.line = startLine + 1
+      return true
+    }
+
+    if (firstLine !== '$$') return false
+
+    let nextLine = startLine + 1
+    const contentLines: string[] = []
+    while (nextLine < endLine) {
+      const lineStart = state.bMarks[nextLine] + state.tShift[nextLine]
+      const lineMax = state.eMarks[nextLine]
+      const line = state.src.slice(lineStart, lineMax)
+      if (line.trim() === '$$') break
+      contentLines.push(line)
+      nextLine += 1
+    }
+
+    if (nextLine >= endLine) return false
+    if (silent) return true
+
+    const token = state.push('math_block', 'math', 0)
+    token.block = true
+    token.content = contentLines.join('\n').trim()
+    token.map = [startLine, nextLine + 1]
+    state.line = nextLine + 1
+    return true
+  })
+
+  md.inline.ruler.after('escape', 'math_inline', (state: StateInline, silent: boolean) => {
+    if (state.src.charCodeAt(state.pos) !== 0x24) return false
+    if (state.src.charCodeAt(state.pos + 1) === 0x24) return false
+
+    const end = state.src.indexOf('$', state.pos + 1)
+    if (end < 0) return false
+
+    const content = state.src.slice(state.pos + 1, end).trim()
+    if (!content) return false
+    if (silent) return true
+
+    const token = state.push('math_inline', 'math', 0)
+    token.content = content
+    state.pos = end + 1
+    return true
+  })
 }
 
-function splitTableRow(value: string) {
-  const trimmed = value.trim()
-  if (!trimmed.includes('|')) return []
-  const normalized = trimmed.replace(/^\|/, '').replace(/\|$/, '')
-  return normalized.split('|').map((cell) => cell.trim())
+const md = new MarkdownIt({
+  html: false,
+  linkify: true,
+  breaks: false,
+})
+
+markdownMathPlugin(md)
+
+md.renderer.rules.heading_open = (tokens, index, options, env, self) => {
+  const token = tokens[index]
+  const level = Number(token.tag.replace('h', ''))
+  if (level >= 1 && level <= 4) {
+    env.headingIndex = (env.headingIndex || 0) + 1
+    token.attrSet('id', `heading-${env.headingIndex}`)
+  }
+  return self.renderToken(tokens, index, options)
+}
+
+md.renderer.rules.link_open = (tokens, index, options, env, self) => {
+  const token = tokens[index]
+  const href = token.attrGet('href') || ''
+  if (/^https?:\/\//i.test(href)) {
+    token.attrSet('target', '_blank')
+    token.attrSet('rel', 'noreferrer')
+  }
+  return self.renderToken(tokens, index, options)
+}
+
+md.renderer.rules.table_open = (tokens, index, options, env, self) => {
+  return `<div class="markdown-table-wrap">${self.renderToken(tokens, index, options)}`
+}
+
+md.renderer.rules.table_close = (tokens, index, options, env, self) => {
+  return `${self.renderToken(tokens, index, options)}</div>`
+}
+
+md.renderer.rules.math_block = (tokens, index) => {
+  return `<div class="markdown-math-block">${renderMath(tokens[index].content, true)}</div>`
+}
+
+md.renderer.rules.math_inline = (tokens, index) => {
+  return renderMath(tokens[index].content, false)
 }
 
 export function renderMarkdown(value: string) {
-  const lines = value.split(/\r?\n/)
-  const html: string[] = []
-  const listStack: { type: 'ul' | 'ol' }[] = []
-  let headingIndex = 0
-
-  function closeLists(targetDepth = 0) {
-    while (listStack.length > targetDepth) {
-      const list = listStack.pop()
-      html.push(`</${list?.type}>`)
-    }
-  }
-
-  function syncList(type: 'ul' | 'ol', depth: number, start?: number) {
-    while (listStack.length > depth) {
-      const closedList = listStack.pop()
-      html.push(`</${closedList?.type}>`)
-    }
-    if (listStack.length === depth && listStack[depth - 1]?.type !== type) {
-      const closedList = listStack.pop()
-      if (closedList) html.push(`</${closedList.type}>`)
-    }
-    while (listStack.length < depth) {
-      const startAttr = type === 'ol' && start && start > 1 ? ` start="${start}"` : ''
-      html.push(`<${type}${startAttr}>`)
-      listStack.push({ type })
-    }
-  }
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]
-    const trimmed = line.trim()
-    if (!trimmed) {
-      closeLists()
-      continue
-    }
-    const tableHeaders = splitTableRow(line)
-    if (tableHeaders.length > 0 && lines[index + 1] && isTableSeparator(lines[index + 1])) {
-      closeLists()
-      index += 2
-      const rows: string[][] = []
-      while (index < lines.length) {
-        const row = splitTableRow(lines[index])
-        if (row.length === 0) {
-          index -= 1
-          break
-        }
-        rows.push(row)
-        index += 1
-      }
-      if (index >= lines.length) index -= 1
-      html.push('<div class="markdown-table-wrap"><table><thead><tr>')
-      for (const header of tableHeaders) {
-        html.push(`<th>${renderInlineMarkdown(header)}</th>`)
-      }
-      html.push('</tr></thead><tbody>')
-      for (const row of rows) {
-        html.push('<tr>')
-        for (let cellIndex = 0; cellIndex < tableHeaders.length; cellIndex += 1) {
-          html.push(`<td>${renderInlineMarkdown(row[cellIndex] ?? '')}</td>`)
-        }
-        html.push('</tr>')
-      }
-      html.push('</tbody></table></div>')
-      continue
-    }
-    if (/^---+$/.test(trimmed)) {
-      closeLists()
-      html.push('<hr>')
-      continue
-    }
-    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/)
-    if (heading) {
-      closeLists()
-      const level = heading[1].length
-      headingIndex += 1
-      html.push(`<h${level} id="heading-${headingIndex}">${renderInlineMarkdown(heading[2])}</h${level}>`)
-      continue
-    }
-    const listItem = line.match(/^(\s*)[-*]\s+(.+)$/)
-    if (listItem) {
-      const depth = listDepth(listItem[1])
-      syncList('ul', depth)
-      html.push(`<li>${renderInlineMarkdown(listItem[2])}</li>`)
-      continue
-    }
-    const orderedListItem = line.match(/^(\s*)(\d+)[.)]\s+(.+)$/)
-    if (orderedListItem) {
-      const depth = listDepth(orderedListItem[1])
-      syncList('ol', depth, Number(orderedListItem[2]))
-      html.push(`<li>${renderInlineMarkdown(orderedListItem[3])}</li>`)
-      continue
-    }
-    const quote = trimmed.match(/^>\s?(.+)$/)
-    if (quote) {
-      closeLists()
-      html.push(`<blockquote>${renderInlineMarkdown(quote[1])}</blockquote>`)
-      continue
-    }
-    closeLists()
-    html.push(`<p>${renderInlineMarkdown(trimmed)}</p>`)
-  }
-  closeLists()
-  return html.join('')
+  return md.render(value, { headingIndex: 0 })
 }
 
 export function extractMarkdownHeadings(value: string): MarkdownHeading[] {

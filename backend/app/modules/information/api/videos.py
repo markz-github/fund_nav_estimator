@@ -8,8 +8,10 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.modules.information.models.summary_task_config import InformationSummaryTaskConfig
 from app.modules.information.schemas.video import (
     ActionResult,
+    GenerateSummaryTaskConfigNowOut,
     GenerateSummaryFromNotesRequest,
     InformationCategoriesOut,
     GenerateVideoNotesRequest,
@@ -106,6 +108,36 @@ def delete_summary_task_config(config_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="summary task config not found")
     refresh_summary_task_config_jobs()
     return {"deleted": True}
+
+
+@router.post("/summary-task-configs/{config_id}/run-now", response_model=GenerateSummaryTaskConfigNowOut)
+def run_summary_task_config_now(config_id: int, db: Session = Depends(get_db)):
+    config = db.get(InformationSummaryTaskConfig, config_id)
+    if config is None:
+        raise HTTPException(status_code=404, detail="summary task config not found")
+    task_log = start_task(
+        db,
+        "手动执行信息流配置汇总",
+        "generate_information_summary_task_config",
+        datetime.now(),
+        str(config_id),
+        target_type="summary_task_config",
+        target_id=str(config_id),
+    )
+    try:
+        document = VideoInformationService(db).run_summary_task_config(config_id, require_enabled=False)
+    except Exception as exc:
+        log_fetch_error(db, "hermes", "summary_task_config", str(config_id), repr(exc))
+        finish_task(db, task_log, "failed", repr(exc))
+        raise
+    if document is None:
+        message = f"summary_task_config_id={config_id};no completed notes to summarize"
+        finish_task(db, task_log, "skipped", message)
+        return {"status": "skipped", "message": message, "document": None}
+    status = "success" if document.status in {"done", "running"} else "failed"
+    message = f"summary_task_config_id={config_id};document_id={document.id};status={document.status}"
+    finish_task(db, task_log, status, message)
+    return {"status": status, "message": message, "document": VideoInformationService(db).get_summary_document(document.id)}
 
 
 def _video_note_task_status(result: dict[str, int | str | None]) -> str:
