@@ -19,6 +19,8 @@ const rawResponse = ref<string | null>(null)
 const rawViewMode = ref<'text' | 'json'>('text')
 const repolling = ref(false)
 const regenerating = ref(false)
+const confirmDialogOpen = ref(false)
+const confirmAction = ref<'regenerate' | 'repoll' | null>(null)
 
 const noteId = computed(() => Number(route.params.noteId))
 const formattedRawResponse = computed(() => {
@@ -29,6 +31,12 @@ const formattedRawResponse = computed(() => {
   } catch {
     return rawResponse.value
   }
+})
+const confirmTitle = computed(() => (confirmAction.value === 'repoll' ? '重新轮询' : '重新生成'))
+const confirmCopy = computed(() => {
+  if (!note.value) return ''
+  if (confirmAction.value === 'repoll') return `确认按原任务 ID 重新轮询笔记 ${note.value.id} 吗？`
+  return `确认重新生成笔记 ${note.value.id} 吗？旧正文和任务 ID 会被清空。`
 })
 
 async function loadNote() {
@@ -99,6 +107,26 @@ async function regenerateCurrentNote() {
   }
 }
 
+function openConfirmDialog(action: 'regenerate' | 'repoll') {
+  confirmAction.value = action
+  confirmDialogOpen.value = true
+}
+
+function closeConfirmDialog() {
+  if (repolling.value || regenerating.value) return
+  confirmDialogOpen.value = false
+  confirmAction.value = null
+}
+
+async function confirmOperation() {
+  if (confirmAction.value === 'regenerate') {
+    await regenerateCurrentNote()
+  } else if (confirmAction.value === 'repoll') {
+    await repollCurrentNote()
+  }
+  closeConfirmDialog()
+}
+
 function goBack() {
   if (window.history.state?.back) {
     router.back()
@@ -135,7 +163,7 @@ watch(noteId, loadNote)
           class="ghost"
           type="button"
           :disabled="regenerating"
-          @click="regenerateCurrentNote"
+          @click="openConfirmDialog('regenerate')"
         >
           {{ regenerating ? '生成中...' : '重新生成' }}
         </button>
@@ -144,7 +172,7 @@ watch(noteId, loadNote)
           class="ghost"
           type="button"
           :disabled="repolling"
-          @click="repollCurrentNote"
+          @click="openConfirmDialog('repoll')"
         >
           {{ repolling ? '轮询中...' : '重新轮询' }}
         </button>
@@ -185,5 +213,18 @@ watch(noteId, loadNote)
     </section>
 
     <p v-else-if="!loading" class="message">暂无笔记详情。</p>
+
+    <div v-if="confirmDialogOpen" class="modal-backdrop" @click.self="closeConfirmDialog">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="note-detail-confirm-title">
+        <h2 id="note-detail-confirm-title">{{ confirmTitle }}</h2>
+        <p class="dialog-copy">{{ confirmCopy }}</p>
+        <div class="dialog-actions">
+          <button class="ghost" type="button" :disabled="repolling || regenerating" @click="closeConfirmDialog">取消</button>
+          <button type="button" :disabled="repolling || regenerating" @click="confirmOperation">
+            {{ repolling || regenerating ? '处理中...' : '确认' }}
+          </button>
+        </div>
+      </section>
+    </div>
   </main>
 </template>

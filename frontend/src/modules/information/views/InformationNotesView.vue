@@ -44,6 +44,9 @@ const defaultSummaryInstruction = ref('')
 const summaryDialogOpen = ref(false)
 const repollingNoteId = ref<number | null>(null)
 const regeneratingNoteId = ref<number | null>(null)
+const confirmDialogOpen = ref(false)
+const confirmAction = ref<'regenerate' | 'repoll' | null>(null)
+const confirmNote = ref<VideoNote | null>(null)
 
 const sortedNotes = computed(() => {
   const items = [...notes.value]
@@ -66,6 +69,12 @@ const allSelectableNotesSelected = computed(
     selectableNotes.value.length > 0 &&
     selectableNotes.value.every((note) => selectedNoteIds.value.includes(note.id)),
 )
+const confirmTitle = computed(() => (confirmAction.value === 'repoll' ? '重新轮询' : '重新生成'))
+const confirmCopy = computed(() => {
+  if (!confirmNote.value) return ''
+  if (confirmAction.value === 'repoll') return `确认按原任务 ID 重新轮询笔记 ${confirmNote.value.id} 吗？`
+  return `确认重新生成笔记 ${confirmNote.value.id} 吗？旧正文和任务 ID 会被清空。`
+})
 
 async function loadNotes() {
   loading.value = true
@@ -291,6 +300,29 @@ async function regenerateNote(note: VideoNote) {
   }
 }
 
+function openConfirmDialog(action: 'regenerate' | 'repoll', note: VideoNote) {
+  confirmAction.value = action
+  confirmNote.value = note
+  confirmDialogOpen.value = true
+}
+
+function closeConfirmDialog() {
+  if (repollingNoteId.value !== null || regeneratingNoteId.value !== null) return
+  confirmDialogOpen.value = false
+  confirmAction.value = null
+  confirmNote.value = null
+}
+
+async function confirmOperation() {
+  if (!confirmNote.value) return
+  if (confirmAction.value === 'regenerate') {
+    await regenerateNote(confirmNote.value)
+  } else if (confirmAction.value === 'repoll') {
+    await repollFailedNote(confirmNote.value)
+  }
+  closeConfirmDialog()
+}
+
 onMounted(() => {
   applyQueryFilters()
   loadStatusOptions()
@@ -448,7 +480,7 @@ watch(
                   class="link-button"
                   type="button"
                   :disabled="regeneratingNoteId === note.id"
-                  @click="regenerateNote(note)"
+                  @click="openConfirmDialog('regenerate', note)"
                 >
                   {{ regeneratingNoteId === note.id ? '生成中...' : '重新生成' }}
                 </button>
@@ -457,7 +489,7 @@ watch(
                   class="link-button"
                   type="button"
                   :disabled="repollingNoteId === note.id"
-                  @click="repollFailedNote(note)"
+                  @click="openConfirmDialog('repoll', note)"
                 >
                   {{ repollingNoteId === note.id ? '轮询中...' : '重新轮询' }}
                 </button>
@@ -491,6 +523,19 @@ watch(
           <button class="ghost" type="button" :disabled="generatingSummary" @click="closeCustomSummaryDialog">取消</button>
           <button type="button" :disabled="generatingSummary" @click="runCustomSummary">
             {{ generatingSummary ? '提交中...' : '提交汇总' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="confirmDialogOpen" class="modal-backdrop" @click.self="closeConfirmDialog">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="note-confirm-title">
+        <h2 id="note-confirm-title">{{ confirmTitle }}</h2>
+        <p class="dialog-copy">{{ confirmCopy }}</p>
+        <div class="dialog-actions">
+          <button class="ghost" type="button" :disabled="repollingNoteId !== null || regeneratingNoteId !== null" @click="closeConfirmDialog">取消</button>
+          <button type="button" :disabled="repollingNoteId !== null || regeneratingNoteId !== null" @click="confirmOperation">
+            {{ repollingNoteId !== null || regeneratingNoteId !== null ? '处理中...' : '确认' }}
           </button>
         </div>
       </section>

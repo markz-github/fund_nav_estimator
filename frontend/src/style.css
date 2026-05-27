@@ -337,7 +337,7 @@ table {
 }
 
 .notes-table {
-  min-width: 0;
+  min-width: 1120px;
 }
 
 .operations-table {
@@ -462,7 +462,19 @@ table {
 }
 
 .notes-table .col-actions {
-  width: 82px;
+  width: 210px;
+}
+
+.notes-table td:last-child {
+  white-space: nowrap;
+}
+
+.notes-table td:last-child .link-button {
+  white-space: nowrap;
+}
+
+.notes-table td:last-child .link-button + .link-button {
+  margin-left: 6px;
 }
 
 th,

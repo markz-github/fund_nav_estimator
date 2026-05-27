@@ -39,6 +39,9 @@ const selectedVideoIds = ref<number[]>([])
 const retryingVideoId = ref<number | null>(null)
 const manualLinkDialogOpen = ref(false)
 const savingManualLink = ref(false)
+const confirmDialogOpen = ref(false)
+const confirmAction = ref<'markFailed' | 'retry' | null>(null)
+const confirmVideo = ref<InformationVideo | null>(null)
 const manualLinkDraft = ref({
   url: '',
   category: '',
@@ -76,6 +79,16 @@ const sortedVideos = computed(() => {
     return leftValue.localeCompare(rightValue, 'zh-Hans-CN') * direction
   })
   return items
+})
+const confirmTitle = computed(() => {
+  if (confirmAction.value === 'markFailed') return '置为失败'
+  if (confirmAction.value === 'retry') return '重试笔记'
+  return '确认操作'
+})
+const confirmCopy = computed(() => {
+  if (confirmAction.value === 'markFailed') return `确认将选中的 ${selectedVideoIds.value.length} 条内容置为失败吗？`
+  if (confirmAction.value === 'retry' && confirmVideo.value) return `确认重新生成内容 ${confirmVideo.value.id} 的笔记吗？`
+  return ''
 })
 
 function dateInputValue(date: Date) {
@@ -218,6 +231,28 @@ async function retryFailedVideo(video: InformationVideo) {
   }
 }
 
+function openConfirmDialog(action: 'markFailed' | 'retry', video?: InformationVideo) {
+  confirmAction.value = action
+  confirmVideo.value = video || null
+  confirmDialogOpen.value = true
+}
+
+function closeConfirmDialog() {
+  if (runningAction.value || retryingVideoId.value !== null) return
+  confirmDialogOpen.value = false
+  confirmAction.value = null
+  confirmVideo.value = null
+}
+
+async function confirmOperation() {
+  if (confirmAction.value === 'markFailed') {
+    await runAction('markFailed')
+  } else if (confirmAction.value === 'retry' && confirmVideo.value) {
+    await retryFailedVideo(confirmVideo.value)
+  }
+  closeConfirmDialog()
+}
+
 function openManualLinkDialog() {
   manualLinkDraft.value = {
     url: '',
@@ -357,7 +392,7 @@ watch(
         <button class="ghost" :disabled="runningAction === 'notes'" @click="runAction('notes')">
           {{ runningAction === 'notes' ? '生成中...' : selectedVideoIds.length ? `生成选中 ${selectedVideoIds.length} 条笔记` : '生成待处理笔记' }}
         </button>
-        <button class="danger" :disabled="runningAction === 'markFailed' || selectedVideoIds.length === 0" @click="runAction('markFailed')">
+        <button class="danger" :disabled="runningAction === 'markFailed' || selectedVideoIds.length === 0" @click="openConfirmDialog('markFailed')">
           {{ runningAction === 'markFailed' ? '处理中...' : selectedVideoIds.length ? `置为失败 ${selectedVideoIds.length} 条` : '置为失败' }}
         </button>
       </div>
@@ -510,7 +545,7 @@ watch(
                 class="link-button"
                 type="button"
                 :disabled="retryingVideoId === video.id"
-                @click="retryFailedVideo(video)"
+                @click="openConfirmDialog('retry', video)"
               >
                 {{ retryingVideoId === video.id ? '重试中...' : '重试' }}
               </button>
@@ -547,6 +582,24 @@ watch(
             <button type="submit" :disabled="savingManualLink">{{ savingManualLink ? '添加中...' : '添加' }}</button>
           </div>
         </form>
+      </section>
+    </div>
+
+    <div v-if="confirmDialogOpen" class="modal-backdrop" @click.self="closeConfirmDialog">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="information-video-confirm-title">
+        <h2 id="information-video-confirm-title">{{ confirmTitle }}</h2>
+        <p class="dialog-copy">{{ confirmCopy }}</p>
+        <div class="dialog-actions">
+          <button class="ghost" type="button" :disabled="Boolean(runningAction) || retryingVideoId !== null" @click="closeConfirmDialog">取消</button>
+          <button
+            type="button"
+            :class="{ danger: confirmAction === 'markFailed' }"
+            :disabled="Boolean(runningAction) || retryingVideoId !== null"
+            @click="confirmOperation"
+          >
+            {{ runningAction || retryingVideoId !== null ? '处理中...' : '确认' }}
+          </button>
+        </div>
       </section>
     </div>
   </main>
