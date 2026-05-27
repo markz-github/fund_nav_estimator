@@ -570,6 +570,34 @@ def repoll_video_note(note_id: int, db: Session = Depends(get_db)):
     return ActionResult(status="success", message=message, count=1)
 
 
+@router.post("/video-notes/{note_id}/regenerate", response_model=ActionResult)
+def regenerate_video_note(note_id: int, db: Session = Depends(get_db)):
+    task_log = start_task(
+        db,
+        "手动重新生成信息源笔记",
+        "regenerate_information_video_note",
+        datetime.now(),
+        str(note_id),
+        target_type="note",
+        target_id=str(note_id),
+    )
+    try:
+        regenerated = VideoInformationService(db).regenerate_video_note(note_id)
+    except ValueError as exc:
+        finish_task(db, task_log, "failed", str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        log_fetch_error(db, "internal", "video_note", str(note_id), repr(exc))
+        finish_task(db, task_log, "failed", repr(exc))
+        raise
+    if not regenerated:
+        finish_task(db, task_log, "failed", "video note not found")
+        raise HTTPException(status_code=404, detail="video note not found")
+    message = f"note_id={note_id};status=pending"
+    finish_task(db, task_log, "success", message)
+    return ActionResult(status="success", message=message, count=1)
+
+
 @router.post("/actions/generate-summary-from-notes", response_model=SummaryDocumentOut)
 def generate_summary_from_notes(
     payload: GenerateSummaryFromNotesRequest,

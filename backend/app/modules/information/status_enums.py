@@ -60,6 +60,7 @@ INFORMATION_TASK_TYPES = (
     StatusOption("mark_information_video_notes_failed", "标记信息源笔记失败"),
     StatusOption("retry_information_video_note", "重试信息源笔记"),
     StatusOption("repoll_information_video_note", "重新轮询信息源笔记"),
+    StatusOption("regenerate_information_video_note", "重新生成信息源笔记"),
     StatusOption("generate_information_summary_task_config", "生成配置汇总"),
     StatusOption("generate_information_custom_summary", "生成自定义视频笔记汇总"),
     StatusOption("retry_information_summary_document", "重试信息流汇总文档"),

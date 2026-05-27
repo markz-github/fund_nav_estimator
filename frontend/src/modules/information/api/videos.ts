@@ -425,6 +425,13 @@ export async function repollVideoNote(noteId: number) {
   return data
 }
 
+export async function regenerateVideoNote(noteId: number) {
+  const { data } = await apiClient.post<{ status: string; message: string; count: number }>(
+    `/information/video-notes/${noteId}/regenerate`,
+  )
+  return data
+}
+
 export async function generateSummaryFromNotes(noteIds: number[], title?: string, summaryInstruction?: string) {
   const { data } = await apiClient.post<SummaryDocument>(
     '/information/actions/generate-summary-from-notes',

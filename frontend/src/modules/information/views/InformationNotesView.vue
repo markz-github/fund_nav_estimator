@@ -9,6 +9,7 @@ import {
   getInformationStatusOptions,
   listVideoNotesPage,
   listVideoSources,
+  regenerateVideoNote,
   repollVideoNote,
   type StatusOption,
   type VideoNote,
@@ -42,6 +43,7 @@ const customSummaryInstruction = ref('')
 const defaultSummaryInstruction = ref('')
 const summaryDialogOpen = ref(false)
 const repollingNoteId = ref<number | null>(null)
+const regeneratingNoteId = ref<number | null>(null)
 
 const sortedNotes = computed(() => {
   const items = [...notes.value]
@@ -275,6 +277,20 @@ async function repollFailedNote(note: VideoNote) {
   }
 }
 
+async function regenerateNote(note: VideoNote) {
+  regeneratingNoteId.value = note.id
+  try {
+    await regenerateVideoNote(note.id)
+    message.value = `已将笔记 ${note.id} 重新加入生成流程。`
+    selectedNoteIds.value = selectedNoteIds.value.filter((id) => id !== note.id)
+    await loadNotes()
+  } catch (error) {
+    message.value = apiErrorMessage(error, '重新生成失败，请确认该笔记已完成或已失败。')
+  } finally {
+    regeneratingNoteId.value = null
+  }
+}
+
 onMounted(() => {
   applyQueryFilters()
   loadStatusOptions()
@@ -426,16 +442,26 @@ watch(
             </td>
             <td>{{ formatDateTime(note.generated_at) }}</td>
             <td>
-              <RouterLink v-if="note.status === 'done'" class="link-button" :to="`/information/notes/${note.id}`">查看</RouterLink>
-              <button
-                v-else-if="note.status === 'failed' && note.external_task_id"
-                class="link-button"
-                type="button"
-                :disabled="repollingNoteId === note.id"
-                @click="repollFailedNote(note)"
-              >
-                {{ repollingNoteId === note.id ? '轮询中...' : '重新轮询' }}
-              </button>
+              <template v-if="note.status === 'done' || note.status === 'failed'">
+                <RouterLink v-if="note.status === 'done'" class="link-button" :to="`/information/notes/${note.id}`">查看</RouterLink>
+                <button
+                  class="link-button"
+                  type="button"
+                  :disabled="regeneratingNoteId === note.id"
+                  @click="regenerateNote(note)"
+                >
+                  {{ regeneratingNoteId === note.id ? '生成中...' : '重新生成' }}
+                </button>
+                <button
+                  v-if="note.status === 'failed' && note.external_task_id"
+                  class="link-button"
+                  type="button"
+                  :disabled="repollingNoteId === note.id"
+                  @click="repollFailedNote(note)"
+                >
+                  {{ repollingNoteId === note.id ? '轮询中...' : '重新轮询' }}
+                </button>
+              </template>
               <span v-else class="muted">-</span>
             </td>
           </tr>

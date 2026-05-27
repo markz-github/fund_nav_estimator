@@ -890,6 +890,57 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(note.status, "failed")
         self.assertEqual(note.error_message, "Bilinote 外部失败")
 
+    def test_poll_running_notes_marks_bilinote_exception_markdown_as_failed(self) -> None:
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-embedded-error",
+            title="异常正文视频",
+            video_url="https://www.bilibili.com/video/BV-embedded-error",
+            status="note_running",
+        )
+        self.db.add(video)
+        self.db.commit()
+        note = InformationVideoNote(
+            video_id=video.id,
+            provider="bilinote",
+            external_task_id="task-embedded-error",
+            status="running",
+        )
+        self.db.add(note)
+        self.db.commit()
+        client = Mock()
+        client.poll_task_once.return_value = Mock(
+            task_id="task-embedded-error",
+            status="done",
+            note_text="> 来源链接：https://www.bilibili.com/video/BV-embedded-error\n\n'NoneType' object is not iterable",
+            raw_response={"status": "SUCCESS", "result": {"markdown": "'NoneType' object is not iterable"}},
+            error_message=None,
+        )
+
+        with patch(
+            "app.modules.information.services.video_information_service.BilinoteClient",
+            return_value=client,
+        ):
+            result = VideoInformationService(self.db).poll_running_notes(video_ids=[video.id])
+
+        self.assertEqual(result["failed"], 1)
+        self.assertIn("NoneType", str(result["error_message"]))
+        self.db.refresh(video)
+        self.db.refresh(note)
+        self.assertEqual(video.status, "note_failed")
+        self.assertEqual(note.status, "failed")
+        self.assertIsNone(note.note_text)
+        self.assertIn("NoneType", note.error_message or "")
+
     def test_poll_running_notes_skips_video_already_marked_failed(self) -> None:
         source = InformationVideoSource(
             platform="bilibili",
@@ -1041,6 +1092,51 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(video.status, "note_done")
         self.assertEqual(note.status, "done")
         self.assertEqual(note.note_text, "补回的正文")
+
+    def test_regenerate_done_note_resets_existing_note_to_pending(self) -> None:
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-regenerate",
+            title="重新生成视频",
+            video_url="https://www.bilibili.com/video/BV-regenerate",
+            status="note_done",
+        )
+        self.db.add(video)
+        self.db.commit()
+        note = InformationVideoNote(
+            video_id=video.id,
+            provider="bilinote",
+            external_task_id="task-old",
+            status="done",
+            note_text="旧正文",
+            error_message=None,
+            raw_response='{"status": "SUCCESS"}',
+            generated_at=datetime(2026, 5, 27, 12, 0, 0),
+        )
+        self.db.add(note)
+        self.db.commit()
+
+        service = VideoInformationService(self.db)
+        self.assertTrue(service.regenerate_video_note(note.id))
+
+        self.db.refresh(video)
+        self.db.refresh(note)
+        self.assertEqual(video.status, "note_pending")
+        self.assertEqual(note.status, "pending")
+        self.assertIsNone(note.external_task_id)
+        self.assertIsNone(note.note_text)
+        self.assertIsNone(note.error_message)
+        self.assertIsNone(note.raw_response)
+        self.assertIsNone(note.generated_at)
 
     def test_bilinote_client_normalizes_escaped_ordered_list_markers(self) -> None:
         response = Mock()

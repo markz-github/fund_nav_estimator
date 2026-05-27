@@ -1011,6 +1011,26 @@ class VideoInformationService:
         self.db.commit()
         return True
 
+    def regenerate_video_note(self, note_id: int) -> bool:
+        note = self.db.get(InformationVideoNote, note_id)
+        if note is None:
+            return False
+        if note.status in {"pending", "running"}:
+            raise ValueError("Only completed or failed notes can be regenerated")
+
+        video = self.db.get(InformationVideo, note.video_id)
+        if video is None:
+            return False
+        video.status = "note_pending"
+        note.status = "pending"
+        note.external_task_id = None
+        note.note_text = None
+        note.error_message = None
+        note.raw_response = None
+        note.generated_at = None
+        self.db.commit()
+        return True
+
     def poll_running_notes(self, video_ids: list[int] | None = None) -> dict[str, int | str | None]:
         settings = InformationSettingsService(self.db).get_settings()
         bilinote_client = BilinoteClient(settings["bilinote_base_url"])
@@ -1086,6 +1106,11 @@ class VideoInformationService:
                     note_text = bilinote_result.note_text
                     error_message = bilinote_result.error_message
                     raw_response = bilinote_result.raw_response
+                    embedded_error = self._bilinote_embedded_error(note_text)
+                    if embedded_error:
+                        poll_status = "failed"
+                        note_text = None
+                        error_message = embedded_error
                 if video is not None:
                     self.db.refresh(video)
                 self.db.refresh(note)
@@ -1979,6 +2004,20 @@ class VideoInformationService:
         if not existing:
             return error_message
         return f"{existing};{error_message}"
+
+    @staticmethod
+    def _bilinote_embedded_error(note_text: str | None) -> str | None:
+        if not note_text:
+            return None
+        content_lines = [
+            line.strip()
+            for line in note_text.splitlines()
+            if line.strip() and not line.strip().startswith("> 来源链接")
+        ]
+        content = "\n".join(content_lines).strip()
+        if content in {"'NoneType' object is not iterable", "NoneType object is not iterable"}:
+            return f"Bilinote returned exception text as markdown: {content}"
+        return None
 
     @staticmethod
     def _parse_keywords(raw_value: str | None) -> list[str]:

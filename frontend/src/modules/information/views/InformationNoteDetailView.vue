@@ -4,7 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { formatDateTime } from '../../../utils/datetime'
 import MarkdownContent from '../components/MarkdownContent.vue'
-import { getVideoNote, getVideoNoteRawResponse, repollVideoNote, type VideoNoteDetail } from '../api/videos'
+import { getVideoNote, getVideoNoteRawResponse, regenerateVideoNote, repollVideoNote, type VideoNoteDetail } from '../api/videos'
 import { formatDurationSeconds } from '../utils/duration'
 
 const route = useRoute()
@@ -18,6 +18,7 @@ const rawMessage = ref('')
 const rawResponse = ref<string | null>(null)
 const rawViewMode = ref<'text' | 'json'>('text')
 const repolling = ref(false)
+const regenerating = ref(false)
 
 const noteId = computed(() => Number(route.params.noteId))
 const formattedRawResponse = computed(() => {
@@ -83,6 +84,21 @@ async function repollCurrentNote() {
   }
 }
 
+async function regenerateCurrentNote() {
+  if (!note.value) return
+  regenerating.value = true
+  message.value = ''
+  try {
+    await regenerateVideoNote(note.value.id)
+    message.value = `已将笔记 ${note.value.id} 重新加入生成流程。`
+    await loadNote()
+  } catch (error) {
+    message.value = apiErrorMessage(error, '重新生成失败，请确认该笔记已完成或已失败。')
+  } finally {
+    regenerating.value = false
+  }
+}
+
 function goBack() {
   if (window.history.state?.back) {
     router.back()
@@ -114,6 +130,15 @@ watch(noteId, loadNote)
         </p>
       </div>
       <div class="section-actions">
+        <button
+          v-if="note.status === 'done' || note.status === 'failed'"
+          class="ghost"
+          type="button"
+          :disabled="regenerating"
+          @click="regenerateCurrentNote"
+        >
+          {{ regenerating ? '生成中...' : '重新生成' }}
+        </button>
         <button
           v-if="note.status === 'failed' && note.external_task_id"
           class="ghost"
