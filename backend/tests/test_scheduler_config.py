@@ -317,7 +317,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
     def test_scheduled_scan_job_does_not_log_when_no_video_created(self) -> None:
         service = Mock()
-        service.scan_next_source.return_value = {"source_id": 3, "created": 0}
+        service.scan_enabled_sources.return_value = {"source_count": 3, "created": 0}
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
@@ -329,8 +329,8 @@ class SchedulerConfigTests(unittest.TestCase):
 
     def test_scheduled_scan_job_logs_error_message_when_scan_fails(self) -> None:
         service = Mock()
-        service.scan_next_source.return_value = {
-            "source_id": 3,
+        service.scan_enabled_sources.return_value = {
+            "source_count": 3,
             "created": 0,
             "error_message": "source_id=3;error=RuntimeError('Bilibili API returned code=-400')",
         }

@@ -232,14 +232,14 @@ def estimate_fund_navs_job() -> None:
 
 def scan_information_videos_job() -> None:
     def handler(db: Session) -> tuple[str, str]:
-        result = VideoInformationService(db).scan_next_source()
-        if result["source_id"] is None:
+        result = VideoInformationService(db).scan_enabled_sources()
+        if result["source_count"] == 0:
             return "skipped", "no enabled video source"
         if result.get("error_message"):
             return "failed", str(result["error_message"])
         if result["created"] == 0:
-            return "skipped", f"source_id={result['source_id']};created=0"
-        return "success", f"source_id={result['source_id']};created={result['created']}"
+            return "skipped", f"source_count={result['source_count']};created=0"
+        return "success", f"source_count={result['source_count']};created={result['created']}"
 
     _run_task("扫描信息流视频", "scan_information_videos", handler, persist_skipped=False)
 

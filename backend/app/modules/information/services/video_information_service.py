@@ -591,21 +591,24 @@ class VideoInformationService:
         logger.info("video scan finished source_id=%s source_ids=%s limit=%s created=%s", source_id, source_ids, limit, created)
         return created
 
-    def scan_next_source(self, limit: int = 20) -> dict[str, int | str | None]:
-        source = self.db.scalar(
-            select(InformationVideoSource)
-            .where(InformationVideoSource.enabled == 1)
-            .where(*_scannable_source_filter())
-            .order_by(InformationVideoSource.last_scanned_at.is_not(None), InformationVideoSource.last_scanned_at.asc())
-        )
-        if source is None:
+    def scan_enabled_sources(self, limit: int = 20) -> dict[str, int | str]:
+        source_count = self.db.scalar(
+            select(func.count(InformationVideoSource.id)).where(
+                InformationVideoSource.enabled == 1,
+                *_scannable_source_filter(),
+            )
+        ) or 0
+        if source_count == 0:
             logger.info("scheduled video scan skipped no enabled source")
-            return {"source_id": None, "created": 0}
-        created = self.scan_sources(source_id=source.id, limit=limit)
-        result: dict[str, int | str | None] = {"source_id": source.id, "created": created}
+            return {"source_count": 0, "created": 0}
+        created = self.scan_sources(limit=limit)
+        result: dict[str, int | str] = {"source_count": source_count, "created": created}
         if self.last_scan_errors:
             result["error_message"] = ";".join(self.last_scan_errors)
         return result
+
+    def scan_next_source(self, limit: int = 20) -> dict[str, int | str]:
+        return self.scan_enabled_sources(limit=limit)
 
     def add_manual_link(self, payload: ManualLinkCreate) -> InformationVideo:
         link = payload.url.strip()

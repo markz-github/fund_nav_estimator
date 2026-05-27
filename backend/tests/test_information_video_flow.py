@@ -459,7 +459,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(adapter.fetch_latest_videos.call_args.args[0].id, second_source.id)
         self.assertNotEqual(adapter.fetch_latest_videos.call_args.args[0].id, first_source.id)
 
-    def test_scan_next_source_scans_only_one_oldest_enabled_source(self) -> None:
+    def test_scan_enabled_sources_scans_all_enabled_sources(self) -> None:
         service = VideoInformationService(self.db)
         first_source = service.create_source(
             VideoSourceCreate(
@@ -480,29 +480,35 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.commit()
         adapter = Mock()
         adapter.normalize_source_id.side_effect = lambda value: value
-        adapter.fetch_latest_videos.return_value = [
-            VideoSnapshot(
-                platform="bilibili",
-                external_video_id="BV-next",
-                title="轮询账号视频",
-                video_url="https://www.bilibili.com/video/BV-next",
-                author_name="账号二",
-                published_at=datetime(2026, 5, 18, 10, 0, 0),
-                raw_response={"bvid": "BV-next"},
-            )
-        ]
+        scanned_source_ids = []
+
+        def fetch_latest_videos(source, **kwargs):
+            scanned_source_ids.append(source.id)
+            return [
+                VideoSnapshot(
+                    platform="bilibili",
+                    external_video_id=f"BV-source-{source.id}",
+                    title=f"{source.source_name}视频",
+                    video_url=f"https://www.bilibili.com/video/BV-source-{source.id}",
+                    author_name=source.source_name,
+                    published_at=datetime(2026, 5, 18, 10, 0, 0),
+                    raw_response={"bvid": f"BV-source-{source.id}"},
+                )
+            ]
+
+        adapter.fetch_latest_videos.side_effect = fetch_latest_videos
 
         with patch(
             "app.modules.information.services.video_information_service.get_video_source_adapter",
             return_value=adapter,
         ):
-            result = service.scan_next_source()
+            result = service.scan_enabled_sources()
 
-        self.assertEqual(result, {"source_id": second_source.id, "created": 1})
-        adapter.fetch_latest_videos.assert_called_once()
-        self.assertEqual(adapter.fetch_latest_videos.call_args.args[0].id, second_source.id)
+        self.assertEqual(result, {"source_count": 2, "created": 2})
+        self.assertEqual(adapter.fetch_latest_videos.call_count, 2)
+        self.assertEqual(set(scanned_source_ids), {first_source.id, second_source.id})
 
-    def test_scan_next_source_skips_manual_virtual_source(self) -> None:
+    def test_scan_enabled_sources_skips_manual_virtual_source(self) -> None:
         self.db.add(
             InformationVideoSource(
                 id=-1,
@@ -520,9 +526,9 @@ class InformationVideoFlowTests(unittest.TestCase):
             "app.modules.information.services.video_information_service.get_video_source_adapter",
             return_value=adapter,
         ):
-            result = VideoInformationService(self.db).scan_next_source()
+            result = VideoInformationService(self.db).scan_enabled_sources()
 
-        self.assertEqual(result, {"source_id": None, "created": 0})
+        self.assertEqual(result, {"source_count": 0, "created": 0})
         adapter.fetch_latest_videos.assert_not_called()
 
     def test_manual_link_uses_single_builtin_source(self) -> None:
