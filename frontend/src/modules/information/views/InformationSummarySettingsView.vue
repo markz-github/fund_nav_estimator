@@ -23,7 +23,7 @@ const message = ref('')
 const dialogMode = ref<'add' | 'edit' | null>(null)
 const editingSummaryTaskId = ref<number | null>(null)
 const summaryTaskDraft = ref(emptySummaryTask())
-const confirmAction = ref<'disable' | 'delete' | null>(null)
+const confirmAction = ref<'disable' | 'delete' | 'run' | null>(null)
 const confirmSummaryTask = ref<SummaryTaskConfig | null>(null)
 const runningConfigId = ref<number | null>(null)
 
@@ -82,11 +82,16 @@ const summaryTaskDialogOpen = computed(() => dialogMode.value !== null)
 const summaryTaskDialogTitle = computed(() => (dialogMode.value === 'edit' ? '修改汇总任务' : '添加汇总任务'))
 const summaryTaskSample = computed(() => renderSummaryTitleSample(summaryTaskDraft.value))
 const confirmDialogOpen = computed(() => confirmAction.value !== null && confirmSummaryTask.value !== null)
-const confirmDialogTitle = computed(() => (confirmAction.value === 'delete' ? '删除汇总任务' : '停用汇总任务'))
+const confirmDialogTitle = computed(() => {
+  if (confirmAction.value === 'delete') return '删除汇总任务'
+  if (confirmAction.value === 'run') return '立即执行汇总'
+  return '停用汇总任务'
+})
 const confirmDialogText = computed(() => {
   const task = confirmSummaryTask.value
   if (!task) return ''
   if (confirmAction.value === 'delete') return `确认删除汇总任务“${task.task_name}”吗？删除后不会再按该配置生成新汇总。`
+  if (confirmAction.value === 'run') return `确认立即执行汇总任务“${task.task_name}”吗？确认后会提交一篇新的汇总文档。`
   return `确认停用汇总任务“${task.task_name}”吗？停用后定时汇总将不再执行。`
 })
 
@@ -218,7 +223,7 @@ async function removeSummaryTaskConfig(config: SummaryTaskConfig) {
   openConfirmDialog('delete', config)
 }
 
-function openConfirmDialog(action: 'disable' | 'delete', config: SummaryTaskConfig) {
+function openConfirmDialog(action: 'disable' | 'delete' | 'run', config: SummaryTaskConfig) {
   confirmAction.value = action
   confirmSummaryTask.value = config
 }
@@ -240,6 +245,12 @@ async function confirmDangerAction() {
     if (action === 'delete') {
       await deleteSummaryTaskConfig(config.id)
       successMessage = `汇总任务“${config.task_name}”已删除。`
+    } else if (action === 'run') {
+      runningConfigId.value = config.id
+      const result = await runSummaryTaskConfigNow(config.id)
+      successMessage = result.document
+        ? `汇总任务“${config.task_name}”已提交，文档 ${result.document.id} 当前状态：${result.document.status_label}。`
+        : `汇总任务“${config.task_name}”本次没有生成文档：${result.message}`
     } else {
       await updateSummaryTaskConfig(config.id, { enabled: 0 })
       successMessage = `汇总任务“${config.task_name}”已停用。`
@@ -249,27 +260,16 @@ async function confirmDangerAction() {
     await loadPage()
     message.value = successMessage
   } catch (error) {
-    message.value = apiErrorMessage(error, action === 'delete' ? '删除汇总任务失败。' : '停用汇总任务失败。')
+    const fallback = action === 'delete' ? '删除汇总任务失败。' : action === 'run' ? `执行汇总任务“${config.task_name}”失败。` : '停用汇总任务失败。'
+    message.value = apiErrorMessage(error, fallback)
   } finally {
     saving.value = false
+    if (action === 'run') runningConfigId.value = null
   }
 }
 
 async function runSummaryTaskNow(config: SummaryTaskConfig) {
-  runningConfigId.value = config.id
-  message.value = ''
-  try {
-    const result = await runSummaryTaskConfigNow(config.id)
-    if (result.document) {
-      message.value = `汇总任务“${config.task_name}”已提交，文档 ${result.document.id} 当前状态：${result.document.status_label}。`
-    } else {
-      message.value = `汇总任务“${config.task_name}”本次没有生成文档：${result.message}`
-    }
-  } catch (error) {
-    message.value = apiErrorMessage(error, `执行汇总任务“${config.task_name}”失败。`)
-  } finally {
-    runningConfigId.value = null
-  }
+  openConfirmDialog('run', config)
 }
 
 onMounted(loadPage)
@@ -412,7 +412,7 @@ onMounted(loadPage)
         <p class="dialog-copy">{{ confirmDialogText }}</p>
         <div class="dialog-actions">
           <button class="ghost" type="button" :disabled="saving" @click="closeConfirmDialog">取消</button>
-          <button class="danger" type="button" :disabled="saving" @click="confirmDangerAction">
+          <button :class="{ danger: confirmAction !== 'run' }" type="button" :disabled="saving" @click="confirmDangerAction">
             {{ saving ? '处理中...' : '确认' }}
           </button>
         </div>

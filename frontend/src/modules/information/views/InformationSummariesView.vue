@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { formatDateTime } from '../../../utils/datetime'
 import {
+  deleteSummaryDocument,
   listInformationCategories,
   listSummaryDocumentsPage,
   listSummaryTaskConfigs,
@@ -21,8 +22,10 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
 const retryingDocumentId = ref<number | null>(null)
+const deletingDocumentId = ref<number | null>(null)
 const message = ref('')
 const notesDialogDocumentId = ref<number | null>(null)
+const deleteDialogDocumentId = ref<number | null>(null)
 const selectedSummaryTaskConfigId = ref('')
 const selectedCategory = ref('')
 const summaryTaskConfigs = ref<SummaryTaskConfig[]>([])
@@ -30,6 +33,7 @@ const categories = ref<string[]>(['财经'])
 const MANUAL_SUMMARY_FILTER = 'manual'
 const totalPages = computed(() => Math.max(1, Math.ceil(totalDocuments.value / pageSize.value)))
 const notesDialogDocument = computed(() => documents.value.find((item) => item.id === notesDialogDocumentId.value) ?? null)
+const deleteDialogDocument = computed(() => documents.value.find((item) => item.id === deleteDialogDocumentId.value) ?? null)
 
 function summaryTaskLabel(document: SummaryDocument) {
   return document.summary_task_name || '手动汇总'
@@ -128,6 +132,32 @@ function openNotesDialog(documentId: number) {
 
 function closeNotesDialog() {
   notesDialogDocumentId.value = null
+}
+
+function openDeleteDialog(documentId: number) {
+  deleteDialogDocumentId.value = documentId
+}
+
+function closeDeleteDialog() {
+  if (deletingDocumentId.value !== null) return
+  deleteDialogDocumentId.value = null
+}
+
+async function confirmDeleteDocument() {
+  const document = deleteDialogDocument.value
+  if (!document) return
+  deletingDocumentId.value = document.id
+  message.value = ''
+  try {
+    await deleteSummaryDocument(document.id)
+    deleteDialogDocumentId.value = null
+    message.value = `汇总“${document.title}”已删除。`
+    await loadDocuments({ keepMessage: true })
+  } catch (error) {
+    message.value = apiErrorMessage(error, '删除汇总失败。')
+  } finally {
+    deletingDocumentId.value = null
+  }
 }
 
 onMounted(() => {
@@ -244,6 +274,14 @@ watch(
                 >
                   {{ retryingDocumentId === document.id ? '重试中...' : '重试' }}
                 </button>
+                <button
+                  class="danger"
+                  type="button"
+                  :disabled="deletingDocumentId === document.id"
+                  @click="openDeleteDialog(document.id)"
+                >
+                  {{ deletingDocumentId === document.id ? '删除中...' : '删除' }}
+                </button>
               </div>
             </td>
           </tr>
@@ -277,6 +315,19 @@ watch(
           </li>
         </ul>
         <p v-else class="message">暂无关联笔记。</p>
+      </section>
+    </div>
+
+    <div v-if="deleteDialogDocument" class="modal-backdrop" @click.self="closeDeleteDialog">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-summary-title">
+        <h2 id="delete-summary-title">删除笔记汇总</h2>
+        <p class="dialog-copy">确认删除汇总“{{ deleteDialogDocument.title }}”吗？删除后列表和详情页将不再显示该文档。</p>
+        <div class="dialog-actions">
+          <button class="ghost" type="button" :disabled="deletingDocumentId !== null" @click="closeDeleteDialog">取消</button>
+          <button class="danger" type="button" :disabled="deletingDocumentId !== null" @click="confirmDeleteDocument">
+            {{ deletingDocumentId !== null ? '删除中...' : '删除' }}
+          </button>
+        </div>
       </section>
     </div>
   </main>

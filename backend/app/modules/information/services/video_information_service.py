@@ -1252,48 +1252,23 @@ class VideoInformationService:
         summary_instruction: str | None = None,
     ) -> InformationSummaryDocument | None:
         normalized_category = normalize_category(category)
-        existing = self.db.scalar(
-            select(InformationSummaryDocument)
-            .where(
-                InformationSummaryDocument.platform == platform,
-                InformationSummaryDocument.summary_date == summary_date,
-                InformationSummaryDocument.category == normalized_category,
-                InformationSummaryDocument.summary_task_config_id == summary_task_config_id,
-            )
-            .execution_options(include_deleted=True)
-        )
-        if existing is not None:
-            existing.is_deleted = 0
-        if existing and existing.status in {"done", "running"}:
-            return existing
-
+        note_filters = [
+            InformationVideo.platform == platform,
+            InformationVideo.category == normalized_category,
+            InformationVideoNote.status == "done",
+            InformationVideoNote.note_text.is_not(None),
+            func.coalesce(InformationVideo.published_at, InformationVideo.created_at) >= start_at,
+            func.coalesce(InformationVideo.published_at, InformationVideo.created_at) <= end_at,
+        ]
         notes = self.db.scalars(
             select(InformationVideoNote)
             .join(InformationVideo, InformationVideo.id == InformationVideoNote.video_id)
-            .where(
-                InformationVideo.platform == platform,
-                InformationVideo.category == normalized_category,
-                InformationVideoNote.status == "done",
-                InformationVideoNote.note_text.is_not(None),
-                func.coalesce(InformationVideo.published_at, InformationVideo.created_at) >= start_at,
-                func.coalesce(InformationVideo.published_at, InformationVideo.created_at) <= end_at,
-                ~InformationVideoNote.id.in_(
-                    select(InformationSummaryDocumentItem.note_id)
-                    .join(InformationSummaryDocument, InformationSummaryDocument.id == InformationSummaryDocumentItem.document_id)
-                    .where(
-                        InformationSummaryDocument.platform == platform,
-                        InformationSummaryDocument.summary_date == summary_date,
-                        InformationSummaryDocument.category == normalized_category,
-                        InformationSummaryDocument.summary_task_config_id == summary_task_config_id,
-                        InformationSummaryDocument.status == "done",
-                    )
-                ),
-            )
+            .where(*note_filters)
         ).all()
         if not notes:
-            return existing
+            return None
 
-        document = existing or InformationSummaryDocument(
+        document = InformationSummaryDocument(
             platform=platform,
             summary_date=summary_date,
             category=normalized_category,
@@ -1301,9 +1276,7 @@ class VideoInformationService:
             title=title or self._summary_title(platform, summary_date, period_end, normalized_category),
             status="pending",
         )
-        if summary_task_config_id is not None:
-            document.summary_task_config_id = summary_task_config_id
-        if title and document.status not in {"done", "running"}:
+        if title:
             document.title = title[:200]
         settings = InformationSettingsService(self.db).get_settings()
         prompt = self._build_summary_prompt(
@@ -1407,6 +1380,14 @@ class VideoInformationService:
             category=document.category,
         )
         return self._submit_summary_document(document, notes, prompt)
+
+    def delete_summary_document(self, document_id: int) -> bool:
+        document = self.db.scalar(select(InformationSummaryDocument).where(InformationSummaryDocument.id == document_id))
+        if document is None:
+            return False
+        self.db.delete(document)
+        self.db.commit()
+        return True
 
     def poll_running_summary_documents(self) -> dict[str, int]:
         settings = InformationSettingsService(self.db).get_settings()
@@ -1912,7 +1893,7 @@ class VideoInformationService:
         }
 
     def get_summary_document(self, document_id: int) -> dict[str, object] | None:
-        document = self.db.get(InformationSummaryDocument, document_id)
+        document = self.db.scalar(select(InformationSummaryDocument).where(InformationSummaryDocument.id == document_id))
         if document is None:
             return None
         return self._summary_document_payload(document)

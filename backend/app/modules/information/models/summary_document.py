@@ -13,14 +13,6 @@ from app.database import Base
 class InformationSummaryDocument(Base):
     __tablename__ = "information_summary_documents"
     __table_args__ = (
-        Index(
-            "uk_information_summary_documents_platform_date_category_task",
-            "platform",
-            "summary_date",
-            "category",
-            "summary_task_config_id",
-            unique=True,
-        ),
         Index("idx_information_summary_documents_status", "status"),
         Index("idx_information_summary_documents_date_category", "summary_date", "category"),
         Index("idx_information_summary_documents_task_config", "summary_task_config_id"),

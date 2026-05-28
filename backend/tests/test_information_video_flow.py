@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from requests import exceptions as requests_exceptions
 from sqlalchemy import create_engine
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -1390,6 +1391,88 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(task_log.target_id, str(config.id))
         self.assertEqual(task_log.status, "skipped")
 
+    def test_run_summary_task_config_creates_new_document_when_existing_summary_exists(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "hermes_base_url": "http://hermes.local",
+                "hermes_run_path": "/api/runs",
+                "hermes_status_path_template": "/api/runs/{run_id}",
+            }
+        )
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="财经账号",
+            external_source_id="12345",
+            category="财经",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        published_at = datetime.combine(date.today() - timedelta(days=1), datetime.min.time())
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-run-now-new",
+            title="立即执行新汇总",
+            video_url="https://www.bilibili.com/video/BV-run-now-new",
+            category="财经",
+            published_at=published_at,
+            status="note_done",
+        )
+        self.db.add(video)
+        self.db.commit()
+        note = InformationVideoNote(
+            video_id=video.id,
+            provider="bilinote",
+            status="done",
+            note_text="已经汇总过的笔记也允许立即执行重新生成。",
+            generated_at=datetime.now(),
+        )
+        self.db.add(note)
+        self.db.commit()
+        config = InformationSummaryTaskConfig(
+            task_name="立即执行任务",
+            platform="bilibili",
+            category="财经",
+            start_days_before=1,
+            title_template="{start_date:%Y-%m-%d} {platform} {category}汇总",
+            enabled=1,
+        )
+        self.db.add(config)
+        self.db.commit()
+        existing_document = InformationSummaryDocument(
+            platform="bilibili",
+            summary_date=date.today() - timedelta(days=1),
+            category="财经",
+            summary_task_config_id=config.id,
+            title="已有汇总",
+            status="done",
+            document_text="已有正文",
+            generated_at=datetime.now(),
+        )
+        self.db.add(existing_document)
+        self.db.commit()
+        self.db.add(InformationSummaryDocumentItem(document_id=existing_document.id, note_id=note.id))
+        self.db.commit()
+        hermes = Mock()
+        hermes.start_run.return_value = HermesRunResult(
+            run_id="run-now-new-document",
+            status="running",
+            document_text=None,
+            raw_response={"id": "run-now-new-document"},
+        )
+
+        with patch(
+            "app.modules.information.services.video_information_service.HermesClient",
+            return_value=hermes,
+        ):
+            document = VideoInformationService(self.db).run_summary_task_config(config.id)
+
+        self.assertIsNotNone(document)
+        self.assertNotEqual(document.id, existing_document.id)
+        self.assertEqual(self.db.query(InformationSummaryDocument).count(), 2)
+        self.assertEqual(hermes.start_run.call_count, 1)
+
     def test_list_videos_filters_and_orders_by_published_at_desc(self) -> None:
         first_source = InformationVideoSource(
             platform="bilibili",
@@ -2085,6 +2168,32 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         self.assertEqual(payload["summary_task_config_id"], config.id)
         self.assertEqual(payload["summary_task_name"], "模板任务")
+
+    def test_delete_summary_document_soft_deletes_document(self) -> None:
+        document = InformationSummaryDocument(
+            platform="bilibili",
+            summary_date=date.today(),
+            category="财经",
+            title="待删除汇总",
+            status="done",
+            document_text="删除测试",
+            generated_at=datetime.now(),
+        )
+        self.db.add(document)
+        self.db.commit()
+
+        deleted = VideoInformationService(self.db).delete_summary_document(document.id)
+
+        self.assertTrue(deleted)
+        self.assertIsNone(VideoInformationService(self.db).get_summary_document(document.id))
+        self.assertEqual(VideoInformationService(self.db).list_summary_documents(), [])
+        deleted_document = self.db.scalar(
+            select(InformationSummaryDocument)
+            .where(InformationSummaryDocument.id == document.id)
+            .execution_options(include_deleted=True)
+        )
+        self.assertIsNotNone(deleted_document)
+        self.assertEqual(deleted_document.is_deleted, 1)
 
     def test_custom_summary_uses_selected_done_notes(self) -> None:
         InformationSettingsService(self.db).update_settings(

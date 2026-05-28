@@ -419,6 +419,14 @@ def get_summary_document(document_id: int, db: Session = Depends(get_db)):
     return document
 
 
+@router.delete("/summary-documents/{document_id}")
+def delete_summary_document(document_id: int, db: Session = Depends(get_db)):
+    deleted = VideoInformationService(db).delete_summary_document(document_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="summary document not found")
+    return {"deleted": True}
+
+
 @router.post("/actions/scan-videos", response_model=ActionResult)
 def scan_videos(
     source_id: int | None = None,

@@ -293,9 +293,9 @@ CREATE TABLE information_summary_documents (
     error_message TEXT NULL COMMENT '错误信息',
     raw_response LONGTEXT NULL COMMENT 'Hermes 原始响应',
     generated_at DATETIME NULL COMMENT '生成时间',
+    is_deleted INT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_information_summary_documents_platform_date_category_task (platform, summary_date, category, summary_task_config_id),
     INDEX idx_information_summary_documents_status (status),
     INDEX idx_information_summary_documents_date_category (summary_date, category),
     INDEX idx_information_summary_documents_task_config (summary_task_config_id)
@@ -371,7 +371,6 @@ ALTER TABLE information_summary_documents
     ADD COLUMN summary_task_config_id BIGINT NULL COMMENT '来源汇总任务配置 ID；为空表示手动汇总' AFTER category;
 ALTER TABLE information_summary_documents
     DROP INDEX uk_information_summary_documents_platform_type_date,
-    ADD UNIQUE KEY uk_information_summary_documents_platform_date_category_task (platform, summary_date, category, summary_task_config_id),
     DROP INDEX idx_information_summary_documents_type_date,
     ADD INDEX idx_information_summary_documents_date_category (summary_date, category),
     ADD INDEX idx_information_summary_documents_task_config (summary_task_config_id);
@@ -381,13 +380,19 @@ ALTER TABLE information_summary_documents
 
 ```sql
 ALTER TABLE information_summary_documents
-    DROP INDEX uk_information_summary_documents_platform_type_date_category,
-    ADD UNIQUE KEY uk_information_summary_documents_platform_date_category_task (platform, summary_date, category, summary_task_config_id);
+    DROP INDEX uk_information_summary_documents_platform_type_date_category;
 
 ALTER TABLE information_summary_documents
     DROP INDEX idx_information_summary_documents_type_date_category,
     ADD INDEX idx_information_summary_documents_date_category (summary_date, category),
     DROP COLUMN summary_type;
+```
+
+如果数据库中已经存在配置汇总唯一索引，应删除该唯一索引，允许同一汇总任务多次执行时生成多篇文档：
+
+```sql
+ALTER TABLE information_summary_documents
+    DROP INDEX uk_information_summary_documents_platform_date_category_task;
 ```
 
 ## information_summary_document_items

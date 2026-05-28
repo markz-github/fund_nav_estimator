@@ -382,6 +382,10 @@ export async function getSummaryDocument(documentId: number) {
   return data
 }
 
+export async function deleteSummaryDocument(documentId: number) {
+  await apiClient.delete(`/information/summary-documents/${documentId}`)
+}
+
 export async function scanVideos(sourceIds?: number[]) {
   const { data } = await apiClient.post<{ status: string; message: string; count: number }>(
     '/information/actions/scan-videos',
