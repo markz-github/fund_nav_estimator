@@ -1273,11 +1273,15 @@ class VideoInformationService:
             summary_date=summary_date,
             category=normalized_category,
             summary_task_config_id=summary_task_config_id,
-            title=title or self._summary_title(platform, summary_date, period_end, normalized_category),
+            title=self._next_summary_document_title(
+                title or self._summary_title(platform, summary_date, period_end, normalized_category),
+                platform=platform,
+                summary_date=summary_date,
+                category=normalized_category,
+                summary_task_config_id=summary_task_config_id,
+            ),
             status="pending",
         )
-        if title:
-            document.title = title[:200]
         settings = InformationSettingsService(self.db).get_settings()
         prompt = self._build_summary_prompt(
             platform,
@@ -2103,6 +2107,31 @@ class VideoInformationService:
             end_date = period_end or summary_date + timedelta(days=6)
             return f"{summary_date.isoformat()} 至 {end_date.isoformat()} {platform} {category_text}汇总"
         return f"{summary_date.isoformat()} {platform} {category_text}汇总"
+
+    def _next_summary_document_title(
+        self,
+        base_title: str,
+        *,
+        platform: str,
+        summary_date: date,
+        category: str,
+        summary_task_config_id: int | None,
+    ) -> str:
+        existing_count = self.db.scalar(
+            select(func.count(InformationSummaryDocument.id))
+            .where(
+                InformationSummaryDocument.platform == platform,
+                InformationSummaryDocument.summary_date == summary_date,
+                InformationSummaryDocument.category == normalize_category(category),
+                InformationSummaryDocument.summary_task_config_id == summary_task_config_id,
+            )
+            .execution_options(include_deleted=True)
+        ) or 0
+        title = base_title.strip()
+        if existing_count <= 0:
+            return title[:200]
+        suffix = f"（第{existing_count + 1}次）"
+        return f"{title[:200 - len(suffix)]}{suffix}"
 
     @staticmethod
     def _render_summary_title_template(

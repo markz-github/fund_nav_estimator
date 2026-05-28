@@ -1470,6 +1470,7 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         self.assertIsNotNone(document)
         self.assertNotEqual(document.id, existing_document.id)
+        self.assertEqual(document.title, f"{date.today() - timedelta(days=1):%Y-%m-%d} bilibili 财经汇总（第2次）")
         self.assertEqual(self.db.query(InformationSummaryDocument).count(), 2)
         self.assertEqual(hermes.start_run.call_count, 1)
 
