@@ -380,6 +380,61 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(failed_note.external_task_id, "new-run")
         self.assertIsNone(failed_note.error_message)
 
+    def test_poll_running_notes_marks_hermes_timeout_text_as_failed(self) -> None:
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        article = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="article-hermes-timeout",
+            title="异常图文",
+            video_url="https://www.bilibili.com/opus/article-hermes-timeout",
+            content_type="article",
+            status="note_running",
+        )
+        self.db.add(article)
+        self.db.commit()
+        note = InformationVideoNote(
+            video_id=article.id,
+            provider="hermes",
+            external_task_id="run-hermes-timeout",
+            status="running",
+        )
+        self.db.add(note)
+        self.db.commit()
+        error_text = (
+            "API call failed after 3 retries: Non-streaming API call timed out after 90s "
+            "with no response (threshold: 90s). Codex backend appears to be silently "
+            "rejecting 'gpt-5.5' on chatgpt.com/backend-api/codex."
+        )
+        hermes = Mock()
+        hermes.poll_run_once.return_value = HermesRunResult(
+            run_id="run-hermes-timeout",
+            status="done",
+            document_text=error_text,
+            raw_response={"id": "run-hermes-timeout", "result": error_text},
+        )
+
+        with patch(
+            "app.modules.information.services.video_information_service.HermesClient",
+            return_value=hermes,
+        ):
+            result = VideoInformationService(self.db).poll_running_notes(video_ids=[article.id])
+
+        self.assertEqual(result["failed"], 1)
+        self.db.refresh(article)
+        self.db.refresh(note)
+        self.assertEqual(article.status, "note_failed")
+        self.assertEqual(note.status, "failed")
+        self.assertIsNone(note.note_text)
+        self.assertIn("API call failed after 3 retries", note.error_message or "")
+
     def test_article_note_submit_applies_keyword_filter_before_hermes(self) -> None:
         service = VideoInformationService(self.db)
         InformationSettingsService(self.db).update_settings({"article_filter_keywords": "过滤词"})
@@ -940,6 +995,62 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(note.status, "failed")
         self.assertIsNone(note.note_text)
         self.assertIn("NoneType", note.error_message or "")
+
+    def test_poll_running_notes_marks_bilinote_timeout_text_as_failed(self) -> None:
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-timeout-error",
+            title="超时异常正文视频",
+            video_url="https://www.bilibili.com/video/BV-timeout-error",
+            status="note_running",
+        )
+        self.db.add(video)
+        self.db.commit()
+        note = InformationVideoNote(
+            video_id=video.id,
+            provider="bilinote",
+            external_task_id="task-timeout-error",
+            status="running",
+        )
+        self.db.add(note)
+        self.db.commit()
+        error_text = (
+            "> 来源链接：https://www.bilibili.com/video/BV-timeout-error\n\n"
+            "API call failed after 3 retries: Non-streaming API call timed out after 90s "
+            "with no response (threshold: 90s). Codex backend appears to be silently "
+            "rejecting 'gpt-5.5' on chatgpt.com/backend-api/codex."
+        )
+        client = Mock()
+        client.poll_task_once.return_value = Mock(
+            task_id="task-timeout-error",
+            status="done",
+            note_text=error_text,
+            raw_response={"status": "SUCCESS", "result": {"markdown": error_text}},
+            error_message=None,
+        )
+
+        with patch(
+            "app.modules.information.services.video_information_service.BilinoteClient",
+            return_value=client,
+        ):
+            result = VideoInformationService(self.db).poll_running_notes(video_ids=[video.id])
+
+        self.assertEqual(result["failed"], 1)
+        self.db.refresh(video)
+        self.db.refresh(note)
+        self.assertEqual(video.status, "note_failed")
+        self.assertEqual(note.status, "failed")
+        self.assertIsNone(note.note_text)
+        self.assertIn("API call failed after 3 retries", note.error_message or "")
 
     def test_poll_running_notes_skips_video_already_marked_failed(self) -> None:
         source = InformationVideoSource(
@@ -2248,6 +2359,41 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(document.status, "done")
         self.assertEqual(document.document_text, "轮询得到的汇总文档")
         self.assertEqual(video.status, "note_done")
+
+    def test_poll_running_summary_documents_marks_timeout_text_as_failed(self) -> None:
+        document = InformationSummaryDocument(
+            platform="bilibili",
+            summary_date=date.today(),
+            title="异常汇总",
+            status="running",
+            hermes_run_id="run-summary-timeout",
+        )
+        self.db.add(document)
+        self.db.commit()
+        error_text = (
+            "API call failed after 3 retries: Non-streaming API call timed out after 90s "
+            "with no response (threshold: 90s). Codex backend appears to be silently "
+            "rejecting 'gpt-5.5' on chatgpt.com/backend-api/codex."
+        )
+        hermes = Mock()
+        hermes.poll_run_once.return_value = HermesRunResult(
+            run_id="run-summary-timeout",
+            status="done",
+            document_text=error_text,
+            raw_response={"id": "run-summary-timeout", "result": error_text},
+        )
+
+        with patch(
+            "app.modules.information.services.video_information_service.HermesClient",
+            return_value=hermes,
+        ):
+            result = VideoInformationService(self.db).poll_running_summary_documents()
+
+        self.assertEqual(result["failed"], 1)
+        self.db.refresh(document)
+        self.assertEqual(document.status, "failed")
+        self.assertIsNone(document.document_text)
+        self.assertIn("API call failed after 3 retries", document.error_message or "")
 
     def test_completed_configured_summary_pushes_to_wechat_immediately(self) -> None:
         InformationSettingsService(self.db).update_settings(

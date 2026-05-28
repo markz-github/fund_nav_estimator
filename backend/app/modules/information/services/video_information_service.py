@@ -1106,11 +1106,11 @@ class VideoInformationService:
                     note_text = bilinote_result.note_text
                     error_message = bilinote_result.error_message
                     raw_response = bilinote_result.raw_response
-                    embedded_error = self._bilinote_embedded_error(note_text)
-                    if embedded_error:
-                        poll_status = "failed"
-                        note_text = None
-                        error_message = embedded_error
+                embedded_error = self._embedded_generation_error(note.provider, note_text)
+                if embedded_error:
+                    poll_status = "failed"
+                    note_text = None
+                    error_message = embedded_error
                 if video is not None:
                     self.db.refresh(video)
                 self.db.refresh(note)
@@ -1454,8 +1454,17 @@ class VideoInformationService:
             try:
                 poll_result = client.poll_run_once(document.hermes_run_id)
                 document.raw_response = compact_json(poll_result.raw_response)
-                if poll_result.status == "done" and poll_result.document_text:
-                    document.document_text = poll_result.document_text
+                document_text = poll_result.document_text
+                embedded_error = self._embedded_generation_error("hermes", document_text)
+                if embedded_error:
+                    document_text = None
+                    poll_status = "failed"
+                    error_message = embedded_error
+                else:
+                    poll_status = poll_result.status
+                    error_message = "Hermes summary generation failed"
+                if poll_status == "done" and document_text:
+                    document.document_text = document_text
                     document.status = "done"
                     document.error_message = None
                     document.generated_at = now
@@ -1469,9 +1478,9 @@ class VideoInformationService:
                         log_fetch_error(self.db, "wechat_push", "summary_document", str(document.id), repr(exc))
                         self.db.commit()
                     continue
-                elif poll_result.status == "failed":
+                elif poll_status == "failed":
                     document.status = "failed"
-                    document.error_message = "Hermes summary generation failed"
+                    document.error_message = error_message
                     result["failed"] += 1
                 else:
                     document.status = "running"
@@ -2006,7 +2015,7 @@ class VideoInformationService:
         return f"{existing};{error_message}"
 
     @staticmethod
-    def _bilinote_embedded_error(note_text: str | None) -> str | None:
+    def _embedded_generation_error(provider: str, note_text: str | None) -> str | None:
         if not note_text:
             return None
         content_lines = [
@@ -2016,7 +2025,14 @@ class VideoInformationService:
         ]
         content = "\n".join(content_lines).strip()
         if content in {"'NoneType' object is not iterable", "NoneType object is not iterable"}:
-            return f"Bilinote returned exception text as markdown: {content}"
+            return f"{provider} returned exception text as markdown: {content}"
+        lower_content = content.lower()
+        if (
+            "api call failed after 3 retries" in lower_content
+            and "non-streaming api call timed out" in lower_content
+            and "with no response" in lower_content
+        ):
+            return f"{provider} returned exception text as markdown: {content}"
         return None
 
     @staticmethod

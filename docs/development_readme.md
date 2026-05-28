@@ -12,6 +12,7 @@
 ## 开发约束
 
 - 禁止生成 Python `__pycache__` 目录和 `.pyc` 文件。运行后端脚本、测试或服务时，应设置 `PYTHONDONTWRITEBYTECODE=1`，或使用 `python -B`。
+- 后端测试应自动清理 pytest cache，避免残留 `.pytest_cache` 或 `pytest-cache-files-*` 临时目录；运行 pytest 时使用 `--cache-clear`，如果本地出现权限残留目录，应在确认没有 Python/pytest 进程占用后删除。
 - 每次识别到新的需求、需求变化或新的需求细节时，应同步更新 `docs/requirements/` 下对应的需求文档。
 - 开发过程中如果遇到是否需要兼容旧逻辑、旧数据形态或历史临时方案的情况，应先向项目负责人确认是否需要兼容；未经确认不主动增加旧逻辑兼容分支，优先通过明确的数据清洗或迁移处理历史数据。
 - 系统中的业务数据表应统一使用 `is_deleted` 字段表示软删除状态。`is_deleted` 默认为 `0`，表示未删除；`1` 表示已删除。查询业务数据时应默认过滤 `is_deleted = 0`，避免返回已删除数据。
@@ -59,7 +60,7 @@ cd m:\VscodeProjects\基金当日净值预测\backend
 
 ```powershell
 cd m:\VscodeProjects\基金当日净值预测\backend
-.\.venv\Scripts\python.exe -B -m pytest tests
+.\.venv\Scripts\python.exe -B -m pytest --cache-clear tests
 ```
 
 后台隐藏启动可使用：
