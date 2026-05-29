@@ -87,12 +87,37 @@ function markdownMathPlugin(md: MarkdownIt) {
   })
 }
 
+function quotedStrongPlugin(md: MarkdownIt) {
+  md.inline.ruler.before('emphasis', 'quoted_strong', (state: StateInline, silent: boolean) => {
+    const start = state.pos
+    if (state.src.charCodeAt(start) !== 0x2a || state.src.charCodeAt(start + 1) !== 0x2a) return false
+    const firstContentChar = state.src[start + 2]
+    if (!firstContentChar || !'“"「『'.includes(firstContentChar)) return false
+
+    const end = state.src.indexOf('**', start + 3)
+    if (end < 0) return false
+    const content = state.src.slice(start + 2, end)
+    if (!content.trim()) return false
+    if (silent) return true
+
+    const openToken = state.push('strong_open', 'strong', 1)
+    openToken.markup = '**'
+    const textToken = state.push('text', '', 0)
+    textToken.content = content
+    const closeToken = state.push('strong_close', 'strong', -1)
+    closeToken.markup = '**'
+    state.pos = end + 2
+    return true
+  })
+}
+
 const md = new MarkdownIt({
   html: false,
   linkify: true,
   breaks: false,
 })
 
+quotedStrongPlugin(md)
 markdownMathPlugin(md)
 
 md.renderer.rules.heading_open = (tokens, index, options, env, self) => {
