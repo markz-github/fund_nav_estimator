@@ -9,6 +9,121 @@ export interface MarkdownHeading {
   text: string
 }
 
+const bareLatexSymbolMap: Record<string, string> = {
+  to: '→',
+  rightarrow: '→',
+  leftarrow: '←',
+  leftrightarrow: '↔',
+  Rightarrow: '⇒',
+  Leftarrow: '⇐',
+  Leftrightarrow: '⇔',
+  le: '≤',
+  ge: '≥',
+  neq: '≠',
+  approx: '≈',
+  times: '×',
+  pm: '±',
+  in: '∈',
+  notin: '∉',
+  therefore: '∴',
+  because: '∵',
+}
+
+const bareLatexSymbolPattern = new RegExp(
+  String.raw`\\(${Object.keys(bareLatexSymbolMap).join('|')})(?![A-Za-z])`,
+  'g',
+)
+
+function replaceBareLatexSymbols(value: string) {
+  return value.replace(bareLatexSymbolPattern, (_, command: string) => bareLatexSymbolMap[command])
+}
+
+function findClosingMarker(value: string, marker: string, from: number) {
+  const closingIndex = value.indexOf(marker, from)
+  return closingIndex < 0 ? -1 : closingIndex + marker.length
+}
+
+function normalizeBareLatexSymbolsInLine(value: string) {
+  let normalized = ''
+  let position = 0
+
+  while (position < value.length) {
+    const char = value[position]
+    const nextChar = value[position + 1]
+
+    if (char === '`') {
+      const marker = value.slice(position).match(/^`+/)?.[0] || '`'
+      const end = findClosingMarker(value, marker, position + marker.length)
+      if (end > -1) {
+        normalized += value.slice(position, end)
+        position = end
+        continue
+      }
+      normalized += char
+      position += 1
+      continue
+    }
+
+    if (char === '$') {
+      const marker = nextChar === '$' ? '$$' : '$'
+      const end = findClosingMarker(value, marker, position + marker.length)
+      if (end > -1) {
+        normalized += value.slice(position, end)
+        position = end
+        continue
+      }
+      normalized += char
+      position += 1
+      continue
+    }
+
+    const nextProtectedIndex = value.slice(position).search(/[`$]/)
+    const end = nextProtectedIndex < 0 ? value.length : position + nextProtectedIndex
+    normalized += replaceBareLatexSymbols(value.slice(position, end))
+    position = end
+  }
+
+  return normalized
+}
+
+function normalizeBareLatexSymbols(value: string) {
+  const lines = value.split(/(\r?\n)/)
+  let inFence = false
+  let fenceMarker = ''
+  let inMathBlock = false
+
+  return lines
+    .map((line) => {
+      if (/^\r?\n$/.test(line)) return line
+
+      const trimmed = line.trim()
+      const fenceMatch = line.match(/^ {0,3}(```+|~~~+)/)
+      if (fenceMatch) {
+        const marker = fenceMatch[1]
+        if (!inFence) {
+          inFence = true
+          fenceMarker = marker[0]
+        } else if (marker.startsWith(fenceMarker)) {
+          inFence = false
+          fenceMarker = ''
+        }
+        return line
+      }
+
+      if (inFence) return line
+
+      if (trimmed === '$$') {
+        inMathBlock = !inMathBlock
+        return line
+      }
+
+      if (inMathBlock) return line
+
+      return normalizeBareLatexSymbolsInLine(line)
+    })
+    .join('')
+}
+
 function plainInlineText(value: string) {
   return value
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '$1')
@@ -157,12 +272,12 @@ md.renderer.rules.math_inline = (tokens, index) => {
 }
 
 export function renderMarkdown(value: string) {
-  return md.render(value, { headingIndex: 0 })
+  return md.render(normalizeBareLatexSymbols(value), { headingIndex: 0 })
 }
 
 export function extractMarkdownHeadings(value: string): MarkdownHeading[] {
   const headings: MarkdownHeading[] = []
-  for (const line of value.split(/\r?\n/)) {
+  for (const line of normalizeBareLatexSymbols(value).split(/\r?\n/)) {
     const heading = line.trim().match(/^(#{1,4})\s+(.+)$/)
     if (!heading) continue
     headings.push({
