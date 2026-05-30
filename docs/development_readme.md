@@ -17,6 +17,7 @@
 - 开发过程中如果遇到是否需要兼容旧逻辑、旧数据形态或历史临时方案的情况，应先向项目负责人确认是否需要兼容；未经确认不主动增加旧逻辑兼容分支，优先通过明确的数据清洗或迁移处理历史数据。
 - 系统中的业务数据表应统一使用 `is_deleted` 字段表示软删除状态。`is_deleted` 默认为 `0`，表示未删除；`1` 表示已删除。查询业务数据时应默认过滤 `is_deleted = 0`，避免返回已删除数据。
 - 前端展示日期时间字段时统一使用 `yyyy-MM-dd HH:mm:ss` 格式，例如 `2026-05-21 09:30:05`。仅日期字段继续使用 `yyyy-MM-dd`。前端应通过统一工具函数格式化日期时间，避免在页面中直接展示后端返回的 ISO 字符串或临时截断字符串。
+- 前端新增或改造表单、下拉框、弹窗、分页、提示等通用交互时，应优先考虑使用 Element Plus 成熟组件；若继续使用原生元素或自定义实现，应保持现有视觉风格和响应式布局一致。
 - 修改前端 bug 后，除了运行构建或类型检查，还必须打开实际浏览器访问对应页面进行验证。涉及布局、交互、样式、路由或数据展示的问题，应使用当前开发地址确认真实渲染结果，并在必要时通过截图或 DOM 坐标核对修复是否生效。
 
 ## 后端启动
@@ -235,6 +236,8 @@ SCHEDULER_POLL_SUMMARY_DOCUMENTS_INTERVAL_SECONDS=30
 Bilinote 总结任务还会读取 `information_settings.video_note_recent_days`，只对最近 N 天内发布或入库的视频提交总结任务。默认值为 `3`，设置为 `0` 表示不限制天数。
 
 图文投稿扫描和提交 Hermes 图文笔记前都会读取 `information_settings.article_filter_keywords`。多个关键词可用换行、逗号或分号分隔；命中图文投稿标题或正文时，该图文投稿会在信息源列表中显示为“无效内容”，状态值为 `invalid_content`，不会进入 Hermes 图文笔记任务。
+
+信息源扫描多个账号时会读取 `information_settings.video_source_scan_jitter_min_seconds` 和 `information_settings.video_source_scan_jitter_max_seconds`。每个信息源请求和入库处理结束后，若后续仍有待扫描信息源，会在该范围内随机等待后再继续，默认范围为 1 到 3 秒。
 
 ## 信息流状态说明
 

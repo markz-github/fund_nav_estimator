@@ -422,7 +422,7 @@ CREATE TABLE information_summary_task_configs (
     start_days_before INT NOT NULL DEFAULT 1 COMMENT '汇总发布日期范围开始：几天前；结束固定为昨天',
     cron_expression VARCHAR(100) NOT NULL DEFAULT '0 7 * * *' COMMENT '定时触发 cron 表达式',
     title_template VARCHAR(200) NOT NULL DEFAULT '{start_date:%Y-%m-%d} {platform} {category}汇总' COMMENT '汇总结果名称模板，使用 Python format 语法',
-    summary_instruction TEXT NOT NULL COMMENT '汇总说明，空值时使用默认汇总说明',
+    summary_instruction TEXT NOT NULL COMMENT '任务级汇总说明，空值时使用当前分类默认汇总说明',
     push_to_wechat TINYINT NOT NULL DEFAULT 0 COMMENT '是否推送到微信：0否，1是',
     enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
     is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除标记：0未删除，1已删除',
@@ -433,15 +433,8 @@ CREATE TABLE information_summary_task_configs (
 );
 ```
 
-默认配置：
+汇总任务配置不再写入系统默认数据；需要执行的汇总任务均通过前端汇总设置页面创建和维护。
 
-```sql
-INSERT INTO information_summary_task_configs
-    (task_name, platform, category, start_days_before, cron_expression, title_template, summary_instruction, push_to_wechat, enabled)
-VALUES
-    ('财经昨日汇总', 'bilibili', '财经', 1, '0 7 * * *', '{start_date:%Y-%m-%d} {platform} {category}汇总', '', 1, 1),
-    ('财经近7天汇总', 'bilibili', '财经', 7, '30 7 * * mon', '{start_date:%Y-%m-%d} 至 {end_date:%Y-%m-%d} {platform} {category}汇总', '', 0, 1);
-```
 
 如果已按上一版创建过 `information_summary_task_configs`，补充执行：
 
@@ -461,14 +454,14 @@ SET cron_expression = '30 7 * * mon'
 WHERE start_days_before = 7 AND (cron_expression IS NULL OR cron_expression = '');
 
 ALTER TABLE information_summary_task_configs
-    ADD COLUMN summary_instruction TEXT NULL COMMENT '汇总说明，空值时使用默认汇总说明' AFTER title_template;
+    ADD COLUMN summary_instruction TEXT NULL COMMENT '任务级汇总说明，空值时使用当前分类默认汇总说明' AFTER title_template;
 
 UPDATE information_summary_task_configs
 SET summary_instruction = ''
 WHERE summary_instruction IS NULL;
 
 ALTER TABLE information_summary_task_configs
-    MODIFY COLUMN summary_instruction TEXT NOT NULL COMMENT '汇总说明，空值时使用默认汇总说明';
+    MODIFY COLUMN summary_instruction TEXT NOT NULL COMMENT '任务级汇总说明，空值时使用当前分类默认汇总说明';
 
 ALTER TABLE information_summary_task_configs
     ADD COLUMN push_to_wechat TINYINT NOT NULL DEFAULT 0 COMMENT '是否推送到微信：0否，1是' AFTER summary_instruction;
@@ -511,7 +504,8 @@ ALTER TABLE information_summary_task_configs
 - `wechat_push_webhook_url`：微信推送接口地址；Hermes 汇总轮询完成并写入正文后，会推送来源汇总任务配置中启用微信推送的汇总。
 - `wechat_push_token`：微信推送接口可选鉴权令牌。若填写值未包含认证方案，后端会以 `Bearer <token>` 形式发送 `Authorization` 请求头。
 - `video_note_recent_days`：Bilinote 总结任务只处理最近 N 天内发布或入库的视频，默认 3 天；设置为 0 表示不限制。
-- `hermes_summary_instruction`：手动选择笔记生成自定义汇总时使用的补充说明。
+- `video_source_scan_jitter_min_seconds`：信息源扫描时源与源之间随机抖动等待的最小秒数，默认 1。
+- `video_source_scan_jitter_max_seconds`：信息源扫描时源与源之间随机抖动等待的最大秒数，默认 3；最大值必须大于或等于最小值。
 
 ```sql
 CREATE TABLE information_settings (
@@ -521,5 +515,45 @@ CREATE TABLE information_settings (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_information_settings_key (setting_key)
+);
+```
+
+## information_summary_document_templates
+
+Hermes 汇总默认模板表。默认汇总说明和输出文档模板都按信息分类维护，每个分类一条记录；生成汇总 prompt 时只按汇总分类选择模板，未配置当前分类时不使用默认模板，不回落到其他分类。模板内容只保存在数据库中，运行时代码和 JSON 文件都不再内置默认模板正文，也不再使用 `information_settings.hermes_summary_instruction`。
+
+```sql
+CREATE TABLE information_summary_document_templates (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    category VARCHAR(50) NOT NULL COMMENT '信息分类，如财经、科技',
+    summary_instruction TEXT NOT NULL COMMENT '默认汇总说明',
+    template_text TEXT NOT NULL COMMENT 'Markdown 输出文档模板',
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_information_summary_document_templates_category (category)
+);
+```
+
+如果已经创建过上一版 `information_summary_document_templates`，补充执行：
+
+```sql
+ALTER TABLE information_summary_document_templates
+    ADD COLUMN summary_instruction TEXT NOT NULL COMMENT '默认汇总说明' AFTER category;
+```
+
+## information_bilinote_extra_templates
+
+Bilinote 单篇视频总结附加说明表。`extras` 按信息分类维护，每个分类一条记录；提交 Bilinote 视频总结任务时只读取当前视频分类对应的 extras，未配置当前分类时不传 extras，不回落到其他分类。
+
+```sql
+CREATE TABLE information_bilinote_extra_templates (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    category VARCHAR(50) NOT NULL COMMENT '信息分类，如财经、科技',
+    extras TEXT NOT NULL COMMENT '传给 Bilinote generate_note 的 extras 附加说明',
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_information_bilinote_extra_templates_category (category)
 );
 ```

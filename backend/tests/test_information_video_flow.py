@@ -21,6 +21,7 @@ from app.modules.information.api.videos import add_manual_link_action
 from app.modules.information.api.videos import run_summary_task_config_now
 from app.modules.information.models.summary_document import InformationSummaryDocumentItem
 from app.modules.information.models.summary_document import InformationSummaryDocument
+from app.modules.information.models.summary_document_template import InformationSummaryDocumentTemplate
 from app.modules.information.models.summary_task_config import InformationSummaryTaskConfig
 from app.modules.information.models.task_log import TaskLog
 from app.modules.information.models.video import InformationVideo
@@ -33,12 +34,28 @@ from app.modules.information.services.bilinote_client import BilinoteClient
 from app.modules.information.services.information_settings_service import InformationSettingsService
 from app.modules.information.services.hermes_client import HermesRunResult
 from app.modules.information.services.hermes_client import HermesClient
-from app.modules.information.services.video_information_service import VideoInformationService
+from app.modules.information.services.note_service import NoteService
+from app.modules.information.services.prompt_builder import PromptBuilder
+from app.modules.information.services.query_service import QueryService
+from app.modules.information.services.source_service import SourceService
+from app.modules.information.services.summary_document_service import SummaryDocumentService
+from app.modules.information.services.summary_task_config_service import SummaryTaskConfigService
 from app.modules.information.services.video_source_adapters import (
     BilibiliVideoSourceAdapter,
     VideoSnapshot,
 )
 from app.modules.information.services.wechat_push_client import WechatPushClient
+
+
+class InformationService(
+    SourceService,
+    SummaryTaskConfigService,
+    NoteService,
+    SummaryDocumentService,
+    QueryService,
+    PromptBuilder,
+):
+    pass
 
 
 class InformationVideoFlowTests(unittest.TestCase):
@@ -230,7 +247,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(published_at, datetime.fromtimestamp(1779252200))
 
     def test_scan_sources_inserts_new_videos_once(self) -> None:
-        service = VideoInformationService(self.db)
+        service = InformationService(self.db)
         source = service.create_source(
             VideoSourceCreate(
                 platform="bilibili",
@@ -254,7 +271,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         ]
 
         with patch(
-            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            "app.modules.information.services.source_service.get_video_source_adapter",
             return_value=adapter,
         ):
             first_count = service.scan_sources(source_id=source.id)
@@ -265,9 +282,19 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(self.db.query(InformationVideo).count(), 1)
         self.assertEqual(self.db.query(InformationVideo).one().duration_seconds, 452)
 
-    def test_article_note_uses_hermes_without_settings_instruction(self) -> None:
-        service = VideoInformationService(self.db)
-        InformationSettingsService(self.db).update_settings({"hermes_summary_instruction": "系统设置里的笔记汇总说明"})
+    def test_article_note_uses_hermes_without_category_summary_instruction(self) -> None:
+        service = InformationService(self.db)
+        InformationSettingsService(self.db).update_settings(
+            {
+                "hermes_summary_document_templates": [
+                    {
+                        "category": "财经",
+                        "summary_instruction": "分类默认笔记汇总说明",
+                        "template_text": "## 财经模板",
+                    }
+                ]
+            }
+        )
         source = service.create_source(
             VideoSourceCreate(
                 platform="bilibili",
@@ -299,10 +326,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            "app.modules.information.services.source_service.get_video_source_adapter",
             return_value=adapter,
         ), patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.note_service.HermesClient",
             return_value=hermes,
         ):
             created = service.scan_sources(source_id=source.id)
@@ -321,10 +348,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         prompt = hermes.start_run.call_args.args[0]
         self.assertIn("B站图文投稿", prompt)
         self.assertIn("核心观点：控制仓位。", prompt)
-        self.assertNotIn("系统设置里的笔记汇总说明", prompt)
+        self.assertNotIn("分类默认笔记汇总说明", prompt)
 
     def test_article_note_retry_reuses_failed_note(self) -> None:
-        service = VideoInformationService(self.db)
+        service = InformationService(self.db)
         source = service.create_source(
             VideoSourceCreate(
                 platform="bilibili",
@@ -368,7 +395,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(failed_note.status, "pending")
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.note_service.HermesClient",
             return_value=hermes,
         ):
             result = service.submit_pending_article_note_task(video_ids=[article.id])
@@ -423,10 +450,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.note_service.HermesClient",
             return_value=hermes,
         ):
-            result = VideoInformationService(self.db).poll_running_notes(video_ids=[article.id])
+            result = InformationService(self.db).poll_running_notes(video_ids=[article.id])
 
         self.assertEqual(result["failed"], 1)
         self.db.refresh(article)
@@ -437,7 +464,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertIn("API call failed after 3 retries", note.error_message or "")
 
     def test_article_note_submit_applies_keyword_filter_before_hermes(self) -> None:
-        service = VideoInformationService(self.db)
+        service = InformationService(self.db)
         InformationSettingsService(self.db).update_settings({"article_filter_keywords": "过滤词"})
         source = service.create_source(
             VideoSourceCreate(
@@ -461,7 +488,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         hermes = Mock()
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.note_service.HermesClient",
             return_value=hermes,
         ):
             result = service.submit_pending_article_note_task(video_ids=[article.id])
@@ -475,7 +502,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         hermes.start_run.assert_not_called()
 
     def test_scan_sources_can_target_selected_sources(self) -> None:
-        service = VideoInformationService(self.db)
+        service = InformationService(self.db)
         first_source = service.create_source(
             VideoSourceCreate(
                 platform="bilibili",
@@ -505,7 +532,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         ]
 
         with patch(
-            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            "app.modules.information.services.source_service.get_video_source_adapter",
             return_value=adapter,
         ):
             created_count = service.scan_sources(source_ids=[second_source.id])
@@ -516,7 +543,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertNotEqual(adapter.fetch_latest_videos.call_args.args[0].id, first_source.id)
 
     def test_scan_enabled_sources_scans_all_enabled_sources(self) -> None:
-        service = VideoInformationService(self.db)
+        service = InformationService(self.db)
         first_source = service.create_source(
             VideoSourceCreate(
                 platform="bilibili",
@@ -555,14 +582,57 @@ class InformationVideoFlowTests(unittest.TestCase):
         adapter.fetch_latest_videos.side_effect = fetch_latest_videos
 
         with patch(
-            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            "app.modules.information.services.source_service.get_video_source_adapter",
             return_value=adapter,
-        ):
+        ), patch("app.modules.information.services.source_service.random.uniform", return_value=1.5), patch(
+            "app.modules.information.services.source_service.time_module.sleep"
+        ) as sleep:
             result = service.scan_enabled_sources()
 
         self.assertEqual(result, {"source_count": 2, "created": 2})
         self.assertEqual(adapter.fetch_latest_videos.call_count, 2)
         self.assertEqual(set(scanned_source_ids), {first_source.id, second_source.id})
+        sleep.assert_called_once_with(1.5)
+
+    def test_scan_enabled_sources_uses_configured_jitter_between_sources(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "video_source_scan_jitter_min_seconds": "0.5",
+                "video_source_scan_jitter_max_seconds": "0.8",
+            }
+        )
+        service = InformationService(self.db)
+        first_source = service.create_source(
+            VideoSourceCreate(
+                platform="bilibili",
+                source_name="账号一",
+                external_source_id="111",
+            )
+        )
+        second_source = service.create_source(
+            VideoSourceCreate(
+                platform="bilibili",
+                source_name="账号二",
+                external_source_id="222",
+            )
+        )
+        adapter = Mock()
+        adapter.normalize_source_id.side_effect = lambda value: value
+        adapter.fetch_latest_videos.return_value = []
+
+        with patch(
+            "app.modules.information.services.source_service.get_video_source_adapter",
+            return_value=adapter,
+        ), patch("app.modules.information.services.source_service.random.uniform", return_value=0.7) as uniform, patch(
+            "app.modules.information.services.source_service.time_module.sleep"
+        ) as sleep:
+            result = service.scan_enabled_sources()
+
+        self.assertEqual(result, {"source_count": 2, "created": 0})
+        self.assertEqual(adapter.fetch_latest_videos.call_count, 2)
+        uniform.assert_called_once_with(0.5, 0.8)
+        sleep.assert_called_once_with(0.7)
+        self.assertNotEqual(first_source.id, second_source.id)
 
     def test_scan_enabled_sources_skips_manual_virtual_source(self) -> None:
         self.db.add(
@@ -579,13 +649,70 @@ class InformationVideoFlowTests(unittest.TestCase):
         adapter = Mock()
 
         with patch(
-            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            "app.modules.information.services.source_service.get_video_source_adapter",
             return_value=adapter,
         ):
-            result = VideoInformationService(self.db).scan_enabled_sources()
+            result = InformationService(self.db).scan_enabled_sources()
 
         self.assertEqual(result, {"source_count": 0, "created": 0})
         adapter.fetch_latest_videos.assert_not_called()
+
+    def test_list_categories_excludes_system_manual_source_category(self) -> None:
+        self.db.add_all(
+            [
+                InformationVideoSource(
+                    id=-1,
+                    platform="system",
+                    source_name="手动录入",
+                    external_source_id="manual",
+                    category="手动录入",
+                    enabled=1,
+                ),
+                InformationVideoSource(
+                    id=1,
+                    platform="bilibili",
+                    source_name="普通账号",
+                    external_source_id="12345",
+                    category="科技",
+                    enabled=1,
+                ),
+            ]
+        )
+        self.db.commit()
+
+        categories = InformationService(self.db).list_categories()
+
+        self.assertIn("科技", categories)
+        self.assertNotIn("手动录入", categories)
+
+    def test_update_video_category_changes_existing_video(self) -> None:
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            category="财经",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-category",
+            title="分类视频",
+            video_url="https://www.bilibili.com/video/BV-category",
+            category="财经",
+            status="note_pending",
+        )
+        self.db.add(video)
+        self.db.commit()
+
+        updated = InformationService(self.db).update_video_category(video.id, "科技")
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.category, "科技")
+        self.db.refresh(video)
+        self.assertEqual(video.category, "科技")
 
     def test_manual_link_uses_single_builtin_source(self) -> None:
         adapter = Mock()
@@ -600,10 +727,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            "app.modules.information.services.source_service.get_video_source_adapter",
             return_value=adapter,
         ):
-            video = VideoInformationService(self.db).add_manual_link(
+            video = InformationService(self.db).add_manual_link(
                 ManualLinkCreate(url="https://www.bilibili.com/video/BV-manual-link", category="科技")
             )
 
@@ -615,12 +742,12 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(source.platform, "system")
         self.assertEqual(source.external_source_id, "manual")
         self.assertEqual(source.enabled, 1)
-        sources = VideoInformationService(self.db).list_sources()
+        sources = InformationService(self.db).list_sources()
         self.assertEqual(len(sources), 1)
         self.assertEqual(sources[0]["id"], -1)
         self.assertEqual(sources[0]["information_count"], 1)
-        self.assertEqual(VideoInformationService(self.db).list_sources(enabled_only=True), [])
-        source_page = VideoInformationService(self.db).list_sources_page(enabled_only=True)
+        self.assertEqual(InformationService(self.db).list_sources(enabled_only=True), [])
+        source_page = InformationService(self.db).list_sources_page(enabled_only=True)
         self.assertEqual(source_page["total"], 0)
         self.assertEqual(source_page["items"], [])
 
@@ -637,7 +764,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            "app.modules.information.services.source_service.get_video_source_adapter",
             return_value=adapter,
         ):
             result = add_manual_link_action(
@@ -654,7 +781,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertIn("video_id=", task_log.message)
 
     def test_failed_scan_updates_last_scanned_at_to_avoid_immediate_retry_loop(self) -> None:
-        service = VideoInformationService(self.db)
+        service = InformationService(self.db)
         source = service.create_source(
             VideoSourceCreate(
                 platform="bilibili",
@@ -667,10 +794,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         adapter.fetch_latest_videos.side_effect = RuntimeError("Bilibili API returned code=-400")
 
         with patch(
-            "app.modules.information.services.video_information_service.get_video_source_adapter",
+            "app.modules.information.services.source_service.get_video_source_adapter",
             return_value=adapter,
         ), patch(
-            "app.modules.information.services.video_information_service.log_fetch_error",
+            "app.modules.information.services.source_service.log_fetch_error",
         ):
             created = service.scan_sources(source_id=source.id)
 
@@ -700,7 +827,121 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.commit()
 
         with self.assertRaises(ValueError):
-            VideoInformationService(self.db).generate_pending_notes()
+            InformationService(self.db).generate_pending_notes()
+
+    def test_information_settings_rejects_invalid_bilinote_quality(self) -> None:
+        with self.assertRaisesRegex(ValueError, "bilinote_quality"):
+            InformationSettingsService(self.db).update_settings({"bilinote_quality": "ultra"})
+
+    def test_information_settings_rejects_invalid_scan_jitter_range(self) -> None:
+        with self.assertRaisesRegex(ValueError, "video_source_scan_jitter_max_seconds"):
+            InformationSettingsService(self.db).update_settings(
+                {
+                    "video_source_scan_jitter_min_seconds": "3",
+                    "video_source_scan_jitter_max_seconds": "1",
+                }
+            )
+
+    def test_bilinote_extras_are_selected_by_video_category(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "bilinote_provider_id": "provider-1",
+                "bilinote_model_name": "model-1",
+                "bilinote_extra_templates": [
+                    {"category": "财经", "extras": "财经默认输出说明"},
+                    {"category": "科技", "extras": "科技视频输出说明"},
+                ],
+            }
+        )
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            category="科技",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-extras",
+            title="科技视频",
+            video_url="https://www.bilibili.com/video/BV-extras",
+            category="科技",
+            status="note_pending",
+        )
+        self.db.add(video)
+        self.db.commit()
+        client = Mock()
+        client.generate_note.return_value = Mock(
+            task_id="task-extras",
+            note_text=None,
+            raw_response={"task_id": "task-extras", "status": "running"},
+            error_message=None,
+        )
+
+        with patch(
+            "app.modules.information.services.note_service.BilinoteClient",
+            return_value=client,
+        ):
+            result = InformationService(self.db).submit_pending_note_task(video_ids=[video.id])
+
+        self.assertEqual(result["started"], 1)
+        client.generate_note.assert_called_once_with(
+            "https://www.bilibili.com/video/BV-extras",
+            "bilibili",
+            "fast",
+            "model-1",
+            "provider-1",
+            "科技视频输出说明",
+        )
+
+    def test_bilinote_extras_do_not_fallback_to_finance_category(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "bilinote_provider_id": "provider-1",
+                "bilinote_model_name": "model-1",
+                "bilinote_extra_templates": [
+                    {"category": "财经", "extras": "财经默认输出说明"},
+                ],
+            }
+        )
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            category="科技",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-no-extras",
+            title="无配置分类视频",
+            video_url="https://www.bilibili.com/video/BV-no-extras",
+            category="科技",
+            status="note_pending",
+        )
+        self.db.add(video)
+        self.db.commit()
+        client = Mock()
+        client.generate_note.return_value = Mock(
+            task_id="task-no-extras",
+            note_text=None,
+            raw_response={"task_id": "task-no-extras", "status": "running"},
+            error_message=None,
+        )
+
+        with patch(
+            "app.modules.information.services.note_service.BilinoteClient",
+            return_value=client,
+        ):
+            InformationService(self.db).submit_pending_note_task(video_ids=[video.id])
+
+        self.assertEqual(client.generate_note.call_args.args[-1], "")
 
     def test_submit_pending_note_task_returns_error_message_when_bilinote_fails(self) -> None:
         InformationSettingsService(self.db).update_settings(
@@ -732,12 +973,12 @@ class InformationVideoFlowTests(unittest.TestCase):
         client.generate_note.side_effect = RuntimeError("bilinote unavailable")
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=client,
         ), patch(
-            "app.modules.information.services.video_information_service.log_fetch_error",
+            "app.modules.information.services.note_service.log_fetch_error",
         ):
-            result = VideoInformationService(self.db).submit_pending_note_task()
+            result = InformationService(self.db).submit_pending_note_task()
 
         self.assertEqual(result["failed"], 1)
         self.assertIn("bilinote unavailable", str(result["error_message"]))
@@ -785,7 +1026,7 @@ class InformationVideoFlowTests(unittest.TestCase):
             error_message=None,
         )
 
-        service = VideoInformationService(self.db)
+        service = InformationService(self.db)
         self.assertTrue(service.retry_video_note(video.id))
         self.db.refresh(video)
         self.db.refresh(failed_note)
@@ -795,7 +1036,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertIsNone(failed_note.error_message)
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=client,
         ):
             result = service.submit_pending_note_task(video_ids=[video.id])
@@ -845,10 +1086,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         client = Mock()
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=client,
         ):
-            result = VideoInformationService(self.db).submit_pending_note_task()
+            result = InformationService(self.db).submit_pending_note_task()
 
         self.assertEqual(result["total"], 0)
         client.generate_note.assert_not_called()
@@ -857,16 +1098,18 @@ class InformationVideoFlowTests(unittest.TestCase):
         response = Mock()
         response.json.return_value = {"data": {"taskid": "bilinote-task-1", "status": "running"}}
 
-        with patch("app.modules.information.services.bilinote_client.requests.post", return_value=response):
+        with patch("app.modules.information.services.bilinote_client.requests.post", return_value=response) as post:
             result = BilinoteClient("http://bilinote.local").generate_note(
                 "https://www.bilibili.com/video/BV-task",
                 "bilibili",
                 "fast",
                 "model-1",
                 "provider-1",
+                "请按模板输出",
             )
 
         self.assertEqual(result.task_id, "bilinote-task-1")
+        self.assertEqual(post.call_args.kwargs["json"]["extras"], "请按模板输出")
 
     def test_bilinote_client_reads_nested_status_and_markdown_from_task_status(self) -> None:
         response = Mock()
@@ -935,10 +1178,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=client,
         ):
-            result = VideoInformationService(self.db).poll_running_notes(video_ids=[video.id])
+            result = InformationService(self.db).poll_running_notes(video_ids=[video.id])
 
         self.assertEqual(result["failed"], 1)
         self.assertEqual(result["error_message"], "Bilinote 外部失败")
@@ -983,10 +1226,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=client,
         ):
-            result = VideoInformationService(self.db).poll_running_notes(video_ids=[video.id])
+            result = InformationService(self.db).poll_running_notes(video_ids=[video.id])
 
         self.assertEqual(result["failed"], 1)
         self.assertIn("NoneType", str(result["error_message"]))
@@ -1040,10 +1283,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=client,
         ):
-            result = VideoInformationService(self.db).poll_running_notes(video_ids=[video.id])
+            result = InformationService(self.db).poll_running_notes(video_ids=[video.id])
 
         self.assertEqual(result["failed"], 1)
         self.db.refresh(video)
@@ -1083,10 +1326,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         client = Mock()
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=client,
         ):
-            result = VideoInformationService(self.db).poll_running_notes(video_ids=[video.id])
+            result = InformationService(self.db).poll_running_notes(video_ids=[video.id])
 
         self.assertEqual(result["total"], 0)
         self.assertEqual(result["running"], 0)
@@ -1127,12 +1370,12 @@ class InformationVideoFlowTests(unittest.TestCase):
         client.poll_task_once.side_effect = requests_exceptions.ConnectionError("Network is unreachable")
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=client,
         ), patch(
-            "app.modules.information.services.video_information_service.log_fetch_error",
+            "app.modules.information.services.note_service.log_fetch_error",
         ) as log_error:
-            result = VideoInformationService(self.db).poll_running_notes(video_ids=[video.id])
+            result = InformationService(self.db).poll_running_notes(video_ids=[video.id])
 
         self.assertEqual(result["running"], 1)
         self.assertEqual(result["failed"], 0)
@@ -1174,7 +1417,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.add(note)
         self.db.commit()
 
-        service = VideoInformationService(self.db)
+        service = InformationService(self.db)
         self.assertTrue(service.repoll_video_note(note.id))
         self.db.refresh(video)
         self.db.refresh(note)
@@ -1193,7 +1436,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=client,
         ):
             result = service.poll_running_notes(video_ids=[video.id])
@@ -1237,7 +1480,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.add(note)
         self.db.commit()
 
-        service = VideoInformationService(self.db)
+        service = InformationService(self.db)
         self.assertTrue(service.regenerate_video_note(note.id))
 
         self.db.refresh(video)
@@ -1379,8 +1622,14 @@ class InformationVideoFlowTests(unittest.TestCase):
             },
         )
 
+    def test_list_summary_task_configs_does_not_create_default_configs(self) -> None:
+        configs = InformationService(self.db).list_summary_task_configs()
+
+        self.assertEqual(configs, [])
+        self.assertEqual(self.db.query(InformationSummaryTaskConfig).count(), 0)
+
     def test_summary_task_config_normalizes_standard_numeric_weekday_cron(self) -> None:
-        config = VideoInformationService(self.db).create_summary_task_config(
+        config = InformationService(self.db).create_summary_task_config(
             SummaryTaskConfigCreate(
                 task_name="财经周汇总",
                 platform="bilibili",
@@ -1484,10 +1733,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.summary_document_service.HermesClient",
             return_value=hermes,
         ):
-            document = VideoInformationService(self.db).run_summary_task_config(config.id)
+            document = InformationService(self.db).run_summary_task_config(config.id)
 
         self.assertIsNotNone(document)
         self.assertNotEqual(document.id, existing_document.id)
@@ -1540,7 +1789,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.add_all([old_video, latest_video, failed_video])
         self.db.commit()
 
-        videos = VideoInformationService(self.db).list_videos(
+        videos = InformationService(self.db).list_videos(
             source_id=first_source.id,
             status="note_pending",
             published_from=date(2026, 5, 15),
@@ -1548,7 +1797,7 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         self.assertEqual([video.external_video_id for video in videos], ["BV-latest"])
 
-        videos_by_id = VideoInformationService(self.db).list_videos(video_id=failed_video.id)
+        videos_by_id = InformationService(self.db).list_videos(video_id=failed_video.id)
 
         self.assertEqual([video.external_video_id for video in videos_by_id], ["BV-failed"])
 
@@ -1595,10 +1844,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=bilinote,
         ):
-            result = VideoInformationService(self.db).generate_pending_notes(video_ids=[second_video.id])
+            result = InformationService(self.db).generate_pending_notes(video_ids=[second_video.id])
 
         self.assertEqual(result["completed"], 1)
         self.assertEqual(result["failed"], 0)
@@ -1639,10 +1888,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         bilinote = Mock()
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=bilinote,
         ):
-            result = VideoInformationService(self.db).generate_pending_notes(limit=5)
+            result = InformationService(self.db).generate_pending_notes(limit=5)
 
         self.assertEqual(result["total"], 0)
         bilinote.generate_note.assert_not_called()
@@ -1692,10 +1941,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=bilinote,
         ):
-            result = VideoInformationService(self.db).generate_pending_notes(video_ids=[video.id])
+            result = InformationService(self.db).generate_pending_notes(video_ids=[video.id])
 
         self.assertEqual(result["completed"], 0)
         self.assertEqual(result["failed"], 0)
@@ -1757,10 +2006,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=bilinote,
         ):
-            result = VideoInformationService(self.db).generate_pending_notes(limit=5)
+            result = InformationService(self.db).generate_pending_notes(limit=5)
 
         self.assertEqual(result["running"], 1)
         bilinote.generate_note.assert_called_once()
@@ -1828,10 +2077,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.BilinoteClient",
+            "app.modules.information.services.note_service.BilinoteClient",
             return_value=bilinote,
         ):
-            result = VideoInformationService(self.db).generate_pending_notes(limit=5)
+            result = InformationService(self.db).generate_pending_notes(limit=5)
 
         self.assertEqual(result["running"], 1)
         bilinote.generate_note.assert_not_called()
@@ -1858,7 +2107,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.add(video)
         self.db.commit()
 
-        count = VideoInformationService(self.db).mark_video_notes_failed([video.id], "人工终止")
+        count = InformationService(self.db).mark_video_notes_failed([video.id], "人工终止")
 
         self.assertEqual(count, 1)
         self.db.refresh(video)
@@ -1897,7 +2146,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.add(note)
         self.db.commit()
 
-        service = VideoInformationService(self.db)
+        service = InformationService(self.db)
         detail = service.get_note_detail(note.id)
         raw = service.get_note_raw_response(note.id)
 
@@ -1935,7 +2184,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.add(note)
         self.db.commit()
 
-        notes = VideoInformationService(self.db).list_notes()
+        notes = InformationService(self.db).list_notes()
 
         self.assertEqual(notes[0]["video_title"], "带标题的视频")
         self.assertEqual(notes[0]["video_id"], video.id)
@@ -1987,7 +2236,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
         self.db.commit()
 
-        sources = VideoInformationService(self.db).list_sources()
+        sources = InformationService(self.db).list_sources()
 
         self.assertEqual(sources[0]["information_count"], 1)
         self.assertEqual(sources[0]["note_count"], 1)
@@ -2035,12 +2284,12 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
         self.db.commit()
 
-        notes = VideoInformationService(self.db).list_notes(source_id=second_source.id)
+        notes = InformationService(self.db).list_notes(source_id=second_source.id)
 
         self.assertEqual([note["source_name"] for note in notes], ["账号二"])
         self.assertEqual([note["video_duration_seconds"] for note in notes], [244])
 
-        filtered_by_date = VideoInformationService(self.db).list_notes(
+        filtered_by_date = InformationService(self.db).list_notes(
             published_from=date(2026, 5, 19),
             published_to=date(2026, 5, 19),
         )
@@ -2093,7 +2342,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.summary_document_service.HermesClient",
             return_value=hermes,
         ):
             config = InformationSummaryTaskConfig(
@@ -2106,7 +2355,7 @@ class InformationVideoFlowTests(unittest.TestCase):
             )
             self.db.add(config)
             self.db.commit()
-            document = VideoInformationService(self.db).create_configured_summary(config)
+            document = InformationService(self.db).create_configured_summary(config)
 
         self.assertIsNotNone(document)
         self.assertEqual(document.status, "running")
@@ -2174,10 +2423,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.summary_document_service.HermesClient",
             return_value=hermes,
         ):
-            document = VideoInformationService(self.db).create_configured_summary(config, today=date(2026, 5, 23))
+            document = InformationService(self.db).create_configured_summary(config, today=date(2026, 5, 23))
 
         self.assertIsNotNone(document)
         self.assertEqual(document.title, "20260522-20260522-财经")
@@ -2185,7 +2434,7 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         self.db.delete(config)
         self.db.commit()
-        payload = VideoInformationService(self.db).get_summary_document(document.id)
+        payload = InformationService(self.db).get_summary_document(document.id)
 
         self.assertIsNotNone(payload)
         self.assertEqual(payload["summary_task_config_id"], config.id)
@@ -2204,11 +2453,11 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.add(document)
         self.db.commit()
 
-        deleted = VideoInformationService(self.db).delete_summary_document(document.id)
+        deleted = InformationService(self.db).delete_summary_document(document.id)
 
         self.assertTrue(deleted)
-        self.assertIsNone(VideoInformationService(self.db).get_summary_document(document.id))
-        self.assertEqual(VideoInformationService(self.db).list_summary_documents(), [])
+        self.assertIsNone(InformationService(self.db).get_summary_document(document.id))
+        self.assertEqual(InformationService(self.db).list_summary_documents(), [])
         deleted_document = self.db.scalar(
             select(InformationSummaryDocument)
             .where(InformationSummaryDocument.id == document.id)
@@ -2267,10 +2516,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.summary_document_service.HermesClient",
             return_value=hermes,
         ):
-            document = VideoInformationService(self.db).create_custom_summary([done_note.id, failed_note.id])
+            document = InformationService(self.db).create_custom_summary([done_note.id, failed_note.id])
 
         self.assertEqual(document.status, "running")
         self.assertTrue(document.platform.startswith("custom_"))
@@ -2311,7 +2560,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.add_all([manual_document, configured_document])
         self.db.commit()
 
-        documents = VideoInformationService(self.db).list_summary_documents(manual_summary=True)
+        documents = InformationService(self.db).list_summary_documents(manual_summary=True)
 
         self.assertEqual([item["id"] for item in documents], [manual_document.id])
         self.assertEqual(documents[0]["summary_task_name"], "手动汇总")
@@ -2353,10 +2602,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.summary_document_service.HermesClient",
             return_value=hermes,
         ):
-            document = VideoInformationService(self.db).create_custom_summary([note.id], title="我的汇总名称")
+            document = InformationService(self.db).create_custom_summary([note.id], title="我的汇总名称")
 
         self.assertEqual(document.title, "我的汇总名称")
 
@@ -2418,10 +2667,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.summary_document_service.HermesClient",
             return_value=hermes,
         ):
-            retried = VideoInformationService(self.db).retry_summary_document(document.id)
+            retried = InformationService(self.db).retry_summary_document(document.id)
 
         self.assertIsNotNone(retried)
         self.assertEqual(retried.status, "running")
@@ -2479,10 +2728,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.summary_document_service.HermesClient",
             return_value=hermes,
         ):
-            result = VideoInformationService(self.db).poll_running_summary_documents()
+            result = InformationService(self.db).poll_running_summary_documents()
 
         self.assertEqual(result["completed"], 1)
         self.db.refresh(document)
@@ -2515,10 +2764,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.information.services.video_information_service.HermesClient",
+            "app.modules.information.services.summary_document_service.HermesClient",
             return_value=hermes,
         ):
-            result = VideoInformationService(self.db).poll_running_summary_documents()
+            result = InformationService(self.db).poll_running_summary_documents()
 
         self.assertEqual(result["failed"], 1)
         self.db.refresh(document)
@@ -2564,10 +2813,10 @@ class InformationVideoFlowTests(unittest.TestCase):
         response.json.return_value = {"ok": True}
 
         with (
-            patch("app.modules.information.services.video_information_service.HermesClient", return_value=hermes),
+            patch("app.modules.information.services.summary_document_service.HermesClient", return_value=hermes),
             patch("app.modules.information.services.wechat_push_client.requests.post", return_value=response) as post,
         ):
-            result = VideoInformationService(self.db).poll_running_summary_documents()
+            result = InformationService(self.db).poll_running_summary_documents()
 
         self.assertEqual(result["completed"], 1)
         self.assertEqual(result["wechat_pushed"], 1)
@@ -2603,7 +2852,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.add(note)
         self.db.commit()
 
-        prompt = VideoInformationService(self.db)._build_summary_prompt(
+        prompt = InformationService(self.db)._build_summary_prompt(
             "custom",
             date(2026, 5, 19),
             [note],
@@ -2618,7 +2867,7 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertIn("链接：https://www.bilibili.com/video/BV-prompt", prompt)
 
     def test_summary_prompt_requires_markdown_output_by_default(self) -> None:
-        prompt = VideoInformationService(self.db)._build_summary_prompt(
+        prompt = InformationService(self.db)._build_summary_prompt(
             "bilibili",
             date(2026, 5, 19),
             [],
@@ -2631,6 +2880,30 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertIn("**重点：...**", prompt)
         self.assertIn("不要输出 HTML", prompt)
         self.assertIn("不要把正文包裹在 ```markdown 代码块中", prompt)
+
+    def test_summary_document_template_uses_category_specific_template(self) -> None:
+        self.db.add_all(
+            [
+                InformationSummaryDocumentTemplate(category="财经", summary_instruction="财经说明", template_text="## 财经模板"),
+                InformationSummaryDocumentTemplate(category="科技", summary_instruction="科技说明", template_text="## 科技模板"),
+            ]
+        )
+        self.db.commit()
+        service = InformationService(self.db)
+
+        self.assertEqual(service._summary_document_template("科技"), "## 科技模板")
+        self.assertEqual(service._summary_document_template("未配置分类"), "")
+        self.assertEqual(service._summary_instruction("科技"), "科技说明")
+        self.assertEqual(service._summary_instruction("未配置分类"), "")
+
+    def test_summary_document_templates_are_not_seeded_from_code_or_json(self) -> None:
+        settings = InformationSettingsService(self.db).get_settings()
+
+        templates = settings["hermes_summary_document_templates"]
+        rows = self.db.scalars(select(InformationSummaryDocumentTemplate)).all()
+
+        self.assertEqual(rows, [])
+        self.assertEqual(templates, [])
 
 
 if __name__ == "__main__":

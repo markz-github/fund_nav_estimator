@@ -16,7 +16,11 @@ from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.market_service import MarketService
 from app.modules.information.services.operation_log_service import log_fetch_error, log_task, task_status_from_counts
-from app.modules.information.services.video_information_service import VideoInformationService, _normalize_cron_expression
+from app.modules.information.services.note_service import NoteService
+from app.modules.information.services.source_service import SourceService
+from app.modules.information.services.summary_document_service import SummaryDocumentService
+from app.modules.information.services.summary_task_config_service import SummaryTaskConfigService
+from app.scheduler.cron_utils import normalize_cron_expression
 
 SUMMARY_TASK_CONFIG_JOB_PREFIX = "generate_information_summary_task_config_"
 
@@ -232,7 +236,7 @@ def estimate_fund_navs_job() -> None:
 
 def scan_information_videos_job() -> None:
     def handler(db: Session) -> tuple[str, str]:
-        result = VideoInformationService(db).scan_enabled_sources()
+        result = SourceService(db).scan_enabled_sources()
         if result["source_count"] == 0:
             return "skipped", "no enabled video source"
         if result.get("error_message"):
@@ -247,7 +251,7 @@ def scan_information_videos_job() -> None:
 def generate_information_video_notes_job() -> None:
     db = SessionLocal()
     try:
-        service = VideoInformationService(db)
+        service = NoteService(db)
         poll_started_at = datetime.now()
         poll_result = service.poll_running_notes()
         poll_status = _video_note_task_status(poll_result)
@@ -308,7 +312,7 @@ def generate_information_video_notes_job() -> None:
 
 def generate_information_summary_task_config_job(config_id: int) -> None:
     def handler(db: Session) -> tuple[str, str]:
-        service = VideoInformationService(db)
+        service = SummaryDocumentService(db)
         document = service.run_summary_task_config(config_id)
         if document is None:
             return "skipped", f"summary_task_config_id={config_id};no completed notes to summarize"
@@ -333,7 +337,7 @@ def register_information_summary_task_config_jobs(scheduler: BackgroundScheduler
             scheduler.remove_job(job.id)
     db = SessionLocal()
     try:
-        configs = VideoInformationService(db).list_summary_task_configs()
+        configs = SummaryTaskConfigService(db).list_summary_task_configs()
         for config in configs:
             if not config.enabled:
                 continue
@@ -341,7 +345,7 @@ def register_information_summary_task_config_jobs(scheduler: BackgroundScheduler
             scheduler.add_job(
                 generate_information_summary_task_config_job,
                 args=[config.id],
-                trigger=CronTrigger.from_crontab(_normalize_cron_expression(config.cron_expression)),
+                trigger=CronTrigger.from_crontab(normalize_cron_expression(config.cron_expression)),
                 id=job_id,
                 name=config.task_name,
                 replace_existing=True,
@@ -353,7 +357,7 @@ def register_information_summary_task_config_jobs(scheduler: BackgroundScheduler
 
 def poll_information_summary_documents_job() -> None:
     def handler(db: Session) -> tuple[str, str]:
-        result = VideoInformationService(db).poll_running_summary_documents()
+        result = SummaryDocumentService(db).poll_running_summary_documents()
         if not _summary_document_poll_should_log(result):
             return "skipped", _summary_document_poll_message(result)
         return _summary_document_poll_status(result), _summary_document_poll_message(result)

@@ -122,7 +122,8 @@ async function loadStatusOptions() {
 async function loadDefaultSummaryInstruction() {
   try {
     const settings = await getInformationSettings()
-    defaultSummaryInstruction.value = settings.hermes_summary_instruction || ''
+    defaultSummaryInstruction.value =
+      settings.hermes_summary_document_templates.find((item) => item.category === '财经')?.summary_instruction || ''
   } catch {
     defaultSummaryInstruction.value = ''
   }
@@ -517,7 +518,7 @@ watch(
         </label>
         <label>
           汇总说明
-          <textarea v-model="customSummaryInstruction" rows="8" placeholder="可选，默认使用信息流设置中的默认汇总说明。" />
+          <textarea v-model="customSummaryInstruction" rows="8" placeholder="可选，默认使用财经分类的默认汇总说明。" />
         </label>
         <div class="dialog-actions">
           <button class="ghost" type="button" :disabled="generatingSummary" @click="closeCustomSummaryDialog">取消</button>

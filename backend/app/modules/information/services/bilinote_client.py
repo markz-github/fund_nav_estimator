@@ -38,6 +38,7 @@ class BilinoteClient:
         quality: str,
         model_name: str,
         provider_id: str,
+        extras: str | None = None,
     ) -> BilinoteTaskResult:
         payload = {
             "video_url": video_url,
@@ -49,7 +50,7 @@ class BilinoteClient:
             "link": False,
             "format": [],
             "style": "default",
-            "extras": None,
+            "extras": extras or None,
             "video_understanding": False,
             "video_interval": 0,
             "grid_size": [],

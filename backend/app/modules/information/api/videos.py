@@ -27,6 +27,7 @@ from app.modules.information.schemas.video import (
     SummaryTaskConfigCreate,
     SummaryTaskConfigOut,
     SummaryTaskConfigUpdate,
+    VideoCategoryUpdate,
     VideoNoteDetailOut,
     VideoNoteOut,
     VideoNotePageOut,
@@ -50,7 +51,11 @@ from app.modules.information.status_enums import (
 )
 from app.modules.information.services.operation_log_service import finish_task, log_fetch_error, start_task, task_status_from_counts
 from app.modules.information.services.information_settings_service import InformationSettingsService
-from app.modules.information.services.video_information_service import VideoInformationService
+from app.modules.information.services.note_service import NoteService
+from app.modules.information.services.query_service import QueryService
+from app.modules.information.services.source_service import SourceService
+from app.modules.information.services.summary_document_service import SummaryDocumentService
+from app.modules.information.services.summary_task_config_service import SummaryTaskConfigService
 from app.scheduler.runtime import refresh_summary_task_config_jobs
 
 router = APIRouter(prefix="/information", tags=["information"])
@@ -72,18 +77,18 @@ def get_status_options():
 
 @router.get("/categories", response_model=InformationCategoriesOut)
 def list_categories(db: Session = Depends(get_db)):
-    return {"categories": VideoInformationService(db).list_categories()}
+    return {"categories": SourceService(db).list_categories()}
 
 
 @router.get("/summary-task-configs", response_model=list[SummaryTaskConfigOut])
 def list_summary_task_configs(db: Session = Depends(get_db)):
-    return VideoInformationService(db).list_summary_task_configs()
+    return SummaryTaskConfigService(db).list_summary_task_configs()
 
 
 @router.post("/summary-task-configs", response_model=SummaryTaskConfigOut)
 def create_summary_task_config(payload: SummaryTaskConfigCreate, db: Session = Depends(get_db)):
     try:
-        config = VideoInformationService(db).create_summary_task_config(payload)
+        config = SummaryTaskConfigService(db).create_summary_task_config(payload)
         refresh_summary_task_config_jobs()
         return config
     except ValueError as exc:
@@ -93,7 +98,7 @@ def create_summary_task_config(payload: SummaryTaskConfigCreate, db: Session = D
 @router.patch("/summary-task-configs/{config_id}", response_model=SummaryTaskConfigOut)
 def update_summary_task_config(config_id: int, payload: SummaryTaskConfigUpdate, db: Session = Depends(get_db)):
     try:
-        config = VideoInformationService(db).update_summary_task_config(config_id, payload)
+        config = SummaryTaskConfigService(db).update_summary_task_config(config_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if config is None:
@@ -104,7 +109,7 @@ def update_summary_task_config(config_id: int, payload: SummaryTaskConfigUpdate,
 
 @router.delete("/summary-task-configs/{config_id}")
 def delete_summary_task_config(config_id: int, db: Session = Depends(get_db)):
-    deleted = VideoInformationService(db).delete_summary_task_config(config_id)
+    deleted = SummaryTaskConfigService(db).delete_summary_task_config(config_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="summary task config not found")
     refresh_summary_task_config_jobs()
@@ -126,7 +131,7 @@ def run_summary_task_config_now(config_id: int, db: Session = Depends(get_db)):
         target_id=str(config_id),
     )
     try:
-        document = VideoInformationService(db).run_summary_task_config(config_id, require_enabled=False)
+        document = SummaryDocumentService(db).run_summary_task_config(config_id, require_enabled=False)
     except Exception as exc:
         log_fetch_error(db, "hermes", "summary_task_config", str(config_id), repr(exc))
         finish_task(db, task_log, "failed", repr(exc))
@@ -138,7 +143,7 @@ def run_summary_task_config_now(config_id: int, db: Session = Depends(get_db)):
     status = "success" if document.status in {"done", "running"} else "failed"
     message = f"summary_task_config_id={config_id};document_id={document.id};status={document.status}"
     finish_task(db, task_log, status, message)
-    return {"status": status, "message": message, "document": VideoInformationService(db).get_summary_document(document.id)}
+    return {"status": status, "message": message, "document": QueryService(db).get_summary_document(document.id)}
 
 
 def _video_note_task_status(result: dict[str, int | str | None]) -> str:
@@ -168,7 +173,7 @@ def _video_note_task_message(result: dict[str, int | str | None], target: str) -
 
 @router.get("/video-sources", response_model=list[VideoSourceOut])
 def list_video_sources(enabled_only: bool = False, db: Session = Depends(get_db)):
-    return VideoInformationService(db).list_sources(enabled_only=enabled_only)
+    return SourceService(db).list_sources(enabled_only=enabled_only)
 
 
 @router.get("/video-sources/page", response_model=VideoSourcePageOut)
@@ -179,7 +184,7 @@ def list_video_sources_page(
     page_size: int | None = None,
     db: Session = Depends(get_db),
 ):
-    return VideoInformationService(db).list_sources_page(
+    return SourceService(db).list_sources_page(
         enabled_only=enabled_only,
         limit=limit,
         page=page,
@@ -190,7 +195,7 @@ def list_video_sources_page(
 @router.post("/video-sources", response_model=VideoSourceOut)
 def create_video_source(payload: VideoSourceCreate, db: Session = Depends(get_db)):
     try:
-        return VideoInformationService(db).create_source(payload)
+        return SourceService(db).create_source(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -198,7 +203,7 @@ def create_video_source(payload: VideoSourceCreate, db: Session = Depends(get_db
 @router.patch("/video-sources/{source_id}", response_model=VideoSourceOut)
 def update_video_source(source_id: int, payload: VideoSourceUpdate, db: Session = Depends(get_db)):
     try:
-        source = VideoInformationService(db).update_source(source_id, payload)
+        source = SourceService(db).update_source(source_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if source is None:
@@ -208,7 +213,7 @@ def update_video_source(source_id: int, payload: VideoSourceUpdate, db: Session 
 
 @router.delete("/video-sources/{source_id}")
 def delete_video_source(source_id: int, db: Session = Depends(get_db)):
-    deleted = VideoInformationService(db).delete_source(source_id)
+    deleted = SourceService(db).delete_source(source_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="video source not found")
     return {"deleted": True}
@@ -236,7 +241,7 @@ def list_videos(
     published_to: date | None = None,
     db: Session = Depends(get_db),
 ):
-    return VideoInformationService(db).list_videos(
+    return QueryService(db).list_videos(
         limit=limit,
         video_id=video_id,
         source_id=source_id,
@@ -262,7 +267,7 @@ def list_videos_page(
     published_to: date | None = None,
     db: Session = Depends(get_db),
 ):
-    return VideoInformationService(db).list_videos_page(
+    return QueryService(db).list_videos_page(
         limit=limit,
         page=page,
         page_size=page_size,
@@ -287,7 +292,7 @@ def _add_manual_link_with_log(payload: ManualLinkCreate, db: Session) -> VideoOu
         target_id=payload.url[:200],
     )
     try:
-        video = VideoInformationService(db).add_manual_link(payload)
+        video = SourceService(db).add_manual_link(payload)
     except ValueError as exc:
         finish_task(db, task_log, "failed", str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -302,6 +307,17 @@ def _add_manual_link_with_log(payload: ManualLinkCreate, db: Session) -> VideoOu
 @router.post("/videos/manual-link", response_model=VideoOut)
 def add_manual_link(payload: ManualLinkCreate, db: Session = Depends(get_db)):
     return _add_manual_link_with_log(payload, db)
+
+
+@router.patch("/videos/{video_id}/category", response_model=VideoOut)
+def update_video_category(video_id: int, payload: VideoCategoryUpdate, db: Session = Depends(get_db)):
+    try:
+        video = SourceService(db).update_video_category(video_id, payload.category)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if video is None:
+        raise HTTPException(status_code=404, detail="内容不存在")
+    return video
 
 
 @router.post("/actions/add-manual-link", response_model=ManualLinkActionOut)
@@ -325,7 +341,7 @@ def list_video_notes(
     published_to: date | None = None,
     db: Session = Depends(get_db),
 ):
-    return VideoInformationService(db).list_notes(
+    return QueryService(db).list_notes(
         limit=limit,
         source_id=source_id,
         video_id=video_id,
@@ -347,7 +363,7 @@ def list_video_notes_page(
     published_to: date | None = None,
     db: Session = Depends(get_db),
 ):
-    return VideoInformationService(db).list_notes_page(
+    return QueryService(db).list_notes_page(
         limit=limit,
         page=page,
         page_size=page_size,
@@ -361,7 +377,7 @@ def list_video_notes_page(
 
 @router.get("/video-notes/{note_id}", response_model=VideoNoteDetailOut)
 def get_video_note(note_id: int, db: Session = Depends(get_db)):
-    note = VideoInformationService(db).get_note_detail(note_id)
+    note = QueryService(db).get_note_detail(note_id)
     if note is None:
         raise HTTPException(status_code=404, detail="video note not found")
     return note
@@ -369,7 +385,7 @@ def get_video_note(note_id: int, db: Session = Depends(get_db)):
 
 @router.get("/video-notes/{note_id}/raw", response_model=VideoNoteRawResponseOut)
 def get_video_note_raw_response(note_id: int, db: Session = Depends(get_db)):
-    note = VideoInformationService(db).get_note_raw_response(note_id)
+    note = QueryService(db).get_note_raw_response(note_id)
     if note is None:
         raise HTTPException(status_code=404, detail="video note not found")
     return note
@@ -383,7 +399,7 @@ def list_summary_documents(
     category: str | None = None,
     db: Session = Depends(get_db),
 ):
-    return VideoInformationService(db).list_summary_documents(
+    return QueryService(db).list_summary_documents(
         limit=limit,
         summary_task_config_id=summary_task_config_id,
         manual_summary=manual_summary,
@@ -401,7 +417,7 @@ def list_summary_documents_page(
     category: str | None = None,
     db: Session = Depends(get_db),
 ):
-    return VideoInformationService(db).list_summary_documents_page(
+    return QueryService(db).list_summary_documents_page(
         limit=limit,
         page=page,
         page_size=page_size,
@@ -413,7 +429,7 @@ def list_summary_documents_page(
 
 @router.get("/summary-documents/{document_id}", response_model=SummaryDocumentOut)
 def get_summary_document(document_id: int, db: Session = Depends(get_db)):
-    document = VideoInformationService(db).get_summary_document(document_id)
+    document = QueryService(db).get_summary_document(document_id)
     if document is None:
         raise HTTPException(status_code=404, detail="summary document not found")
     return document
@@ -421,7 +437,7 @@ def get_summary_document(document_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/summary-documents/{document_id}")
 def delete_summary_document(document_id: int, db: Session = Depends(get_db)):
-    deleted = VideoInformationService(db).delete_summary_document(document_id)
+    deleted = SummaryDocumentService(db).delete_summary_document(document_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="summary document not found")
     return {"deleted": True}
@@ -439,7 +455,7 @@ def scan_videos(
     target = ",".join(str(item) for item in source_ids) if source_ids else str(source_id) if source_id is not None else "all"
     logger.debug("manual video scan requested target=%s limit=%s", target, scan_limit)
     task_log = start_task(db, "手动扫描信息流视频", "scan_information_videos", datetime.now(), target)
-    service = VideoInformationService(db)
+    service = SourceService(db)
     try:
         count = service.scan_sources(source_id=source_id, source_ids=source_ids, limit=scan_limit)
     except Exception as exc:
@@ -477,7 +493,7 @@ def generate_video_notes(
         target_id=target,
     )
     try:
-        result = VideoInformationService(db).submit_pending_note_task(limit=note_limit, video_ids=video_ids)
+        result = NoteService(db).submit_pending_note_task(limit=note_limit, video_ids=video_ids)
     except ValueError as exc:
         log_fetch_error(db, "bilinote", "video_note", "settings", str(exc))
         finish_task(db, task_log, "failed", str(exc))
@@ -508,7 +524,7 @@ def mark_video_notes_failed(
         target,
     )
     try:
-        count = VideoInformationService(db).mark_video_notes_failed(
+        count = NoteService(db).mark_video_notes_failed(
             payload.video_ids,
             payload.error_message,
         )
@@ -534,7 +550,7 @@ def retry_video_note(video_id: int, db: Session = Depends(get_db)):
         target_id=str(video_id),
     )
     try:
-        retried = VideoInformationService(db).retry_video_note(video_id)
+        retried = NoteService(db).retry_video_note(video_id)
     except ValueError as exc:
         finish_task(db, task_log, "failed", str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -562,7 +578,7 @@ def repoll_video_note(note_id: int, db: Session = Depends(get_db)):
         target_id=str(note_id),
     )
     try:
-        repolled = VideoInformationService(db).repoll_video_note(note_id)
+        repolled = NoteService(db).repoll_video_note(note_id)
     except ValueError as exc:
         finish_task(db, task_log, "failed", str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -590,7 +606,7 @@ def regenerate_video_note(note_id: int, db: Session = Depends(get_db)):
         target_id=str(note_id),
     )
     try:
-        regenerated = VideoInformationService(db).regenerate_video_note(note_id)
+        regenerated = NoteService(db).regenerate_video_note(note_id)
     except ValueError as exc:
         finish_task(db, task_log, "failed", str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -622,7 +638,7 @@ def generate_summary_from_notes(
         target_id=target,
     )
     try:
-        document = VideoInformationService(db).create_custom_summary(
+        document = SummaryDocumentService(db).create_custom_summary(
             payload.note_ids,
             title=payload.title,
             summary_instruction=payload.summary_instruction,
@@ -651,7 +667,7 @@ def retry_summary_document(document_id: int, db: Session = Depends(get_db)):
         target_id=str(document_id),
     )
     try:
-        document = VideoInformationService(db).retry_summary_document(document_id)
+        document = SummaryDocumentService(db).retry_summary_document(document_id)
     except ValueError as exc:
         finish_task(db, task_log, "failed", str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc

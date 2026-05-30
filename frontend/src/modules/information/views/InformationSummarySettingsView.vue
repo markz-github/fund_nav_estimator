@@ -26,6 +26,8 @@ const summaryTaskDraft = ref(emptySummaryTask())
 const confirmAction = ref<'disable' | 'delete' | 'run' | null>(null)
 const confirmSummaryTask = ref<SummaryTaskConfig | null>(null)
 const runningConfigId = ref<number | null>(null)
+const selectedTemplateCategory = ref('财经')
+const defaultTemplateExpanded = ref(false)
 
 function emptySummaryTask() {
   return {
@@ -81,6 +83,48 @@ function renderSummaryTitleSample(task: {
 const summaryTaskDialogOpen = computed(() => dialogMode.value !== null)
 const summaryTaskDialogTitle = computed(() => (dialogMode.value === 'edit' ? '修改汇总任务' : '添加汇总任务'))
 const summaryTaskSample = computed(() => renderSummaryTitleSample(summaryTaskDraft.value))
+const templateCategories = computed(() => {
+  const storedTemplateCategories = settings.value?.hermes_summary_document_templates.map((item) => item.category) || []
+  return Array.from(new Set(['财经', ...categories.value, ...storedTemplateCategories])).filter(Boolean)
+})
+const currentSummaryDocumentTemplate = computed({
+  get() {
+    if (!settings.value) return ''
+    return templateSettingForCategory(selectedTemplateCategory.value)?.template_text || ''
+  },
+  set(value: string) {
+    if (!settings.value) return
+    const existing = settings.value.hermes_summary_document_templates.find((item) => item.category === selectedTemplateCategory.value)
+    if (existing) {
+      existing.template_text = value
+      return
+    }
+    settings.value.hermes_summary_document_templates.push({
+      category: selectedTemplateCategory.value,
+      summary_instruction: '',
+      template_text: value,
+    })
+  },
+})
+const currentSummaryInstruction = computed({
+  get() {
+    if (!settings.value) return ''
+    return templateSettingForCategory(selectedTemplateCategory.value)?.summary_instruction || ''
+  },
+  set(value: string) {
+    if (!settings.value) return
+    const existing = templateSettingForCategory(selectedTemplateCategory.value)
+    if (existing) {
+      existing.summary_instruction = value
+      return
+    }
+    settings.value.hermes_summary_document_templates.push({
+      category: selectedTemplateCategory.value,
+      summary_instruction: value,
+      template_text: '',
+    })
+  },
+})
 const confirmDialogOpen = computed(() => confirmAction.value !== null && confirmSummaryTask.value !== null)
 const confirmDialogTitle = computed(() => {
   if (confirmAction.value === 'delete') return '删除汇总任务'
@@ -107,6 +151,7 @@ async function loadPage() {
     settings.value = settingsResult
     summaryTaskConfigs.value = configResult
     categories.value = categoryResult
+    if (!templateCategories.value.includes(selectedTemplateCategory.value)) selectedTemplateCategory.value = templateCategories.value[0] || '财经'
   } catch (error) {
     message.value = apiErrorMessage(error, '汇总设置加载失败。')
   } finally {
@@ -147,14 +192,22 @@ async function saveDefaultInstruction() {
   message.value = ''
   try {
     settings.value = await updateInformationSettings({
-      hermes_summary_instruction: settings.value.hermes_summary_instruction,
+      hermes_summary_document_templates: settings.value.hermes_summary_document_templates,
     })
-    message.value = '默认汇总说明已保存。'
+    message.value = '默认汇总模板已保存。'
   } catch (error) {
-    message.value = apiErrorMessage(error, '保存默认汇总说明失败。')
+    message.value = apiErrorMessage(error, '保存默认汇总模板失败。')
   } finally {
     saving.value = false
   }
+}
+
+function templateForCategory(category: string) {
+  return templateSettingForCategory(category)?.template_text || ''
+}
+
+function templateSettingForCategory(category: string) {
+  return settings.value?.hermes_summary_document_templates.find((item) => item.category === category)
 }
 
 async function addSummaryTaskConfig() {
@@ -292,12 +345,27 @@ onMounted(loadPage)
     <p v-if="message" class="message">{{ message }}</p>
 
     <section v-if="settings" class="note-detail">
-      <h3>默认汇总说明</h3>
-      <label>
-        <textarea v-model="settings.hermes_summary_instruction" rows="6" placeholder="手动汇总默认使用；汇总任务未填写说明时也使用这里。" />
-      </label>
-      <div class="page-actions">
-        <button type="button" :disabled="saving" @click="saveDefaultInstruction">{{ saving ? '保存中...' : '保存默认说明' }}</button>
+      <div class="raw-toolbar">
+        <h3>默认汇总模板</h3>
+        <button class="ghost" type="button" @click="defaultTemplateExpanded = !defaultTemplateExpanded">
+          {{ defaultTemplateExpanded ? '收起模板' : '展开模板' }}
+        </button>
+      </div>
+      <div v-if="defaultTemplateExpanded" class="summary-default-template">
+        <label>
+          汇总说明
+          <select v-model="selectedTemplateCategory" class="template-category-select">
+            <option v-for="category in templateCategories" :key="category" :value="category">{{ category }}</option>
+          </select>
+          <textarea v-model="currentSummaryInstruction" rows="6" placeholder="当前分类的默认汇总说明；汇总任务未填写说明时使用这里。" />
+        </label>
+        <label>
+          输出文档模板
+          <textarea v-model="currentSummaryDocumentTemplate" rows="10" placeholder="Hermes 汇总输出时会按当前分类的 Markdown 结构组织文档。" />
+        </label>
+        <div class="page-actions">
+          <button type="button" :disabled="saving" @click="saveDefaultInstruction">{{ saving ? '保存中...' : '保存默认模板' }}</button>
+        </div>
       </div>
     </section>
 

@@ -30,16 +30,30 @@ export interface InformationSettings {
   bilinote_provider_id: string
   bilinote_model_name: string
   bilinote_quality: string
+  bilinote_extra_templates: BilinoteExtraTemplateSetting[]
   hermes_base_url: string
   hermes_auth_header_name: string
   hermes_api_key: string
   hermes_model: string
   hermes_run_path: string
   hermes_status_path_template: string
-  hermes_summary_instruction: string
+  hermes_summary_document_templates: SummaryDocumentTemplateSetting[]
   wechat_push_webhook_url: string
   wechat_push_token: string
   video_note_recent_days: string
+  video_source_scan_jitter_min_seconds: string
+  video_source_scan_jitter_max_seconds: string
+}
+
+export interface BilinoteExtraTemplateSetting {
+  category: string
+  extras: string
+}
+
+export interface SummaryDocumentTemplateSetting {
+  category: string
+  summary_instruction: string
+  template_text: string
 }
 
 export interface InformationVideo {
@@ -292,6 +306,11 @@ export async function listInformationVideosPage(filters?: InformationVideoFilter
 
 export async function addManualInformationLink(payload: { url: string; category: string }) {
   const { data } = await apiClient.post<InformationVideo>('/information/videos/manual-link', payload, { timeout: 60000 })
+  return data
+}
+
+export async function updateInformationVideoCategory(id: number, category: string) {
+  const { data } = await apiClient.patch<InformationVideo>(`/information/videos/${id}/category`, { category })
   return data
 }
 

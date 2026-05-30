@@ -35,7 +35,20 @@ def ensure_database_exists() -> None:
 def main() -> None:
     ensure_database_exists()
     Base.metadata.create_all(bind=engine)
-
+    inspector = inspect(engine)
+    template_columns = {
+        column["name"]
+        for column in inspector.get_columns("information_summary_document_templates")
+    }
+    if "summary_instruction" not in template_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE information_summary_document_templates "
+                    "ADD COLUMN summary_instruction TEXT NOT NULL "
+                    "COMMENT '默认汇总说明' AFTER category"
+                )
+            )
     inspector = inspect(engine)
     table_names = inspector.get_table_names()
     print("Database initialized.")

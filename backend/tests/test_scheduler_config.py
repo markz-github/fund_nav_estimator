@@ -24,7 +24,6 @@ from app.modules.information.models.task_log import TaskLog
 from app.modules.information.models.video import InformationVideo
 from app.modules.information.models.video_note import InformationVideoNote
 from app.modules.information.models.video_source import InformationVideoSource
-from app.modules.information.services.video_information_service import VideoInformationService
 from app.scheduler.jobs import (
     create_scheduler,
     generate_information_summary_task_config_job,
@@ -83,6 +82,32 @@ class SchedulerConfigTests(unittest.TestCase):
         )
 
     def test_create_scheduler_can_register_only_information_jobs(self) -> None:
+        db = self.SessionLocal()
+        try:
+            db.add(
+                InformationSummaryTaskConfig(
+                    task_name="财经日汇总",
+                    platform="bilibili",
+                    category="财经",
+                    start_days_before=1,
+                    cron_expression="0 7 * * *",
+                    enabled=1,
+                )
+            )
+            db.add(
+                InformationSummaryTaskConfig(
+                    task_name="财经周汇总",
+                    platform="bilibili",
+                    category="财经",
+                    start_days_before=7,
+                    cron_expression="30 7 * * mon",
+                    enabled=1,
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
         with (
             patch("app.scheduler.jobs.get_settings", return_value=settings(False, True)),
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
@@ -103,11 +128,17 @@ class SchedulerConfigTests(unittest.TestCase):
     def test_register_summary_config_jobs_uses_standard_numeric_weekday_cron(self) -> None:
         db = self.SessionLocal()
         try:
-            service = VideoInformationService(db)
-            service.ensure_default_summary_task_configs()
-            config = db.query(InformationSummaryTaskConfig).filter_by(id=2).one()
-            config.cron_expression = "0 7 * * 1"
+            config = InformationSummaryTaskConfig(
+                task_name="财经周汇总",
+                platform="bilibili",
+                category="财经",
+                start_days_before=7,
+                cron_expression="0 7 * * 1",
+                enabled=1,
+            )
+            db.add(config)
             db.commit()
+            config_id = config.id
         finally:
             db.close()
 
@@ -118,7 +149,7 @@ class SchedulerConfigTests(unittest.TestCase):
             scheduler = create_scheduler()
             register_information_summary_task_config_jobs(scheduler)
 
-        job = scheduler.get_job("generate_information_summary_task_config_2")
+        job = scheduler.get_job(f"generate_information_summary_task_config_{config_id}")
         next_fire = job.trigger.get_next_fire_time(None, datetime(2026, 5, 25, 6, 50, tzinfo=scheduler.timezone))
 
         self.assertEqual(next_fire, datetime(2026, 5, 25, 7, 0, tzinfo=scheduler.timezone))
@@ -147,7 +178,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -166,7 +197,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -199,7 +230,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -233,7 +264,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -270,7 +301,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -305,7 +336,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -321,7 +352,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.SourceService", return_value=service),
         ):
             scan_information_videos_job()
 
@@ -337,7 +368,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.SourceService", return_value=service),
         ):
             scan_information_videos_job()
 
@@ -450,7 +481,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.SummaryDocumentService", return_value=service),
         ):
             generate_information_summary_task_config_job(7)
 
@@ -462,7 +493,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.SummaryDocumentService", return_value=service),
         ):
             generate_information_summary_task_config_job(7)
 
@@ -480,7 +511,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.SummaryDocumentService", return_value=service),
         ):
             poll_information_summary_documents_job()
 
@@ -498,7 +529,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.SummaryDocumentService", return_value=service),
         ):
             poll_information_summary_documents_job()
 
@@ -519,7 +550,7 @@ class SchedulerConfigTests(unittest.TestCase):
 
         with (
             patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.VideoInformationService", return_value=service),
+            patch("app.scheduler.jobs.SummaryDocumentService", return_value=service),
         ):
             poll_information_summary_documents_job()
 

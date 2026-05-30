@@ -128,6 +128,17 @@ class VideoSourcePageOut(BaseModel):
     page_size: int
 
 
+class SummaryDocumentTemplateSetting(BaseModel):
+    category: str
+    summary_instruction: str = ""
+    template_text: str
+
+
+class BilinoteExtraTemplateSetting(BaseModel):
+    category: str
+    extras: str = ""
+
+
 class InformationSettingsOut(BaseModel):
     bilibili_cookie: str
     article_filter_keywords: str
@@ -135,16 +146,19 @@ class InformationSettingsOut(BaseModel):
     bilinote_provider_id: str
     bilinote_model_name: str
     bilinote_quality: str
+    bilinote_extra_templates: list[BilinoteExtraTemplateSetting]
     hermes_base_url: str
     hermes_auth_header_name: str
     hermes_api_key: str
     hermes_model: str
     hermes_run_path: str
     hermes_status_path_template: str
-    hermes_summary_instruction: str
+    hermes_summary_document_templates: list[SummaryDocumentTemplateSetting]
     wechat_push_webhook_url: str
     wechat_push_token: str
     video_note_recent_days: str
+    video_source_scan_jitter_min_seconds: str
+    video_source_scan_jitter_max_seconds: str
 
 
 class InformationSettingsUpdate(BaseModel):
@@ -154,16 +168,19 @@ class InformationSettingsUpdate(BaseModel):
     bilinote_provider_id: str | None = None
     bilinote_model_name: str | None = None
     bilinote_quality: str | None = None
+    bilinote_extra_templates: list[BilinoteExtraTemplateSetting] | None = None
     hermes_base_url: str | None = None
     hermes_auth_header_name: str | None = None
     hermes_api_key: str | None = None
     hermes_model: str | None = None
     hermes_run_path: str | None = None
     hermes_status_path_template: str | None = None
-    hermes_summary_instruction: str | None = None
+    hermes_summary_document_templates: list[SummaryDocumentTemplateSetting] | None = None
     wechat_push_webhook_url: str | None = None
     wechat_push_token: str | None = None
     video_note_recent_days: str | None = None
+    video_source_scan_jitter_min_seconds: str | None = None
+    video_source_scan_jitter_max_seconds: str | None = None
 
     @field_validator("video_note_recent_days", mode="before")
     @classmethod
@@ -217,6 +234,18 @@ class ManualLinkCreate(BaseModel):
     category: str
 
     @field_validator("url", "category")
+    @classmethod
+    def not_blank(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("不能为空")
+        return text
+
+
+class VideoCategoryUpdate(BaseModel):
+    category: str
+
+    @field_validator("category")
     @classmethod
     def not_blank(cls, value: str) -> str:
         text = str(value or "").strip()

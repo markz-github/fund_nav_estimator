@@ -13,6 +13,7 @@ import {
   listVideoSources,
   markVideoNotesFailed,
   retryVideoNote,
+  updateInformationVideoCategory,
   type InformationVideo,
   type StatusOption,
   type VideoNote,
@@ -39,6 +40,9 @@ const selectedVideoIds = ref<number[]>([])
 const retryingVideoId = ref<number | null>(null)
 const manualLinkDialogOpen = ref(false)
 const savingManualLink = ref(false)
+const categoryDialogOpen = ref(false)
+const savingCategory = ref(false)
+const categoryDraft = ref('')
 const confirmDialogOpen = ref(false)
 const confirmAction = ref<'markFailed' | 'retry' | null>(null)
 const confirmVideo = ref<InformationVideo | null>(null)
@@ -294,6 +298,44 @@ async function submitManualLink() {
   }
 }
 
+function openCategoryDialog() {
+  if (selectedVideoIds.value.length === 0) {
+    message.value = '请先选择要修改分类的内容。'
+    return
+  }
+  const firstSelectedVideo = videos.value.find((video) => selectedVideoIds.value.includes(video.id))
+  categoryDraft.value = firstSelectedVideo?.category || videoFilters.value.category || ''
+  categoryDialogOpen.value = true
+}
+
+function closeCategoryDialog() {
+  if (savingCategory.value) return
+  categoryDialogOpen.value = false
+  categoryDraft.value = ''
+}
+
+async function submitCategoryChange() {
+  const category = categoryDraft.value.trim()
+  if (selectedVideoIds.value.length === 0 || !category) {
+    message.value = '请填写分类。'
+    return
+  }
+  savingCategory.value = true
+  try {
+    const targetVideoIds = [...selectedVideoIds.value]
+    await Promise.all(targetVideoIds.map((videoId) => updateInformationVideoCategory(videoId, category)))
+    message.value = `已将 ${targetVideoIds.length} 条内容的分类修改为 ${category}。`
+    categoryDialogOpen.value = false
+    categoryDraft.value = ''
+    categories.value = await listInformationCategories()
+    await loadAll({ keepMessage: true })
+  } catch (error) {
+    message.value = apiErrorMessage(error, '修改分类失败。')
+  } finally {
+    savingCategory.value = false
+  }
+}
+
 function toggleVideoSelection(videoId: number, checked: boolean) {
   if (checked) {
     selectedVideoIds.value = Array.from(new Set([...selectedVideoIds.value, videoId]))
@@ -391,6 +433,9 @@ watch(
         <button type="button" @click="openManualLinkDialog">添加链接</button>
         <button class="ghost" :disabled="runningAction === 'notes'" @click="runAction('notes')">
           {{ runningAction === 'notes' ? '生成中...' : selectedVideoIds.length ? `生成选中 ${selectedVideoIds.length} 条笔记` : '生成待处理笔记' }}
+        </button>
+        <button class="ghost" type="button" :disabled="savingCategory || selectedVideoIds.length === 0" @click="openCategoryDialog">
+          {{ savingCategory ? '保存中...' : selectedVideoIds.length ? `修改分类 ${selectedVideoIds.length} 条` : '修改分类' }}
         </button>
         <button class="danger" :disabled="runningAction === 'markFailed' || selectedVideoIds.length === 0" @click="openConfirmDialog('markFailed')">
           {{ runningAction === 'markFailed' ? '处理中...' : selectedVideoIds.length ? `置为失败 ${selectedVideoIds.length} 条` : '置为失败' }}
@@ -533,23 +578,24 @@ watch(
             </td>
             <td>{{ formatDateTime(video.published_at) }}</td>
             <td>
-              <RouterLink
-                v-if="notesByVideoId.get(video.id)?.status === 'done'"
-                class="link-button"
-                :to="`/information/notes/${notesByVideoId.get(video.id)?.id}`"
-              >
-                查看
-              </RouterLink>
-              <button
-                v-else-if="video.status === 'note_failed'"
-                class="link-button"
-                type="button"
-                :disabled="retryingVideoId === video.id"
-                @click="openConfirmDialog('retry', video)"
-              >
-                {{ retryingVideoId === video.id ? '重试中...' : '重试' }}
-              </button>
-              <span v-else class="muted">-</span>
+              <div class="quick-actions">
+                <RouterLink
+                  v-if="notesByVideoId.get(video.id)?.status === 'done'"
+                  class="link-button"
+                  :to="`/information/notes/${notesByVideoId.get(video.id)?.id}`"
+                >
+                  查看
+                </RouterLink>
+                <button
+                  v-else-if="video.status === 'note_failed'"
+                  class="link-button"
+                  type="button"
+                  :disabled="retryingVideoId === video.id"
+                  @click="openConfirmDialog('retry', video)"
+                >
+                  {{ retryingVideoId === video.id ? '重试中...' : '重试' }}
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -580,6 +626,25 @@ watch(
           <div class="form-actions settings-wide">
             <button class="ghost" type="button" :disabled="savingManualLink" @click="closeManualLinkDialog">取消</button>
             <button type="submit" :disabled="savingManualLink">{{ savingManualLink ? '添加中...' : '添加' }}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div v-if="categoryDialogOpen" class="modal-backdrop" @click.self="closeCategoryDialog">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="video-category-title">
+        <h2 id="video-category-title">修改分类</h2>
+        <form class="settings-grid" @submit.prevent="submitCategoryChange">
+          <label class="settings-wide">
+            分类
+            <input v-model="categoryDraft" list="video-category-options" required placeholder="输入或选择分类" />
+            <datalist id="video-category-options">
+              <option v-for="category in categories" :key="category" :value="category" />
+            </datalist>
+          </label>
+          <div class="form-actions settings-wide">
+            <button class="ghost" type="button" :disabled="savingCategory" @click="closeCategoryDialog">取消</button>
+            <button type="submit" :disabled="savingCategory">{{ savingCategory ? '保存中...' : '保存分类' }}</button>
           </div>
         </form>
       </section>
