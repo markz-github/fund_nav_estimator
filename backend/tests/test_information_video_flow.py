@@ -1358,6 +1358,27 @@ class InformationVideoFlowTests(unittest.TestCase):
             },
         )
 
+    def test_wechat_push_client_removes_any_leading_h1_title(self) -> None:
+        response = Mock()
+        response.json.return_value = {"ok": True, "sent": 1}
+
+        with patch("app.modules.information.services.wechat_push_client.requests.post", return_value=response) as post:
+            WechatPushClient("http://wechat.local/api/wechat/push").push_summary(
+                title="配置汇总（第2次）",
+                content="# 2026-05-29 bilibili 财经汇总\n\n## 要点\n- 内容",
+                summary_date="2026-05-29",
+                platform="bilibili",
+                document_id=12,
+            )
+
+        self.assertEqual(
+            post.call_args.kwargs["json"],
+            {
+                "text": "# 配置汇总（第2次）\n\n## 要点\n- 内容",
+                "format_markdown": True,
+            },
+        )
+
     def test_summary_task_config_normalizes_standard_numeric_weekday_cron(self) -> None:
         config = VideoInformationService(self.db).create_summary_task_config(
             SummaryTaskConfigCreate(
@@ -2605,6 +2626,7 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         self.assertIn("请以 Markdown 格式输出", prompt)
         self.assertIn("使用 #、##、### 组织标题层级", prompt)
+        self.assertIn("正文直接从 ## 二级标题开始", prompt)
         self.assertIn("重点标注要求", prompt)
         self.assertIn("**重点：...**", prompt)
         self.assertIn("不要输出 HTML", prompt)

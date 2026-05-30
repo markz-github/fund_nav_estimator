@@ -23,10 +23,20 @@ def _strip_duplicate_heading(content: str, title: str) -> str:
     title_text = _normalize_title(title)
     if not title_text:
         return content
-    match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*(?:\r?\n|$)", content)
+    match = re.match(r"^\s{0,3}#\s+(.+?)\s*#*\s*(?:\r?\n|$)", content)
     if not match:
         return content
     if _normalize_title(match.group(1)) != title_text:
+        return content
+    return content[match.end():].lstrip()
+
+
+def _strip_leading_title(content: str, title: str) -> str:
+    stripped_content = _strip_duplicate_heading(content, title)
+    if stripped_content != content:
+        return stripped_content
+    match = re.match(r"^\s{0,3}#\s+.+?\s*#*\s*(?:\r?\n|$)", content)
+    if not match:
         return content
     return content[match.end():].lstrip()
 
@@ -54,7 +64,7 @@ class WechatPushClient:
     ) -> WechatPushResult:
         if not self.webhook_url:
             raise ValueError("Wechat push webhook URL is not configured")
-        content_text = _strip_duplicate_heading(content, title)
+        content_text = _strip_leading_title(content, title)
         payload = {
             "text": f"# {title}\n\n{content_text}".strip(),
             "format_markdown": True,

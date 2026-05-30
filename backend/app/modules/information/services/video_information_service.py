@@ -2204,6 +2204,7 @@ class VideoInformationService:
             f"{instruction_block}"
             "要求：提炼主题、关键观点、可执行信息和待跟进事项；去重，按主题分组。\n"
             "重点标注要求：请主动识别值得关注的核心结论、风险信号、分歧观点和行动建议，使用 **重点：...** 或 **风险：...** 进行醒目标注。\n"
+            "标题要求：不要额外输出封面标题或一级标题，正文直接从 ## 二级标题开始。\n"
             f"{markdown_output_instruction()}\n\n"
             + "\n\n".join(blocks)
         )
