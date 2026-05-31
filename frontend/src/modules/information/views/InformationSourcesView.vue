@@ -22,6 +22,7 @@ const loading = ref(false)
 const savingSource = ref(false)
 const scanning = ref(false)
 const message = ref('')
+const sourceFormMessage = ref('')
 const categories = ref<string[]>(['财经'])
 const dialogMode = ref<'add' | 'edit' | null>(null)
 const editingSourceId = ref<number | null>(null)
@@ -85,13 +86,23 @@ async function loadSources(options?: { keepMessage?: boolean }) {
 }
 
 async function submitSource() {
-  if (!sourceDraft.value.source_name.trim() || !sourceDraft.value.external_source_id.trim()) return
+  const sourceName = sourceDraft.value.source_name.trim()
+  const externalSourceId = sourceDraft.value.external_source_id.trim()
+  sourceFormMessage.value = ''
+  if (!sourceName) {
+    sourceFormMessage.value = '请填写账号名称。'
+    return
+  }
+  if (!externalSourceId) {
+    sourceFormMessage.value = '请填写 UID 或主页。'
+    return
+  }
   savingSource.value = true
   try {
     const payload = {
       platform: 'bilibili',
-      source_name: sourceDraft.value.source_name.trim(),
-      external_source_id: sourceDraft.value.external_source_id.trim(),
+      source_name: sourceName,
+      external_source_id: externalSourceId,
       source_url: sourceDraft.value.source_url.trim() || undefined,
       category: sourceDraft.value.category.trim() || '财经',
       remark: sourceDraft.value.remark.trim() || undefined,
@@ -103,10 +114,15 @@ async function submitSource() {
       await createVideoSource(payload)
       message.value = '信息源已添加。'
     }
-    closeSourceDialog()
+    dialogMode.value = null
+    editingSourceId.value = null
+    sourceFormMessage.value = ''
     await loadSources({ keepMessage: true })
   } catch (error) {
-    message.value = apiErrorMessage(error, dialogMode.value === 'edit' ? '保存信息源失败，请检查 UID 或主页 URL。' : '新增信息源失败，请检查 UID 或主页 URL。')
+    sourceFormMessage.value = apiErrorMessage(
+      error,
+      dialogMode.value === 'edit' ? '保存信息源失败，请检查 UID 或主页 URL。' : '新增信息源失败，请检查 UID 或主页 URL。',
+    )
   } finally {
     savingSource.value = false
   }
@@ -115,6 +131,7 @@ async function submitSource() {
 function openAddDialog() {
   sourceDraft.value = emptySourceDraft()
   editingSourceId.value = null
+  sourceFormMessage.value = ''
   dialogMode.value = 'add'
 }
 
@@ -128,6 +145,7 @@ function openEditDialog(source: VideoSource) {
     remark: source.remark ?? '',
   }
   editingSourceId.value = source.id
+  sourceFormMessage.value = ''
   dialogMode.value = 'edit'
 }
 
@@ -135,6 +153,7 @@ function closeSourceDialog() {
   if (savingSource.value) return
   dialogMode.value = null
   editingSourceId.value = null
+  sourceFormMessage.value = ''
 }
 
 async function toggleSource(source: VideoSource) {
@@ -342,13 +361,14 @@ onMounted(loadSources)
     <div v-if="sourceDialogOpen" class="modal-backdrop" @click.self="closeSourceDialog">
       <section class="confirm-dialog summary-task-dialog" role="dialog" aria-modal="true" aria-labelledby="source-dialog-title">
         <h2 id="source-dialog-title">{{ sourceDialogTitle }}</h2>
-        <div class="settings-grid">
-          <label>账号名称<input v-model="sourceDraft.source_name" /></label>
-          <label>UID 或主页<input v-model="sourceDraft.external_source_id" placeholder="UID 或 space 主页 URL" /></label>
+        <p v-if="sourceFormMessage" class="message">{{ sourceFormMessage }}</p>
+        <form class="settings-grid" @submit.prevent="submitSource">
+          <label>账号名称<input v-model="sourceDraft.source_name" required /></label>
+          <label>UID 或主页<input v-model="sourceDraft.external_source_id" required placeholder="UID 或 space 主页 URL" /></label>
           <label class="settings-wide">主页 URL<input v-model="sourceDraft.source_url" placeholder="可选" /></label>
           <label>分类<input v-model="sourceDraft.category" list="source-categories" placeholder="财经" /></label>
           <label class="settings-wide">备注<input v-model="sourceDraft.remark" /></label>
-        </div>
+        </form>
         <div class="dialog-actions">
           <button class="ghost" type="button" :disabled="savingSource" @click="closeSourceDialog">取消</button>
           <button type="button" :disabled="savingSource" @click="submitSource">
