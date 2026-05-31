@@ -164,6 +164,8 @@ export interface InformationVideoFilters {
   ingestMethod?: string
   publishedFrom?: string
   publishedTo?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 function apiDate(value?: string) {
@@ -283,6 +285,8 @@ export async function listInformationVideos(filters?: InformationVideoFilters) {
       ingest_method: filters?.ingestMethod || undefined,
       published_from: apiDate(filters?.publishedFrom),
       published_to: apiDate(filters?.publishedTo),
+      sort_by: filters?.sortBy || undefined,
+      sort_order: filters?.sortOrder || undefined,
     },
   })
   return data
@@ -300,6 +304,8 @@ export async function listInformationVideosPage(filters?: InformationVideoFilter
       ingest_method: filters?.ingestMethod || undefined,
       published_from: apiDate(filters?.publishedFrom),
       published_to: apiDate(filters?.publishedTo),
+      sort_by: filters?.sortBy || undefined,
+      sort_order: filters?.sortOrder || undefined,
     },
   })
   return data
@@ -340,6 +346,8 @@ export async function listVideoNotesPage(filters?: {
   status?: string
   publishedFrom?: string
   publishedTo?: string
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
   page?: number
   pageSize?: number
 }) {
@@ -352,6 +360,8 @@ export async function listVideoNotesPage(filters?: {
       status: filters?.status || undefined,
       published_from: apiDate(filters?.publishedFrom),
       published_to: apiDate(filters?.publishedTo),
+      sort_by: filters?.sortBy || undefined,
+      sort_order: filters?.sortOrder || undefined,
     },
   })
   return data

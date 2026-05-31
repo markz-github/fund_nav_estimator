@@ -48,16 +48,7 @@ const confirmDialogOpen = ref(false)
 const confirmAction = ref<'regenerate' | 'repoll' | null>(null)
 const confirmNote = ref<VideoNote | null>(null)
 
-const sortedNotes = computed(() => {
-  const items = [...notes.value]
-  items.sort((left, right) => {
-    const direction = sortOrder.value === 'asc' ? 1 : -1
-    return noteSortValue(left, sortBy.value).localeCompare(noteSortValue(right, sortBy.value), 'zh-Hans-CN') * direction
-  })
-  return items
-})
-
-const selectableNotes = computed(() => sortedNotes.value.filter((note) => note.status === 'done' && note.note_text))
+const selectableNotes = computed(() => notes.value.filter((note) => note.status === 'done' && note.note_text))
 const totalPages = computed(() => Math.max(1, Math.ceil(totalNotes.value / pageSize.value)))
 const hasActiveFilters = computed(
   () =>
@@ -88,6 +79,8 @@ async function loadNotes() {
       status: selectedStatus.value || undefined,
       publishedFrom: publishedFrom.value || undefined,
       publishedTo: publishedTo.value || undefined,
+      sortBy: sortBy.value,
+      sortOrder: sortOrder.value,
     })
     notes.value = result.items
     totalNotes.value = result.total
@@ -146,6 +139,14 @@ function applyQueryFilters() {
   publishedTo.value = allDatesSelected ? '' : displayDateValue(route.query.published_to)
   const queryPage = Number(route.query.page)
   currentPage.value = Number.isFinite(queryPage) && queryPage > 0 ? Math.floor(queryPage) : 1
+  const querySortBy = typeof route.query.sort_by === 'string' ? route.query.sort_by : ''
+  const querySortOrder = typeof route.query.sort_order === 'string' ? route.query.sort_order : ''
+  if (['published_at', 'title', 'source', 'status', 'generated_at'].includes(querySortBy)) {
+    sortBy.value = querySortBy as typeof sortBy.value
+  } else {
+    sortBy.value = 'published_at'
+  }
+  sortOrder.value = querySortOrder === 'asc' ? 'asc' : 'desc'
 }
 
 function filterQuery() {
@@ -157,6 +158,8 @@ function filterQuery() {
     published_from: publishedFrom.value || undefined,
     published_to: publishedTo.value || undefined,
     date_range: hasDateFilter ? undefined : 'all',
+    sort_by: sortBy.value !== 'published_at' ? sortBy.value : undefined,
+    sort_order: sortOrder.value !== 'desc' ? sortOrder.value : undefined,
     page: currentPage.value > 1 ? String(currentPage.value) : undefined,
   }
 }
@@ -205,21 +208,16 @@ function defaultPublishedFrom() {
   return dateInputValue(date)
 }
 
-function noteSortValue(note: VideoNote, key: typeof sortBy.value) {
-  if (key === 'published_at') return note.video_published_at || ''
-  if (key === 'title') return note.video_title || ''
-  if (key === 'source') return note.source_name || ''
-  if (key === 'status') return note.status_label || note.status || ''
-  return note.generated_at || ''
-}
-
-function toggleSort(key: typeof sortBy.value) {
+async function toggleSort(key: typeof sortBy.value) {
   if (sortBy.value === key) {
     sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
-    return
+  } else {
+    sortBy.value = key
+    sortOrder.value = key === 'published_at' || key === 'generated_at' ? 'desc' : 'asc'
   }
-  sortBy.value = key
-  sortOrder.value = key === 'published_at' || key === 'generated_at' ? 'desc' : 'asc'
+  currentPage.value = 1
+  await router.replace({ name: 'information-notes', query: filterQuery() })
+  await loadNotes()
 }
 
 function sortIndicator(key: typeof sortBy.value) {
@@ -446,10 +444,10 @@ watch(
           </tr>
         </thead>
         <tbody>
-          <tr v-if="sortedNotes.length === 0">
+          <tr v-if="notes.length === 0">
             <td colspan="9">暂无笔记。</td>
           </tr>
-          <tr v-for="note in sortedNotes" :key="note.id">
+          <tr v-for="note in notes" :key="note.id">
             <td>
               <input
                 class="row-check"

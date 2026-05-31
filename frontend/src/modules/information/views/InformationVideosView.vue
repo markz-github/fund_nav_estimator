@@ -72,19 +72,9 @@ const notesByVideoId = computed(() => {
   return latestNotes
 })
 const allVideosSelected = computed(
-  () => sortedVideos.value.length > 0 && sortedVideos.value.every((video) => selectedVideoIds.value.includes(video.id)),
+  () => videos.value.length > 0 && videos.value.every((video) => selectedVideoIds.value.includes(video.id)),
 )
 const totalPages = computed(() => Math.max(1, Math.ceil(totalVideos.value / pageSize.value)))
-const sortedVideos = computed(() => {
-  const items = [...videos.value]
-  items.sort((left, right) => {
-    const direction = sortOrder.value === 'asc' ? 1 : -1
-    const leftValue = videoSortValue(left, sortBy.value)
-    const rightValue = videoSortValue(right, sortBy.value)
-    return leftValue.localeCompare(rightValue, 'zh-Hans-CN') * direction
-  })
-  return items
-})
 const confirmTitle = computed(() => {
   if (confirmAction.value === 'markFailed') return '置为失败'
   if (confirmAction.value === 'markInvalid') return '置为无效内容'
@@ -135,6 +125,8 @@ async function loadAll(options?: { keepMessage?: boolean }) {
         ingestMethod: videoFilters.value.ingestMethod || undefined,
         publishedFrom: videoFilters.value.publishedFrom || undefined,
         publishedTo: videoFilters.value.publishedTo || undefined,
+        sortBy: sortBy.value,
+        sortOrder: sortOrder.value,
       }),
       listVideoNotes(),
     ])
@@ -184,6 +176,14 @@ function applyQueryFilters() {
   }
   const queryPage = Number(route.query.page)
   currentPage.value = Number.isFinite(queryPage) && queryPage > 0 ? Math.floor(queryPage) : 1
+  const querySortBy = typeof route.query.sort_by === 'string' ? route.query.sort_by : ''
+  const querySortOrder = typeof route.query.sort_order === 'string' ? route.query.sort_order : ''
+  if (['published_at', 'title', 'source', 'status'].includes(querySortBy)) {
+    sortBy.value = querySortBy as typeof sortBy.value
+  } else {
+    sortBy.value = 'published_at'
+  }
+  sortOrder.value = querySortOrder === 'asc' ? 'asc' : 'desc'
 }
 
 function filterQuery() {
@@ -197,6 +197,8 @@ function filterQuery() {
     published_from: videoFilters.value.publishedFrom || undefined,
     published_to: videoFilters.value.publishedTo || undefined,
     date_range: hasDateFilter ? undefined : 'all',
+    sort_by: sortBy.value !== 'published_at' ? sortBy.value : undefined,
+    sort_order: sortOrder.value !== 'desc' ? sortOrder.value : undefined,
     page: currentPage.value > 1 ? String(currentPage.value) : undefined,
   }
 }
@@ -357,7 +359,7 @@ function toggleVideoSelection(videoId: number, checked: boolean) {
 }
 
 function toggleAllVideos(checked: boolean) {
-  selectedVideoIds.value = checked ? sortedVideos.value.map((video) => video.id) : []
+  selectedVideoIds.value = checked ? videos.value.map((video) => video.id) : []
 }
 
 async function applyVideoFilters() {
@@ -387,20 +389,16 @@ async function goToPage(page: number) {
   await loadAll()
 }
 
-function videoSortValue(video: InformationVideo, key: typeof sortBy.value) {
-  if (key === 'published_at') return video.published_at || ''
-  if (key === 'title') return video.title || ''
-  if (key === 'source') return video.source_name || video.author_name || ''
-  return video.status_label || video.status || ''
-}
-
-function toggleSort(key: typeof sortBy.value) {
+async function toggleSort(key: typeof sortBy.value) {
   if (sortBy.value === key) {
     sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
-    return
+  } else {
+    sortBy.value = key
+    sortOrder.value = key === 'published_at' ? 'desc' : 'asc'
   }
-  sortBy.value = key
-  sortOrder.value = key === 'published_at' ? 'desc' : 'asc'
+  currentPage.value = 1
+  await router.replace({ name: 'information-videos', query: filterQuery() })
+  await loadAll()
 }
 
 function sortIndicator(key: typeof sortBy.value) {
@@ -536,7 +534,7 @@ watch(
                 class="row-check"
                 type="checkbox"
                 :checked="allVideosSelected"
-                :disabled="loading || sortedVideos.length === 0"
+                :disabled="loading || videos.length === 0"
                 @change="toggleAllVideos(($event.target as HTMLInputElement).checked)"
               />
             </th>
@@ -561,10 +559,10 @@ watch(
           </tr>
         </thead>
         <tbody>
-          <tr v-if="sortedVideos.length === 0">
+          <tr v-if="videos.length === 0">
             <td colspan="11">暂无内容。</td>
           </tr>
-          <tr v-for="video in sortedVideos" :key="video.id">
+          <tr v-for="video in videos" :key="video.id">
             <td>
               <input
                 class="row-check"

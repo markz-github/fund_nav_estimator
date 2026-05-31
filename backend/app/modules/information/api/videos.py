@@ -266,6 +266,8 @@ def list_videos_page(
     ingest_method: str | None = None,
     published_from: date | None = None,
     published_to: date | None = None,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     db: Session = Depends(get_db),
 ):
     return QueryService(db).list_videos_page(
@@ -279,6 +281,8 @@ def list_videos_page(
         ingest_method=ingest_method,
         published_from=published_from,
         published_to=published_to,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
 
@@ -362,6 +366,8 @@ def list_video_notes_page(
     status: str | None = None,
     published_from: date | None = None,
     published_to: date | None = None,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     db: Session = Depends(get_db),
 ):
     return QueryService(db).list_notes_page(
@@ -373,6 +379,8 @@ def list_video_notes_page(
         status=status,
         published_from=published_from,
         published_to=published_to,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
 

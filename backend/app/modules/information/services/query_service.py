@@ -4,6 +4,37 @@ from app.modules.information.services.common import *
 
 
 class QueryService(InformationServiceBase):
+    @staticmethod
+    def _sort_order(sort_order: str | None) -> str:
+        return "asc" if str(sort_order or "").lower() == "asc" else "desc"
+
+    def _apply_sort(self, statement, sort_column, sort_order: str | None, *fallback_columns):
+        direction = self._sort_order(sort_order)
+        ordered_column = sort_column.asc() if direction == "asc" else sort_column.desc()
+        fallbacks = [column.desc() for column in fallback_columns]
+        return statement.order_by(ordered_column, *fallbacks)
+
+    def _video_ordered_statement(self, statement, sort_by: str | None, sort_order: str | None):
+        sort_columns = {
+            "published_at": InformationVideo.published_at,
+            "title": InformationVideo.title,
+            "source": func.coalesce(InformationVideoSource.source_name, InformationVideo.author_name),
+            "status": InformationVideo.status,
+        }
+        sort_column = sort_columns.get(sort_by or "published_at", InformationVideo.published_at)
+        return self._apply_sort(statement, sort_column, sort_order, InformationVideo.created_at, InformationVideo.id)
+
+    def _note_ordered_statement(self, statement, sort_by: str | None, sort_order: str | None):
+        sort_columns = {
+            "published_at": InformationVideo.published_at,
+            "title": InformationVideo.title,
+            "source": func.coalesce(InformationVideoSource.source_name, InformationVideo.author_name),
+            "status": InformationVideoNote.status,
+            "generated_at": InformationVideoNote.generated_at,
+        }
+        sort_column = sort_columns.get(sort_by or "published_at", InformationVideo.published_at)
+        return self._apply_sort(statement, sort_column, sort_order, InformationVideo.created_at, InformationVideoNote.created_at)
+
     def list_videos(
         self,
         limit: int = 100,
@@ -49,8 +80,10 @@ class QueryService(InformationServiceBase):
         ingest_method: str | None = None,
         published_from: date | None = None,
         published_to: date | None = None,
+        sort_by: str | None = None,
+        sort_order: str | None = None,
     ) -> dict[str, object]:
-        statement = select(InformationVideo)
+        statement = select(InformationVideo).outerjoin(InformationVideoSource, InformationVideoSource.id == InformationVideo.source_id)
         if video_id is not None:
             statement = statement.where(InformationVideo.id == video_id)
         if source_id is not None:
@@ -74,7 +107,7 @@ class QueryService(InformationServiceBase):
             offset = (effective_page - 1) * effective_page_size
         items = list(
             self.db.scalars(
-                statement.order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
+                self._video_ordered_statement(statement, sort_by, sort_order)
                 .offset(offset)
                 .limit(effective_page_size)
             ).all()
@@ -119,11 +152,13 @@ class QueryService(InformationServiceBase):
         status: str | None = None,
         published_from: date | None = None,
         published_to: date | None = None,
+        sort_by: str | None = None,
+        sort_order: str | None = None,
     ) -> dict[str, object]:
         statement = select(InformationVideoNote, InformationVideo.title).join(
             InformationVideo,
             InformationVideo.id == InformationVideoNote.video_id,
-        )
+        ).outerjoin(InformationVideoSource, InformationVideoSource.id == InformationVideo.source_id)
         if source_id is not None:
             statement = statement.where(InformationVideo.source_id == source_id)
         if video_id is not None:
@@ -141,11 +176,7 @@ class QueryService(InformationServiceBase):
             effective_page = min(effective_page, max_page)
             offset = (effective_page - 1) * effective_page_size
         rows = self.db.execute(
-            statement.order_by(
-                InformationVideo.published_at.desc(),
-                InformationVideo.created_at.desc(),
-                InformationVideoNote.created_at.desc(),
-            )
+            self._note_ordered_statement(statement, sort_by, sort_order)
             .offset(offset)
             .limit(effective_page_size)
         ).all()

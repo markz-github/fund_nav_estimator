@@ -1874,6 +1874,95 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         self.assertEqual([video.external_video_id for video in videos_by_id], ["BV-failed"])
 
+    def test_list_videos_page_sorts_by_source_on_backend(self) -> None:
+        first_source = InformationVideoSource(
+            platform="bilibili",
+            source_name="source-b",
+            external_source_id="222",
+            enabled=1,
+        )
+        second_source = InformationVideoSource(
+            platform="bilibili",
+            source_name="source-a",
+            external_source_id="111",
+            enabled=1,
+        )
+        self.db.add_all([first_source, second_source])
+        self.db.commit()
+        first_video = InformationVideo(
+            source_id=first_source.id,
+            platform="bilibili",
+            external_video_id="BV-source-sort-b",
+            title="来源排序乙",
+            video_url="https://www.bilibili.com/video/BV-source-sort-b",
+            status="note_pending",
+        )
+        second_video = InformationVideo(
+            source_id=second_source.id,
+            platform="bilibili",
+            external_video_id="BV-source-sort-a",
+            title="来源排序甲",
+            video_url="https://www.bilibili.com/video/BV-source-sort-a",
+            status="note_pending",
+        )
+        self.db.add_all([first_video, second_video])
+        self.db.commit()
+
+        page = InformationService(self.db).list_videos_page(
+            page=1,
+            page_size=1,
+            sort_by="source",
+            sort_order="asc",
+        )
+
+        self.assertEqual(page["total"], 2)
+        self.assertEqual([video.external_video_id for video in page["items"]], ["BV-source-sort-a"])
+
+    def test_list_notes_page_sorts_by_video_title_on_backend(self) -> None:
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        first_video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-note-sort-b",
+            title="b-video",
+            video_url="https://www.bilibili.com/video/BV-note-sort-b",
+            status="note_done",
+        )
+        second_video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-note-sort-a",
+            title="a-video",
+            video_url="https://www.bilibili.com/video/BV-note-sort-a",
+            status="note_done",
+        )
+        self.db.add_all([first_video, second_video])
+        self.db.commit()
+        self.db.add_all(
+            [
+                InformationVideoNote(video_id=first_video.id, provider="bilinote", status="done", note_text="乙"),
+                InformationVideoNote(video_id=second_video.id, provider="bilinote", status="done", note_text="甲"),
+            ]
+        )
+        self.db.commit()
+
+        page = InformationService(self.db).list_notes_page(
+            page=1,
+            page_size=1,
+            sort_by="title",
+            sort_order="asc",
+        )
+
+        self.assertEqual(page["total"], 2)
+        self.assertEqual([note["video_title"] for note in page["items"]], ["a-video"])
+
     def test_generate_notes_can_target_selected_videos(self) -> None:
         InformationSettingsService(self.db).update_settings(
             {
