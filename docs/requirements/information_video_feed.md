@@ -36,6 +36,7 @@
   - 根据视频链接调用本地 Bilinote。
   - 对视频投稿，Bilinote 负责生成笔记；对图文投稿，Hermes 负责生成笔记。两者在系统中都是 `information_video_notes`，通过 `provider` 区分。
   - 前端手动生成总结支持选择一个或多个视频；未选择时按默认规则处理待生成总结的视频。
+  - 手动多选生成笔记采用“批量入队、单任务依次执行”语义：后端为选中内容创建或复用 `information_video_notes`，未立即提交的记录保持 `pending`；若当前没有 `running` 笔记，只提交其中一条到 Bilinote 或 Hermes。后续定时任务继续按全局单任务队列处理 `pending` 笔记，不允许手动任务和自动任务各自并发提交。
   - 使用 `/api/generate_note` 创建任务，使用 `/api/task_status/{task_id}` 轮询结果。
   - Bilinote 同一时间只提交一个新任务；提交任务只负责调用 `/api/generate_note`、创建笔记记录并保存 Bilinote 返回的 `task_id`。
   - Bilinote 提交任务应支持在设置页配置视频时间窗口，只对最近 N 天内发布或入库的视频生成总结；默认 3 天，设置为 0 表示不限制。

@@ -6,6 +6,37 @@ from app.modules.information.services.prompt_builder import PromptBuilder
 
 
 class NoteService(ContentRules, PromptBuilder, InformationServiceBase):
+    @staticmethod
+    def _merge_note_task_result(
+        target: dict[str, int | str | None],
+        source: dict[str, int | str | None],
+    ) -> None:
+        for key in ("total", "completed", "failed", "running", "started", "expired"):
+            target[key] = int(target[key] or 0) + int(source[key] or 0)
+        for key in ("video_id", "note_id", "external_task_id", "error_message"):
+            if source.get(key) is not None:
+                target[key] = source[key]
+
+    def _queue_selected_note_tasks(self, video_ids: list[int]) -> None:
+        if not video_ids:
+            return
+        videos = list(
+            self.db.scalars(
+                select(InformationVideo).where(
+                    InformationVideo.id.in_(video_ids),
+                    InformationVideo.status.in_(["discovered", "note_pending"]),
+                )
+            ).all()
+        )
+        for video in videos:
+            if video.content_type == "article":
+                if video.content_text:
+                    self._note_for_submit(video, provider="hermes")
+            else:
+                self._note_for_submit(video)
+            video.status = "note_pending"
+        self.db.commit()
+
     def generate_pending_notes(self, limit: int = 5, video_ids: list[int] | None = None) -> dict[str, int]:
         poll_result = self.poll_running_notes(video_ids=video_ids)
         if poll_result["running"] > 0:
@@ -24,6 +55,8 @@ class NoteService(ContentRules, PromptBuilder, InformationServiceBase):
 
     def submit_pending_note_task(self, limit: int = 1, video_ids: list[int] | None = None) -> dict[str, int | str | None]:
         settings = InformationSettingsService(self.db).get_settings()
+        if video_ids:
+            self._queue_selected_note_tasks(video_ids)
         result = {
             "total": 0,
             "completed": 0,
@@ -61,16 +94,22 @@ class NoteService(ContentRules, PromptBuilder, InformationServiceBase):
             .order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
         )
         if video_ids:
-            statement = statement.where(InformationVideo.id.in_(video_ids))
+            statement = statement.where(InformationVideo.id.in_(video_ids)).limit(1)
         else:
             cutoff = self._video_note_cutoff(settings)
             if cutoff is not None:
-                statement = statement.where(func.coalesce(InformationVideo.published_at, InformationVideo.created_at) >= cutoff)
+                pending_note_video_ids = select(InformationVideoNote.video_id).where(InformationVideoNote.status == "pending")
+                statement = statement.where(
+                    or_(
+                        func.coalesce(InformationVideo.published_at, InformationVideo.created_at) >= cutoff,
+                        InformationVideo.id.in_(pending_note_video_ids),
+                    )
+                )
             handled_video_ids = select(InformationVideoNote.video_id).where(
                 InformationVideoNote.status.in_(["running", "done"])
             )
             statement = statement.where(~InformationVideo.id.in_(handled_video_ids)).limit(limit)
-        statement = statement.limit(1)
+            statement = statement.limit(1)
         videos = self.db.scalars(statement).all()
         result["total"] += len(videos)
         if videos:
@@ -174,85 +213,90 @@ class NoteService(ContentRules, PromptBuilder, InformationServiceBase):
             .order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
         )
         if video_ids:
-            statement = statement.where(InformationVideo.id.in_(video_ids))
+            statement = statement.where(InformationVideo.id.in_(video_ids)).limit(1)
         else:
             handled_video_ids = select(InformationVideoNote.video_id).where(
                 InformationVideoNote.status.in_(["running", "done"])
             )
             statement = statement.where(~InformationVideo.id.in_(handled_video_ids)).limit(limit)
-        article = self.db.scalar(statement.limit(1))
-        if article is None:
+        if not video_ids:
+            statement = statement.limit(1)
+        articles = list(self.db.scalars(statement).all())
+        if not articles:
             return result
-        result["total"] = 1
-        result["video_id"] = article.id
-        if self._apply_article_filter(
-            article,
-            article_filter_keywords,
-            article_min_content_chars,
-            context="article note submit",
-            source_id=article.source_id,
-        ):
-            self.db.commit()
-            return result
-        client = self._hermes_client(settings)
-        note = self._note_for_submit(article, provider="hermes")
-        try:
-            article.status = "note_running"
-            note.status = "running"
-            note.error_message = None
-            note.note_text = None
-            note.external_task_id = None
-            note.raw_response = None
-            note.generated_at = None
-            self.db.commit()
-            run = client.start_run(self._build_article_summary_prompt(article), f"图文总结：{article.title}"[:200])
-            note.external_task_id = run.run_id
-            note.raw_response = compact_json(run.raw_response)
-            if run.document_text:
-                note.note_text = run.document_text
-                note.status = "done"
-                note.generated_at = datetime.now()
-                article.status = "note_done"
-                result["completed"] += 1
-            elif run.run_id:
-                note.status = "running"
+        result["total"] = len(articles)
+        client = None
+        for article in articles:
+            result["video_id"] = article.id
+            if self._apply_article_filter(
+                article,
+                article_filter_keywords,
+                article_min_content_chars,
+                context="article note submit",
+                source_id=article.source_id,
+            ):
+                self.db.commit()
+                continue
+            if client is None:
+                client = self._hermes_client(settings)
+            note = self._note_for_submit(article, provider="hermes")
+            try:
                 article.status = "note_running"
-                result["running"] += 1
-                result["started"] += 1
-            else:
-                note.status = "failed"
-                note.error_message = "Hermes response did not include run_id or summary text"
+                note.status = "running"
+                note.error_message = None
+                note.note_text = None
+                note.external_task_id = None
+                note.raw_response = None
+                note.generated_at = None
+                self.db.commit()
+                run = client.start_run(self._build_article_summary_prompt(article), f"图文总结：{article.title}"[:200])
+                note.external_task_id = run.run_id
+                note.raw_response = compact_json(run.raw_response)
+                if run.document_text:
+                    note.note_text = run.document_text
+                    note.status = "done"
+                    note.generated_at = datetime.now()
+                    article.status = "note_done"
+                    result["completed"] += 1
+                elif run.run_id:
+                    note.status = "running"
+                    article.status = "note_running"
+                    result["running"] += 1
+                    result["started"] += 1
+                else:
+                    note.status = "failed"
+                    note.error_message = "Hermes response did not include run_id or summary text"
+                    article.status = "note_failed"
+                    result["error_message"] = note.error_message
+                    result["failed"] += 1
+                result["video_id"] = article.id
+                result["note_id"] = note.id
+                result["external_task_id"] = note.external_task_id
+                self.db.commit()
+            except Exception as exc:
+                self.db.rollback()
+                logger.error(
+                    "article note submit failed video_id=%s platform=%s external_video_id=%s error=%r",
+                    article.id,
+                    article.platform,
+                    article.external_video_id,
+                    exc,
+                )
+                logger.debug(
+                    "article note submit failed traceback video_id=%s platform=%s external_video_id=%s",
+                    article.id,
+                    article.platform,
+                    article.external_video_id,
+                    exc_info=True,
+                )
+                note = self.db.get(InformationVideoNote, note.id) or self._create_note(article, provider="hermes")
                 article.status = "note_failed"
+                note.status = "failed"
+                note.error_message = repr(exc)[:2000]
+                log_fetch_error(self.db, "hermes", "article_note", article.external_video_id, repr(exc))
+                self.db.commit()
                 result["error_message"] = note.error_message
                 result["failed"] += 1
-            result["video_id"] = article.id
-            result["note_id"] = note.id
-            result["external_task_id"] = note.external_task_id
-            self.db.commit()
-        except Exception as exc:
-            self.db.rollback()
-            logger.error(
-                "article note submit failed video_id=%s platform=%s external_video_id=%s error=%r",
-                article.id,
-                article.platform,
-                article.external_video_id,
-                exc,
-            )
-            logger.debug(
-                "article note submit failed traceback video_id=%s platform=%s external_video_id=%s",
-                article.id,
-                article.platform,
-                article.external_video_id,
-                exc_info=True,
-            )
-            note = self.db.get(InformationVideoNote, note.id) or self._create_note(article, provider="hermes")
-            article.status = "note_failed"
-            note.status = "failed"
-            note.error_message = repr(exc)[:2000]
-            log_fetch_error(self.db, "hermes", "article_note", article.external_video_id, repr(exc))
-            self.db.commit()
-            result["error_message"] = note.error_message
-            result["failed"] += 1
         return result
 
     def mark_video_notes_failed(

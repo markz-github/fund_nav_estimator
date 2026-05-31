@@ -1930,6 +1930,139 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(first_video.status, "note_pending")
         self.assertEqual(second_video.status, "note_done")
 
+    def test_submit_selected_video_notes_queues_all_and_starts_one(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "bilinote_provider_id": "provider-1",
+                "bilinote_model_name": "model-1",
+                "bilinote_quality": "fast",
+            }
+        )
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        first_video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-batch-first",
+            title="批量视频一",
+            video_url="https://www.bilibili.com/video/BV-batch-first",
+            status="note_pending",
+        )
+        second_video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-batch-second",
+            title="批量视频二",
+            video_url="https://www.bilibili.com/video/BV-batch-second",
+            status="note_pending",
+        )
+        self.db.add_all([first_video, second_video])
+        self.db.commit()
+        bilinote = Mock()
+        bilinote.generate_note.return_value = Mock(
+            task_id="task-batch-first",
+            note_text=None,
+            raw_response={"task_id": "task-batch-first"},
+            error_message=None,
+        )
+
+        with patch(
+            "app.modules.information.services.note_service.BilinoteClient",
+            return_value=bilinote,
+        ):
+            result = InformationService(self.db).submit_pending_note_task(video_ids=[first_video.id, second_video.id])
+
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["started"], 1)
+        self.assertEqual(result["running"], 1)
+        self.assertEqual(bilinote.generate_note.call_count, 1)
+        self.db.refresh(first_video)
+        self.db.refresh(second_video)
+        self.assertEqual(first_video.status, "note_running")
+        self.assertEqual(second_video.status, "note_pending")
+        notes = self.db.query(InformationVideoNote).order_by(InformationVideoNote.video_id.asc()).all()
+        self.assertEqual([note.status for note in notes], ["running", "pending"])
+
+    def test_submit_selected_note_tasks_queues_mixed_content_and_starts_one(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "bilinote_provider_id": "provider-1",
+                "bilinote_model_name": "model-1",
+                "bilinote_quality": "fast",
+            }
+        )
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-batch-mixed-video",
+            title="混合批量视频",
+            video_url="https://www.bilibili.com/video/BV-batch-mixed-video",
+            content_type="video",
+            status="note_pending",
+        )
+        article = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="article_batch_mixed",
+            title="混合批量图文",
+            video_url="https://www.bilibili.com/opus/article_batch_mixed",
+            content_type="article",
+            content_text="这是一条足够长的图文内容，用于批量提交图文笔记。",
+            status="note_pending",
+        )
+        self.db.add_all([video, article])
+        self.db.commit()
+        bilinote = Mock()
+        bilinote.generate_note.return_value = Mock(
+            task_id="task-batch-mixed-video",
+            note_text=None,
+            raw_response={"task_id": "task-batch-mixed-video"},
+            error_message=None,
+        )
+        hermes = Mock()
+        hermes.start_run.return_value = HermesRunResult(
+            run_id="run-batch-mixed-article",
+            status="running",
+            document_text=None,
+            raw_response={"id": "run-batch-mixed-article", "status": "running"},
+        )
+
+        with patch(
+            "app.modules.information.services.note_service.BilinoteClient",
+            return_value=bilinote,
+        ), patch(
+            "app.modules.information.services.note_service.HermesClient",
+            return_value=hermes,
+        ):
+            result = InformationService(self.db).submit_pending_note_task(video_ids=[video.id, article.id])
+
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["started"], 1)
+        self.assertEqual(result["running"], 1)
+        bilinote.generate_note.assert_called_once()
+        hermes.start_run.assert_not_called()
+        self.db.refresh(video)
+        self.db.refresh(article)
+        self.assertEqual(video.status, "note_running")
+        self.assertEqual(article.status, "note_pending")
+        notes = self.db.query(InformationVideoNote).order_by(InformationVideoNote.video_id.asc()).all()
+        self.assertEqual([note.provider for note in notes], ["bilinote", "hermes"])
+        self.assertEqual([note.status for note in notes], ["running", "pending"])
+
     def test_generate_notes_skips_videos_outside_recent_day_window(self) -> None:
         InformationSettingsService(self.db).update_settings(
             {

@@ -235,6 +235,8 @@ SCHEDULER_POLL_SUMMARY_DOCUMENTS_INTERVAL_SECONDS=30
 
 Bilinote 自动提交视频笔记任务还会读取 `information_settings.video_note_recent_days`，只对最近 N 天内发布或入库的视频提交任务。默认值为 `3`，设置为 `0` 表示不限制天数。手动选中具体信息生成笔记时不受该范围限制。
 
+手动多选生成笔记不会并发提交多条外部任务。后端会先为选中的内容创建或复用 `information_video_notes` 记录，未立即启动的记录保持 `pending`；若当前没有 `running` 笔记，只启动其中一条。手动任务和自动任务共享同一条全局笔记生成队列：只要存在 `information_video_notes.status = running`，新的提交任务只轮询或等待，不再额外提交 Bilinote/Hermes。后续定时任务在 running 完成后继续处理 `pending` 笔记对应的内容。
+
 图文投稿扫描和提交 Hermes 图文笔记前都会读取 `information_settings.article_filter_keywords` 和 `information_settings.article_min_content_chars`。多个关键词可用换行、逗号或分号分隔；命中图文投稿标题或正文时，或正文去除空白后的字数少于最少字数阈值时，该图文投稿会在信息源列表中显示为“无效内容”，状态值为 `invalid_content`，不会进入 Hermes 图文笔记任务。`article_min_content_chars` 默认为 `0`，表示不限制。
 
 信息源扫描多个账号时会读取 `information_settings.video_source_scan_jitter_min_seconds` 和 `information_settings.video_source_scan_jitter_max_seconds`。每个信息源请求和入库处理结束后，若后续仍有待扫描信息源，会在该范围内随机等待后再继续，默认范围为 1 到 3 秒。

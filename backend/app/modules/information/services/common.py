@@ -6,7 +6,7 @@ import logging
 import re
 
 from requests import exceptions as requests_exceptions
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, load_only
 
 from app.scheduler.cron_utils import normalize_cron_expression
@@ -59,6 +59,7 @@ __all__ = [
     "re",
     "requests_exceptions",
     "func",
+    "or_",
     "select",
     "Session",
     "load_only",
