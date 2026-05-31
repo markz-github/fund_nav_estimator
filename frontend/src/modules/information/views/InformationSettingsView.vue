@@ -66,6 +66,7 @@ async function saveSettings() {
   try {
     settings.value = await updateInformationSettings({
       ...settings.value,
+      article_min_content_chars: String(settings.value.article_min_content_chars ?? '0'),
       video_note_recent_days: String(settings.value.video_note_recent_days ?? '3'),
       video_source_scan_jitter_min_seconds: String(settings.value.video_source_scan_jitter_min_seconds ?? '1'),
       video_source_scan_jitter_max_seconds: String(settings.value.video_source_scan_jitter_max_seconds ?? '3'),
@@ -108,6 +109,7 @@ onMounted(loadSettings)
         <div class="settings-grid">
           <label class="settings-wide">B站 Cookie<textarea v-model="settings.bilibili_cookie" rows="3" autocomplete="off" spellcheck="false" /></label>
           <label class="settings-wide">图文投稿过滤关键词<textarea v-model="settings.article_filter_keywords" rows="3" placeholder="可选。多个关键词可用换行、逗号或分号分隔；命中标题或正文的图文投稿不会入库。" /></label>
+          <label>图文投稿最少字数<input v-model="settings.article_min_content_chars" type="number" min="0" step="1" /></label>
           <label>扫描抖动最小秒数<input v-model="settings.video_source_scan_jitter_min_seconds" type="number" min="0" step="0.1" /></label>
           <label>扫描抖动最大秒数<input v-model="settings.video_source_scan_jitter_max_seconds" type="number" min="0" step="0.1" /></label>
         </div>
@@ -131,7 +133,7 @@ onMounted(loadSettings)
               <el-option label="slow" value="slow" />
             </el-select>
           </label>
-          <label>总结任务视频范围（天）<input v-model="settings.video_note_recent_days" type="number" min="0" step="1" /></label>
+          <label>自动笔记候选范围（天）<input v-model="settings.video_note_recent_days" type="number" min="0" step="1" /></label>
           <label class="settings-wide">分类附加说明
             <el-select v-model="selectedBilinoteExtraCategory" class="settings-select template-category-select" fit-input-width>
               <el-option v-for="category in bilinoteExtraCategories" :key="category" :label="category" :value="category" />

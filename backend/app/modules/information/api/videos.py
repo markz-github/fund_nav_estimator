@@ -21,6 +21,7 @@ from app.modules.information.schemas.video import (
     ManualLinkActionOut,
     ManualLinkCreate,
     MarkVideoNotesFailedRequest,
+    MarkVideosInvalidRequest,
     ScanVideosRequest,
     SummaryDocumentOut,
     SummaryDocumentPageOut,
@@ -533,6 +534,34 @@ def mark_video_notes_failed(
         finish_task(db, task_log, "failed", repr(exc))
         raise
     message = f"failed={count};target={target}"
+    status = "success" if count > 0 else "skipped"
+    finish_task(db, task_log, status, message)
+    return ActionResult(status=status, message=message, count=count)
+
+
+@router.post("/actions/mark-videos-invalid", response_model=ActionResult)
+def mark_videos_invalid(
+    payload: MarkVideosInvalidRequest,
+    db: Session = Depends(get_db),
+):
+    target = ",".join(str(item) for item in payload.video_ids)
+    task_log = start_task(
+        db,
+        "手动标记信息为无效内容",
+        "mark_information_videos_invalid",
+        datetime.now(),
+        target,
+    )
+    try:
+        count = NoteService(db).mark_videos_invalid(
+            payload.video_ids,
+            payload.error_message,
+        )
+    except Exception as exc:
+        log_fetch_error(db, "internal", "video", target, repr(exc))
+        finish_task(db, task_log, "failed", repr(exc))
+        raise
+    message = f"invalid={count};target={target}"
     status = "success" if count > 0 else "skipped"
     finish_task(db, task_log, status, message)
     return ActionResult(status=status, message=message, count=count)

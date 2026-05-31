@@ -195,6 +195,7 @@ class SourceService(ContentRules, InformationServiceBase):
         settings = settings_service.get_settings()
         bilibili_cookie = settings.get("bilibili_cookie", "").strip()
         article_filter_keywords = self._parse_keywords(settings.get("article_filter_keywords", ""))
+        article_min_content_chars = self._article_min_content_chars(settings)
         jitter_min_seconds, jitter_max_seconds = settings_service.scan_jitter_range_seconds(settings)
         logger.debug(
             "video scan started source_id=%s source_ids=%s limit=%s enabled_source_count=%s",
@@ -233,6 +234,7 @@ class SourceService(ContentRules, InformationServiceBase):
                     is_invalid_content = self._apply_article_filter(
                         snapshot,
                         article_filter_keywords,
+                        article_min_content_chars,
                         context="video scan",
                         source_id=source.id,
                     )
@@ -412,9 +414,11 @@ class SourceService(ContentRules, InformationServiceBase):
         source = self._manual_source()
         published_at = datetime.now()
         article_filter_keywords = self._parse_keywords(settings.get("article_filter_keywords", ""))
+        article_min_content_chars = self._article_min_content_chars(settings)
         is_invalid_content = self._apply_article_filter(
             snapshot,
             article_filter_keywords,
+            article_min_content_chars,
             context="manual link add",
             source_id=source.id,
         )

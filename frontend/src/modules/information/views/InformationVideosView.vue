@@ -11,6 +11,7 @@ import {
   listInformationVideosPage,
   listVideoNotes,
   listVideoSources,
+  markInformationVideosInvalid,
   markVideoNotesFailed,
   retryVideoNote,
   updateInformationVideoCategory,
@@ -44,7 +45,7 @@ const categoryDialogOpen = ref(false)
 const savingCategory = ref(false)
 const categoryDraft = ref('')
 const confirmDialogOpen = ref(false)
-const confirmAction = ref<'markFailed' | 'retry' | null>(null)
+const confirmAction = ref<'markFailed' | 'markInvalid' | 'retry' | null>(null)
 const confirmVideo = ref<InformationVideo | null>(null)
 const manualLinkDraft = ref({
   url: '',
@@ -86,11 +87,13 @@ const sortedVideos = computed(() => {
 })
 const confirmTitle = computed(() => {
   if (confirmAction.value === 'markFailed') return '置为失败'
+  if (confirmAction.value === 'markInvalid') return '置为无效内容'
   if (confirmAction.value === 'retry') return '重试笔记'
   return '确认操作'
 })
 const confirmCopy = computed(() => {
   if (confirmAction.value === 'markFailed') return `确认将选中的 ${selectedVideoIds.value.length} 条内容置为失败吗？`
+  if (confirmAction.value === 'markInvalid') return `确认将选中的 ${selectedVideoIds.value.length} 条内容置为无效内容吗？无效内容不会继续生成笔记或参与后续汇总。`
   if (confirmAction.value === 'retry' && confirmVideo.value) return `确认重新生成内容 ${confirmVideo.value.id} 的笔记吗？`
   return ''
 })
@@ -198,7 +201,7 @@ function filterQuery() {
   }
 }
 
-async function runAction(action: 'notes' | 'markFailed') {
+async function runAction(action: 'notes' | 'markFailed' | 'markInvalid') {
   runningAction.value = action
   try {
     if (action === 'notes') {
@@ -206,13 +209,20 @@ async function runAction(action: 'notes' | 'markFailed') {
       const result = await generateVideoNotes(targetVideoIds)
       const targetText = targetVideoIds ? `选中 ${targetVideoIds.length} 条内容` : '待处理内容'
       message.value = `笔记任务已触发，${targetText}本次提交 ${result.count} 条；结果会由定时任务自动轮询。`
-    } else {
+    } else if (action === 'markFailed') {
       if (selectedVideoIds.value.length === 0) {
         message.value = '请先选择要置为失败的内容。'
         return
       }
       const result = await markVideoNotesFailed(selectedVideoIds.value)
       message.value = `已将 ${result.count} 条笔记任务置为失败。`
+    } else {
+      if (selectedVideoIds.value.length === 0) {
+        message.value = '请先选择要置为无效的内容。'
+        return
+      }
+      const result = await markInformationVideosInvalid(selectedVideoIds.value)
+      message.value = `已将 ${result.count} 条内容置为无效内容。`
     }
     await loadAll({ keepMessage: true })
   } catch (error) {
@@ -235,7 +245,7 @@ async function retryFailedVideo(video: InformationVideo) {
   }
 }
 
-function openConfirmDialog(action: 'markFailed' | 'retry', video?: InformationVideo) {
+function openConfirmDialog(action: 'markFailed' | 'markInvalid' | 'retry', video?: InformationVideo) {
   confirmAction.value = action
   confirmVideo.value = video || null
   confirmDialogOpen.value = true
@@ -251,6 +261,8 @@ function closeConfirmDialog() {
 async function confirmOperation() {
   if (confirmAction.value === 'markFailed') {
     await runAction('markFailed')
+  } else if (confirmAction.value === 'markInvalid') {
+    await runAction('markInvalid')
   } else if (confirmAction.value === 'retry' && confirmVideo.value) {
     await retryFailedVideo(confirmVideo.value)
   }
@@ -436,6 +448,9 @@ watch(
         </button>
         <button class="ghost" type="button" :disabled="savingCategory || selectedVideoIds.length === 0" @click="openCategoryDialog">
           {{ savingCategory ? '保存中...' : selectedVideoIds.length ? `修改分类 ${selectedVideoIds.length} 条` : '修改分类' }}
+        </button>
+        <button class="ghost" :disabled="runningAction === 'markInvalid' || selectedVideoIds.length === 0" @click="openConfirmDialog('markInvalid')">
+          {{ runningAction === 'markInvalid' ? '处理中...' : selectedVideoIds.length ? `置为无效 ${selectedVideoIds.length} 条` : '置为无效' }}
         </button>
         <button class="danger" :disabled="runningAction === 'markFailed' || selectedVideoIds.length === 0" @click="openConfirmDialog('markFailed')">
           {{ runningAction === 'markFailed' ? '处理中...' : selectedVideoIds.length ? `置为失败 ${selectedVideoIds.length} 条` : '置为失败' }}
@@ -658,7 +673,7 @@ watch(
           <button class="ghost" type="button" :disabled="Boolean(runningAction) || retryingVideoId !== null" @click="closeConfirmDialog">取消</button>
           <button
             type="button"
-            :class="{ danger: confirmAction === 'markFailed' }"
+            :class="{ danger: confirmAction === 'markFailed' || confirmAction === 'markInvalid' }"
             :disabled="Boolean(runningAction) || retryingVideoId !== null"
             @click="confirmOperation"
           >

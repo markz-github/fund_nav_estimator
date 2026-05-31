@@ -10,6 +10,7 @@ from app.modules.information.models.summary_document_template import Information
 DEFAULT_SETTINGS: dict[str, str] = {
     "bilibili_cookie": "",
     "article_filter_keywords": "",
+    "article_min_content_chars": "0",
     "bilinote_base_url": "http://192.168.50.50:18483",
     "bilinote_provider_id": "",
     "bilinote_model_name": "",
@@ -30,6 +31,9 @@ BILINOTE_QUALITY_OPTIONS = {"fast", "medium", "slow"}
 NON_NEGATIVE_NUMBER_SETTINGS = {
     "video_source_scan_jitter_min_seconds",
     "video_source_scan_jitter_max_seconds",
+}
+NON_NEGATIVE_INTEGER_SETTINGS = {
+    "article_min_content_chars",
 }
 
 
@@ -63,6 +67,8 @@ class InformationSettingsService:
                 if quality not in BILINOTE_QUALITY_OPTIONS:
                     raise ValueError("bilinote_quality must be one of: fast, medium, slow")
                 value = quality
+            if key in NON_NEGATIVE_INTEGER_SETTINGS:
+                value = self._normalize_non_negative_integer(key, value)
             if key in NON_NEGATIVE_NUMBER_SETTINGS:
                 value = self._normalize_non_negative_number(key, value)
             row = self.db.scalar(
@@ -96,6 +102,19 @@ class InformationSettingsService:
         if number < 0:
             raise ValueError(f"{key} must be greater than or equal to 0")
         return f"{number:g}"
+
+    @classmethod
+    def _normalize_non_negative_integer(cls, key: str, value: object) -> str:
+        text = str(value if value is not None else "").strip()
+        if not text:
+            return "0"
+        try:
+            number = int(text)
+        except ValueError as exc:
+            raise ValueError(f"{key} must be a non-negative integer") from exc
+        if number < 0:
+            raise ValueError(f"{key} must be greater than or equal to 0")
+        return str(number)
 
     @classmethod
     def _number_value(cls, value: object, default: float) -> float:

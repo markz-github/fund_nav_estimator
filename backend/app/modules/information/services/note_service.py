@@ -60,12 +60,12 @@ class NoteService(ContentRules, PromptBuilder, InformationServiceBase):
             )
             .order_by(InformationVideo.published_at.desc(), InformationVideo.created_at.desc())
         )
-        cutoff = self._video_note_cutoff(settings)
-        if cutoff is not None:
-            statement = statement.where(func.coalesce(InformationVideo.published_at, InformationVideo.created_at) >= cutoff)
         if video_ids:
             statement = statement.where(InformationVideo.id.in_(video_ids))
         else:
+            cutoff = self._video_note_cutoff(settings)
+            if cutoff is not None:
+                statement = statement.where(func.coalesce(InformationVideo.published_at, InformationVideo.created_at) >= cutoff)
             handled_video_ids = select(InformationVideoNote.video_id).where(
                 InformationVideoNote.status.in_(["running", "done"])
             )
@@ -151,6 +151,7 @@ class NoteService(ContentRules, PromptBuilder, InformationServiceBase):
     def submit_pending_article_note_task(self, limit: int = 1, video_ids: list[int] | None = None) -> dict[str, int | str | None]:
         settings = InformationSettingsService(self.db).get_settings()
         article_filter_keywords = self._parse_keywords(settings.get("article_filter_keywords", ""))
+        article_min_content_chars = self._article_min_content_chars(settings)
         result = {
             "total": 0,
             "completed": 0,
@@ -187,6 +188,7 @@ class NoteService(ContentRules, PromptBuilder, InformationServiceBase):
         if self._apply_article_filter(
             article,
             article_filter_keywords,
+            article_min_content_chars,
             context="article note submit",
             source_id=article.source_id,
         ):
@@ -271,6 +273,32 @@ class NoteService(ContentRules, PromptBuilder, InformationServiceBase):
             video.status = "note_failed"
             note.status = "failed"
             note.error_message = message
+        self.db.commit()
+        return len(videos)
+
+    def mark_videos_invalid(
+        self,
+        video_ids: list[int],
+        error_message: str | None = None,
+    ) -> int:
+        if not video_ids:
+            return 0
+        videos = list(
+            self.db.scalars(
+                select(InformationVideo).where(InformationVideo.id.in_(video_ids))
+            ).all()
+        )
+        message = (error_message or "Manually marked as invalid content").strip()[:2000]
+        for video in videos:
+            video.status = "invalid_content"
+            notes = list(
+                self.db.scalars(
+                    select(InformationVideoNote).where(InformationVideoNote.video_id == video.id)
+                ).all()
+            )
+            for note in notes:
+                note.status = "failed"
+                note.error_message = message
         self.db.commit()
         return len(videos)
 

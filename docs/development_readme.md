@@ -233,9 +233,9 @@ SCHEDULER_POLL_SUMMARY_DOCUMENTS_INTERVAL_SECONDS=30
 
 信息流汇总任务的执行时间不再通过全局固定配置。后端启动时会读取 `information_summary_task_configs.cron_expression`，为每个启用的汇总任务配置注册定时任务；前端保存、新增、停用或删除汇总任务配置后，也会刷新已注册的汇总定时任务。是否推送微信由 `information_summary_task_configs.push_to_wechat` 控制；Hermes 汇总轮询完成并写入正文后，会立即判断该配置是否启用微信推送，启用时直接调用微信推送接口。
 
-Bilinote 总结任务还会读取 `information_settings.video_note_recent_days`，只对最近 N 天内发布或入库的视频提交总结任务。默认值为 `3`，设置为 `0` 表示不限制天数。
+Bilinote 自动提交视频笔记任务还会读取 `information_settings.video_note_recent_days`，只对最近 N 天内发布或入库的视频提交任务。默认值为 `3`，设置为 `0` 表示不限制天数。手动选中具体信息生成笔记时不受该范围限制。
 
-图文投稿扫描和提交 Hermes 图文笔记前都会读取 `information_settings.article_filter_keywords`。多个关键词可用换行、逗号或分号分隔；命中图文投稿标题或正文时，该图文投稿会在信息源列表中显示为“无效内容”，状态值为 `invalid_content`，不会进入 Hermes 图文笔记任务。
+图文投稿扫描和提交 Hermes 图文笔记前都会读取 `information_settings.article_filter_keywords` 和 `information_settings.article_min_content_chars`。多个关键词可用换行、逗号或分号分隔；命中图文投稿标题或正文时，或正文去除空白后的字数少于最少字数阈值时，该图文投稿会在信息源列表中显示为“无效内容”，状态值为 `invalid_content`，不会进入 Hermes 图文笔记任务。`article_min_content_chars` 默认为 `0`，表示不限制。
 
 信息源扫描多个账号时会读取 `information_settings.video_source_scan_jitter_min_seconds` 和 `information_settings.video_source_scan_jitter_max_seconds`。每个信息源请求和入库处理结束后，若后续仍有待扫描信息源，会在该范围内随机等待后再继续，默认范围为 1 到 3 秒。
 

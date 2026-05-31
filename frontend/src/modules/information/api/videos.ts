@@ -26,6 +26,7 @@ export interface PageResult<T> {
 export interface InformationSettings {
   bilibili_cookie: string
   article_filter_keywords: string
+  article_min_content_chars: string
   bilinote_base_url: string
   bilinote_provider_id: string
   bilinote_model_name: string
@@ -429,6 +430,17 @@ export async function markVideoNotesFailed(videoIds: number[]) {
     {
       video_ids: videoIds,
       error_message: '手动标记为失败',
+    },
+  )
+  return data
+}
+
+export async function markInformationVideosInvalid(videoIds: number[]) {
+  const { data } = await apiClient.post<{ status: string; message: string; count: number }>(
+    '/information/actions/mark-videos-invalid',
+    {
+      video_ids: videoIds,
+      error_message: '手动标记为无效内容',
     },
   )
   return data

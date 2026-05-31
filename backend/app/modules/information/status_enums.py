@@ -58,6 +58,7 @@ INFORMATION_TASK_TYPES = (
     StatusOption("submit_information_video_note_task", "提交信息源笔记任务"),
     StatusOption("poll_information_video_notes", "轮询信息源笔记任务"),
     StatusOption("mark_information_video_notes_failed", "标记信息源笔记失败"),
+    StatusOption("mark_information_videos_invalid", "标记信息为无效内容"),
     StatusOption("retry_information_video_note", "重试信息源笔记"),
     StatusOption("repoll_information_video_note", "重新轮询信息源笔记"),
     StatusOption("regenerate_information_video_note", "重新生成信息源笔记"),

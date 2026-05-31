@@ -501,6 +501,79 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(self.db.query(InformationVideoNote).filter_by(video_id=article.id).count(), 0)
         hermes.start_run.assert_not_called()
 
+    def test_article_note_submit_marks_short_article_invalid_before_hermes(self) -> None:
+        service = InformationService(self.db)
+        InformationSettingsService(self.db).update_settings({"article_min_content_chars": "20"})
+        source = service.create_source(
+            VideoSourceCreate(
+                platform="bilibili",
+                source_name="皓哥论股",
+                external_source_id="307610125",
+            )
+        )
+        article = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="article_short_on_submit",
+            title="盘中观点",
+            video_url="https://www.bilibili.com/opus/article_short_on_submit",
+            content_type="article",
+            content_text="太短",
+            status="note_pending",
+        )
+        self.db.add(article)
+        self.db.commit()
+        hermes = Mock()
+
+        with patch(
+            "app.modules.information.services.note_service.HermesClient",
+            return_value=hermes,
+        ):
+            result = service.submit_pending_article_note_task(video_ids=[article.id])
+
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["started"], 0)
+        self.db.refresh(article)
+        self.assertEqual(article.status, "invalid_content")
+        self.assertEqual(self.db.query(InformationVideoNote).filter_by(video_id=article.id).count(), 0)
+        hermes.start_run.assert_not_called()
+
+    def test_scan_sources_marks_short_article_invalid(self) -> None:
+        InformationSettingsService(self.db).update_settings({"article_min_content_chars": "20"})
+        service = InformationService(self.db)
+        source = service.create_source(
+            VideoSourceCreate(
+                platform="bilibili",
+                source_name="短图文账号",
+                external_source_id="12345",
+            )
+        )
+        adapter = Mock()
+        adapter.normalize_source_id.side_effect = lambda value: value
+        adapter.fetch_latest_videos.return_value = [
+            VideoSnapshot(
+                platform="bilibili",
+                external_video_id="article_short_scan",
+                title="短图文",
+                video_url="https://www.bilibili.com/opus/article_short_scan",
+                author_name="短图文账号",
+                published_at=datetime(2026, 5, 20, 10, 0, 0),
+                raw_response={"id_str": "article_short_scan"},
+                content_type="article",
+                content_text="太短",
+            )
+        ]
+
+        with patch(
+            "app.modules.information.services.source_service.get_video_source_adapter",
+            return_value=adapter,
+        ):
+            created = service.scan_sources(source_id=source.id)
+
+        self.assertEqual(created, 1)
+        article = self.db.query(InformationVideo).one()
+        self.assertEqual(article.status, "invalid_content")
+
     def test_scan_sources_can_target_selected_sources(self) -> None:
         service = InformationService(self.db)
         first_source = service.create_source(
@@ -1898,6 +1971,54 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.db.refresh(old_video)
         self.assertEqual(old_video.status, "note_pending")
 
+    def test_generate_selected_old_video_ignores_recent_day_window(self) -> None:
+        InformationSettingsService(self.db).update_settings(
+            {
+                "bilinote_provider_id": "provider-1",
+                "bilinote_model_name": "model-1",
+                "bilinote_quality": "fast",
+                "video_note_recent_days": "3",
+            }
+        )
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        old_video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-selected-old-note-window",
+            title="手动选中的过期视频",
+            video_url="https://www.bilibili.com/video/BV-selected-old-note-window",
+            published_at=datetime.now() - timedelta(days=10),
+            status="note_pending",
+        )
+        self.db.add(old_video)
+        self.db.commit()
+        bilinote = Mock()
+        bilinote.generate_note.return_value = Mock(
+            task_id="task-selected-old",
+            note_text=None,
+            raw_response={"task_id": "task-selected-old", "status": "running"},
+            error_message=None,
+        )
+
+        with patch(
+            "app.modules.information.services.note_service.BilinoteClient",
+            return_value=bilinote,
+        ):
+            result = InformationService(self.db).submit_pending_note_task(video_ids=[old_video.id])
+
+        self.assertEqual(result["started"], 1)
+        self.assertEqual(result["video_id"], old_video.id)
+        bilinote.generate_note.assert_called_once()
+        self.db.refresh(old_video)
+        self.assertEqual(old_video.status, "note_running")
+
     def test_generate_notes_keeps_running_task_waiting(self) -> None:
         InformationSettingsService(self.db).update_settings(
             {
@@ -2115,6 +2236,44 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertEqual(video.status, "note_failed")
         self.assertEqual(note.status, "failed")
         self.assertEqual(note.error_message, "人工终止")
+
+    def test_mark_videos_invalid_updates_video_and_existing_notes(self) -> None:
+        source = InformationVideoSource(
+            platform="bilibili",
+            source_name="测试账号",
+            external_source_id="12345",
+            enabled=1,
+        )
+        self.db.add(source)
+        self.db.commit()
+        video = InformationVideo(
+            source_id=source.id,
+            platform="bilibili",
+            external_video_id="BV-manual-invalid",
+            title="无效内容视频",
+            video_url="https://www.bilibili.com/video/BV-manual-invalid",
+            status="note_done",
+        )
+        self.db.add(video)
+        self.db.commit()
+        note = InformationVideoNote(
+            video_id=video.id,
+            provider="bilinote",
+            status="done",
+            note_text="已有笔记",
+            generated_at=datetime.now(),
+        )
+        self.db.add(note)
+        self.db.commit()
+
+        count = InformationService(self.db).mark_videos_invalid([video.id], "不是有效信息")
+
+        self.assertEqual(count, 1)
+        self.db.refresh(video)
+        self.db.refresh(note)
+        self.assertEqual(video.status, "invalid_content")
+        self.assertEqual(note.status, "failed")
+        self.assertEqual(note.error_message, "不是有效信息")
 
     def test_note_detail_omits_raw_response_and_raw_endpoint_loads_it(self) -> None:
         source = InformationVideoSource(

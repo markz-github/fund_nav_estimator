@@ -491,6 +491,7 @@ ALTER TABLE information_summary_task_configs
 
 - `bilibili_cookie`：B站扫描请求使用的 Cookie，可为空。
 - `article_filter_keywords`：图文投稿过滤关键词，多个关键词可用换行、逗号或分号分隔；扫描时命中标题或正文的图文投稿会标记为 `invalid_content`，不进入 Hermes 图文笔记任务。
+- `article_min_content_chars`：图文投稿正文最少字数，默认 `0` 表示不限制；大于 `0` 时，扫描、手动添加链接或提交 Hermes 图文笔记前，正文去除空白后的字数少于该值会标记为 `invalid_content`。
 - `bilinote_base_url`
 - `bilinote_provider_id`
 - `bilinote_model_name`
@@ -503,7 +504,7 @@ ALTER TABLE information_summary_task_configs
 - `hermes_status_path_template`：Hermes Runs 状态轮询路径，按 Hermes Agent 当前文档默认使用 `/v1/runs/{run_id}`。
 - `wechat_push_webhook_url`：微信推送接口地址；Hermes 汇总轮询完成并写入正文后，会推送来源汇总任务配置中启用微信推送的汇总。
 - `wechat_push_token`：微信推送接口可选鉴权令牌。若填写值未包含认证方案，后端会以 `Bearer <token>` 形式发送 `Authorization` 请求头。
-- `video_note_recent_days`：Bilinote 总结任务只处理最近 N 天内发布或入库的视频，默认 3 天；设置为 0 表示不限制。
+- `video_note_recent_days`：自动提交视频笔记任务时只处理最近 N 天内发布或入库的视频，默认 3 天；设置为 0 表示不限制。手动选中具体信息生成笔记时不受该范围限制。
 - `video_source_scan_jitter_min_seconds`：信息源扫描时源与源之间随机抖动等待的最小秒数，默认 1。
 - `video_source_scan_jitter_max_seconds`：信息源扫描时源与源之间随机抖动等待的最大秒数，默认 3；最大值必须大于或等于最小值。
 

@@ -142,6 +142,7 @@ class BilinoteExtraTemplateSetting(BaseModel):
 class InformationSettingsOut(BaseModel):
     bilibili_cookie: str
     article_filter_keywords: str
+    article_min_content_chars: str
     bilinote_base_url: str
     bilinote_provider_id: str
     bilinote_model_name: str
@@ -164,6 +165,7 @@ class InformationSettingsOut(BaseModel):
 class InformationSettingsUpdate(BaseModel):
     bilibili_cookie: str | None = None
     article_filter_keywords: str | None = None
+    article_min_content_chars: str | None = None
     bilinote_base_url: str | None = None
     bilinote_provider_id: str | None = None
     bilinote_model_name: str | None = None
@@ -185,6 +187,13 @@ class InformationSettingsUpdate(BaseModel):
     @field_validator("video_note_recent_days", mode="before")
     @classmethod
     def normalize_video_note_recent_days(cls, value):
+        if value is None:
+            return None
+        return str(value)
+
+    @field_validator("article_min_content_chars", mode="before")
+    @classmethod
+    def normalize_article_min_content_chars(cls, value):
         if value is None:
             return None
         return str(value)
@@ -272,6 +281,11 @@ class GenerateVideoNotesRequest(BaseModel):
 
 
 class MarkVideoNotesFailedRequest(BaseModel):
+    video_ids: list[int]
+    error_message: str | None = None
+
+
+class MarkVideosInvalidRequest(BaseModel):
     video_ids: list[int]
     error_message: str | None = None
 
