@@ -22,8 +22,8 @@ from app.modules.fund_nav.services.fund_profile_service import FundProfileServic
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.market_service import MarketService
-from app.modules.information.models.task_log import TaskLog
-from app.modules.information.services.operation_log_service import log_fetch_error
+from app.modules.operations.models.task_log import TaskLog
+from app.modules.operations.services.operation_log_service import log_fetch_error
 
 
 logger = logging.getLogger("app.performance")

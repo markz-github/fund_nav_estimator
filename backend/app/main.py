@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 
 from app.modules.fund_nav.api import estimates, funds, market
-from app.modules.information.api import errors, tasks
+from app.modules.operations.api import errors, tasks
 from app.config import get_settings
 from app.logging_config import configure_logging
 from app.scheduler.jobs import create_scheduler

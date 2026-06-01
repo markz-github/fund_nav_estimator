@@ -5,9 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.modules.information.models.task_log import TaskLog
-from app.modules.information.schemas.task import TaskLogOptionsOut, TaskLogPageOut
-from app.modules.information.status_enums import FUND_NAV_TASK_TYPES, TASK_STATUSES, status_options
+from app.modules.operations.models.task_log import TaskLog
+from app.modules.operations.schemas.task import TaskLogOptionsOut, TaskLogPageOut
+from app.modules.operations.status_enums import FUND_NAV_TASK_TYPES, TASK_STATUSES, status_options
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 FUND_NAV_TASK_TYPE_VALUES = {option.value for option in FUND_NAV_TASK_TYPES}

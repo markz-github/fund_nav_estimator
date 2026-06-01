@@ -17,7 +17,7 @@ import app.models  # noqa: F401
 from app.database import Base
 from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
-from app.modules.information.models.task_log import TaskLog
+from app.modules.operations.models.task_log import TaskLog
 
 
 class FundTaskQueueTests(unittest.TestCase):

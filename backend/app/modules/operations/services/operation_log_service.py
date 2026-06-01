@@ -4,8 +4,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.modules.information.models.data_fetch_error import DataFetchError
-from app.modules.information.models.task_log import TaskLog
+from app.modules.operations.models.data_fetch_error import DataFetchError
+from app.modules.operations.models.task_log import TaskLog
 
 TASK_STATUS_PENDING = "pending"
 TASK_STATUS_RUNNING = "running"

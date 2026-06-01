@@ -1,6 +1,6 @@
-import { apiClient } from '../../../api/client'
+import { apiClient } from '../../../../api/client'
 
-export type OperationModule = 'fund_nav' | 'information'
+export type OperationModule = 'fund_nav'
 
 export interface StatusOption {
   value: string

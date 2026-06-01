@@ -14,9 +14,9 @@ if str(BACKEND_DIR) not in sys.path:
 
 import app.models  # noqa: F401
 from app.database import Base
-from app.modules.information.api.tasks import get_task_log_options, list_task_logs
-from app.modules.information.models.task_log import TaskLog
-from app.modules.information.services.operation_log_service import normalize_task_status, task_status_from_counts
+from app.modules.operations.api.tasks import get_task_log_options, list_task_logs
+from app.modules.operations.models.task_log import TaskLog
+from app.modules.operations.services.operation_log_service import normalize_task_status, task_status_from_counts
 
 
 class TaskLogTests(unittest.TestCase):

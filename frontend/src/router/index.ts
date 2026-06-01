@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import FundListView from '../modules/fund_nav/views/FundListView.vue'
 import FundDetailView from '../modules/fund_nav/views/FundDetailView.vue'
-import OperationsView from '../modules/information/views/OperationsView.vue'
+import OperationsView from '../modules/fund_nav/operations/views/OperationsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),

@@ -14,7 +14,7 @@ from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.fund_nav.services.holding_service import HoldingService
-from app.modules.information.services.operation_log_service import log_task
+from app.modules.operations.services.operation_log_service import log_task
 
 router = APIRouter(prefix="/funds", tags=["funds"])
 

@@ -47,10 +47,10 @@ backend/app/modules/fund_nav/
 | `data_sources/akshare_source.py` | 统一收口 AkShare 调用、缓存和接口级锁 |
 | `scheduler/jobs.py` | 定时任务入口；只负责提交队列任务 |
 
-运行状态与错误日志复用信息模块：
+运行状态与错误日志位于独立运维模块：
 
 ```text
-backend/app/modules/information/
+backend/app/modules/operations/
 ```
 
 ## 3. 核心业务数据

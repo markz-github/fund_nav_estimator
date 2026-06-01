@@ -5,8 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.modules.information.models.data_fetch_error import DataFetchError
-from app.modules.information.schemas.error import DataFetchErrorOut
+from app.modules.operations.models.data_fetch_error import DataFetchError
+from app.modules.operations.schemas.error import DataFetchErrorOut
 
 router = APIRouter(prefix="/errors", tags=["errors"])
 
