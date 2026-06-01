@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { formatDateTime } from '../../../utils/datetime'
+import { routeNames } from '../../../router/routeNames'
 import {
   getFund,
   listFundHoldings,
@@ -118,6 +119,8 @@ onMounted(loadDetail)
 
 <template>
   <main class="page-shell">
+    <RouterLink class="back-link" :to="{ name: routeNames.fundList }">返回基金池</RouterLink>
+
     <section class="detail-hero">
       <div>
         <p class="eyebrow">Fund Detail</p>

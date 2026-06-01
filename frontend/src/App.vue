@@ -1,14 +1,16 @@
 <script setup lang="ts">
+import { routeNames } from './router/routeNames'
+
 const navItems = [
-  { to: '/fund-nav', label: '基金估值' },
-  { to: '/fund-nav/operations', label: '运行状态' },
+  { routeName: routeNames.fundList, label: '基金估值' },
+  { routeName: routeNames.operations, label: '运行状态' },
 ]
 </script>
 
 <template>
   <div class="app-layout">
     <aside class="app-sidebar">
-      <RouterLink class="sidebar-brand" to="/fund-nav">
+      <RouterLink class="sidebar-brand" :to="{ name: routeNames.fundList }">
         <span>基金净值预测</span>
       </RouterLink>
       <nav class="sidebar-nav" aria-label="主导航">
@@ -16,9 +18,9 @@ const navItems = [
           <p class="sidebar-group-title">基金</p>
           <RouterLink
             v-for="item in navItems"
-            :key="item.to"
+            :key="item.routeName"
             class="sidebar-link"
-            :to="item.to"
+            :to="{ name: item.routeName }"
           >
             {{ item.label }}
           </RouterLink>
