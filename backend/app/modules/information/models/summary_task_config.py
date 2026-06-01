@@ -28,6 +28,7 @@ class InformationSummaryTaskConfig(Base):
         server_default="{start_date:%Y-%m-%d} {platform} {category}汇总",
     )
     summary_instruction: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    document_template: Mapped[str] = mapped_column(Text, nullable=False, default="")
     push_to_wechat: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)

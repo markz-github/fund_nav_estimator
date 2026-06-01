@@ -42,6 +42,7 @@ class SummaryTaskConfigCreate(BaseModel):
     cron_expression: str = "0 7 * * *"
     title_template: str = "{start_date:%Y-%m-%d} {platform} {category}汇总"
     summary_instruction: str = ""
+    document_template: str | None = None
     push_to_wechat: int = 0
     enabled: int = 1
 
@@ -54,6 +55,7 @@ class SummaryTaskConfigUpdate(BaseModel):
     cron_expression: str | None = None
     title_template: str | None = None
     summary_instruction: str | None = None
+    document_template: str | None = None
     push_to_wechat: int | None = None
     enabled: int | None = None
 
@@ -69,6 +71,7 @@ class SummaryTaskConfigOut(BaseModel):
     cron_expression: str
     title_template: str
     summary_instruction: str
+    document_template: str
     push_to_wechat: int
     enabled: int
     created_at: datetime

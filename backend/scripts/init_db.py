@@ -50,6 +50,35 @@ def main() -> None:
                 )
             )
     inspector = inspect(engine)
+    task_config_columns = {
+        column["name"]
+        for column in inspector.get_columns("information_summary_task_configs")
+    }
+    if "document_template" not in task_config_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE information_summary_task_configs "
+                    "ADD COLUMN document_template TEXT NULL "
+                    "COMMENT '任务级输出文档模板' AFTER summary_instruction"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE information_summary_task_configs "
+                    "MODIFY COLUMN document_template TEXT NOT NULL "
+                    "COMMENT '任务级输出文档模板'"
+                )
+            )
+            connection.execute(
+                text(
+                    "UPDATE information_summary_task_configs task_config "
+                    "LEFT JOIN information_summary_document_templates default_template "
+                    "ON default_template.category = task_config.category "
+                    "SET task_config.document_template = COALESCE(default_template.template_text, '')"
+                )
+            )
+    inspector = inspect(engine)
     table_names = inspector.get_table_names()
     print("Database initialized.")
     print("Created or verified tables:")

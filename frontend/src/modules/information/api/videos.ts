@@ -205,6 +205,7 @@ export interface SummaryTaskConfig {
   cron_expression: string
   title_template: string
   summary_instruction: string
+  document_template: string
   push_to_wechat: number
   enabled: number
   created_at: string

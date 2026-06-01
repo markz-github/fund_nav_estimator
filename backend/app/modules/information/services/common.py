@@ -99,6 +99,7 @@ __all__ = [
     "_normalize_start_days_before",
     "_normalize_title_template",
     "_normalize_instruction",
+    "_normalize_document_template",
     "_page_params",
     "_normalize_ingest_method",
     "_scannable_source_filter",
@@ -123,6 +124,10 @@ def _normalize_title_template(value: str | None) -> str:
 
 
 def _normalize_instruction(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def _normalize_document_template(value: str | None) -> str:
     return (value or "").strip()
 
 

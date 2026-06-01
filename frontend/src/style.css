@@ -751,6 +751,18 @@ tbody tr {
   gap: 12px;
 }
 
+.field-label-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.compact-action {
+  padding: 5px 8px;
+  font-size: 0.78rem;
+}
+
 .confirm-dialog h2 {
   margin: 2px 0 12px;
   font-size: 1.45rem;

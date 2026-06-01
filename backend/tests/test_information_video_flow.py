@@ -1714,6 +1714,25 @@ class InformationVideoFlowTests(unittest.TestCase):
 
         self.assertEqual(config.cron_expression, "0 7 * * mon")
 
+    def test_summary_task_config_inherits_category_document_template_when_created(self) -> None:
+        self.db.add(
+            InformationSummaryDocumentTemplate(
+                category="科技",
+                summary_instruction="",
+                template_text="## 科技任务默认模板",
+            )
+        )
+        self.db.commit()
+
+        config = InformationService(self.db).create_summary_task_config(
+            SummaryTaskConfigCreate(
+                task_name="科技汇总",
+                category="科技",
+            )
+        )
+
+        self.assertEqual(config.document_template, "## 科技任务默认模板")
+
     def test_run_summary_task_config_now_logs_skipped_when_no_notes(self) -> None:
         config = InformationSummaryTaskConfig(
             task_name="手动立即汇总",
@@ -2791,6 +2810,7 @@ class InformationVideoFlowTests(unittest.TestCase):
             category="财经",
             start_days_before=1,
             title_template="{start_date:%Y%m%d}-{end_date:%Y%m%d}-{category}",
+            document_template="## 任务自己的输出模板",
             enabled=1,
         )
         self.db.add(config)
@@ -2812,6 +2832,8 @@ class InformationVideoFlowTests(unittest.TestCase):
         self.assertIsNotNone(document)
         self.assertEqual(document.title, "20260522-20260522-财经")
         self.assertEqual(document.summary_task_config_id, config.id)
+        prompt = hermes.start_run.call_args.args[0]
+        self.assertIn("## 任务自己的输出模板", prompt)
 
         self.db.delete(config)
         self.db.commit()

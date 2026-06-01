@@ -423,6 +423,7 @@ CREATE TABLE information_summary_task_configs (
     cron_expression VARCHAR(100) NOT NULL DEFAULT '0 7 * * *' COMMENT '定时触发 cron 表达式',
     title_template VARCHAR(200) NOT NULL DEFAULT '{start_date:%Y-%m-%d} {platform} {category}汇总' COMMENT '汇总结果名称模板，使用 Python format 语法',
     summary_instruction TEXT NOT NULL COMMENT '任务级汇总说明，空值时使用当前分类默认汇总说明',
+    document_template TEXT NOT NULL COMMENT '任务级输出文档模板，创建任务时复制当前分类默认模板',
     push_to_wechat TINYINT NOT NULL DEFAULT 0 COMMENT '是否推送到微信：0否，1是',
     enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
     is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除标记：0未删除，1已删除',
@@ -464,7 +465,19 @@ ALTER TABLE information_summary_task_configs
     MODIFY COLUMN summary_instruction TEXT NOT NULL COMMENT '任务级汇总说明，空值时使用当前分类默认汇总说明';
 
 ALTER TABLE information_summary_task_configs
-    ADD COLUMN push_to_wechat TINYINT NOT NULL DEFAULT 0 COMMENT '是否推送到微信：0否，1是' AFTER summary_instruction;
+    ADD COLUMN document_template TEXT NULL COMMENT '任务级输出文档模板，创建任务时复制当前分类默认模板' AFTER summary_instruction;
+
+UPDATE information_summary_task_configs task_config
+LEFT JOIN information_summary_document_templates default_template
+    ON default_template.category = task_config.category
+SET task_config.document_template = COALESCE(default_template.template_text, '')
+WHERE task_config.document_template IS NULL;
+
+ALTER TABLE information_summary_task_configs
+    MODIFY COLUMN document_template TEXT NOT NULL COMMENT '任务级输出文档模板，创建任务时复制当前分类默认模板';
+
+ALTER TABLE information_summary_task_configs
+    ADD COLUMN push_to_wechat TINYINT NOT NULL DEFAULT 0 COMMENT '是否推送到微信：0否，1是' AFTER document_template;
 
 ALTER TABLE information_summary_task_configs
     ADD COLUMN is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除标记：0未删除，1已删除' AFTER enabled;

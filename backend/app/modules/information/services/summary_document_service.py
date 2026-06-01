@@ -33,6 +33,7 @@ class SummaryDocumentService(ContentRules, PromptBuilder, InformationServiceBase
             title=title,
             summary_task_config_id=config.id,
             summary_instruction=config.summary_instruction,
+            document_template=config.document_template,
         )
 
     def run_summary_task_config(
@@ -73,6 +74,7 @@ class SummaryDocumentService(ContentRules, PromptBuilder, InformationServiceBase
         title: str | None = None,
         summary_task_config_id: int | None = None,
         summary_instruction: str | None = None,
+        document_template: str | None = None,
     ) -> InformationSummaryDocument | None:
         normalized_category = normalize_category(category)
         note_filters = [
@@ -111,7 +113,11 @@ class SummaryDocumentService(ContentRules, PromptBuilder, InformationServiceBase
             notes,
             _normalize_instruction(summary_instruction)
             or self._summary_instruction(normalized_category),
-            self._summary_document_template(normalized_category),
+            (
+                self._summary_document_template(normalized_category)
+                if document_template is None
+                else _normalize_document_template(document_template)
+            ),
             period_end=period_end,
             category=normalized_category,
         )
@@ -189,6 +195,7 @@ class SummaryDocumentService(ContentRules, PromptBuilder, InformationServiceBase
 
         prompt_platform = "custom" if document.summary_task_config_id is None else document.platform
         period_end = None
+        config = None
         if document.summary_task_config_id is not None:
             config = self.db.scalar(
                 select(InformationSummaryTaskConfig)
@@ -197,12 +204,17 @@ class SummaryDocumentService(ContentRules, PromptBuilder, InformationServiceBase
             )
             if config is not None:
                 period_end = document.summary_date + timedelta(days=max(config.start_days_before - 1, 0))
+        summary_instruction = self._summary_instruction(document.category)
+        document_template = self._summary_document_template(document.category)
+        if config is not None:
+            summary_instruction = _normalize_instruction(config.summary_instruction) or summary_instruction
+            document_template = _normalize_document_template(config.document_template)
         prompt = self._build_summary_prompt(
             prompt_platform,
             document.summary_date,
             notes,
-            self._summary_instruction(document.category),
-            self._summary_document_template(document.category),
+            summary_instruction,
+            document_template,
             period_end=period_end,
             category=document.category,
         )

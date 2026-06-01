@@ -231,7 +231,7 @@ SCHEDULER_POLL_SUMMARY_DOCUMENTS_INTERVAL_SECONDS=30
 - `SCHEDULER_GENERATE_VIDEO_NOTES_INTERVAL_SECONDS`：每 30 秒检查或提交 Bilinote 视频总结任务。
 - `SCHEDULER_POLL_SUMMARY_DOCUMENTS_INTERVAL_SECONDS`：每 30 秒检查 Hermes 汇总任务结果。
 
-信息流汇总任务的执行时间不再通过全局固定配置。后端启动时会读取 `information_summary_task_configs.cron_expression`，为每个启用的汇总任务配置注册定时任务；前端保存、新增、停用或删除汇总任务配置后，也会刷新已注册的汇总定时任务。是否推送微信由 `information_summary_task_configs.push_to_wechat` 控制；Hermes 汇总轮询完成并写入正文后，会立即判断该配置是否启用微信推送，启用时直接调用微信推送接口。
+信息流汇总任务的执行时间不再通过全局固定配置。后端启动时会读取 `information_summary_task_configs.cron_expression`，为每个启用的汇总任务配置注册定时任务；前端保存、新增、停用或删除汇总任务配置后，也会刷新已注册的汇总定时任务。创建汇总任务时，`information_summary_task_configs.document_template` 会复制当前分类默认输出文档模板，后续可针对单个任务独立修改，不随默认模板变化。是否推送微信由 `information_summary_task_configs.push_to_wechat` 控制；Hermes 汇总轮询完成并写入正文后，会立即判断该配置是否启用微信推送，启用时直接调用微信推送接口。
 
 Bilinote 自动提交视频笔记任务还会读取 `information_settings.video_note_recent_days`，只对最近 N 天内发布或入库的视频提交任务。默认值为 `3`，设置为 `0` 表示不限制天数。手动选中具体信息生成笔记时不受该范围限制。
 

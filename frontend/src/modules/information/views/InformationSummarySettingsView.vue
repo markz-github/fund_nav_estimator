@@ -29,15 +29,16 @@ const runningConfigId = ref<number | null>(null)
 const selectedTemplateCategory = ref('财经')
 const defaultTemplateExpanded = ref(false)
 
-function emptySummaryTask() {
+function emptySummaryTask(category = '财经') {
   return {
-    task_name: '财经汇总',
+    task_name: `${category}汇总`,
     platform: 'bilibili',
-    category: '财经',
+    category,
     start_days_before: 1,
     cron_expression: '0 7 * * *',
     title_template: '{start_date:%Y-%m-%d} {platform} {category}汇总',
     summary_instruction: '',
+    document_template: templateForCategory(category),
     push_to_wechat: 0,
   }
 }
@@ -174,6 +175,7 @@ function openEditDialog(config: SummaryTaskConfig) {
     cron_expression: config.cron_expression,
     title_template: config.title_template,
     summary_instruction: config.summary_instruction,
+    document_template: config.document_template,
     push_to_wechat: config.push_to_wechat,
   }
   editingSummaryTaskId.value = config.id
@@ -210,6 +212,10 @@ function templateSettingForCategory(category: string) {
   return settings.value?.hermes_summary_document_templates.find((item) => item.category === category)
 }
 
+function resetSummaryTaskDocumentTemplate() {
+  summaryTaskDraft.value.document_template = templateForCategory(summaryTaskDraft.value.category)
+}
+
 async function addSummaryTaskConfig() {
   saving.value = true
   message.value = ''
@@ -242,6 +248,7 @@ async function saveSummaryTaskConfig() {
       cron_expression: summaryTaskDraft.value.cron_expression,
       title_template: summaryTaskDraft.value.title_template,
       summary_instruction: summaryTaskDraft.value.summary_instruction,
+      document_template: summaryTaskDraft.value.document_template,
       push_to_wechat: summaryTaskDraft.value.push_to_wechat,
     })
     dialogMode.value = null
@@ -445,7 +452,7 @@ onMounted(loadPage)
         <h2 id="add-summary-task-title">{{ summaryTaskDialogTitle }}</h2>
         <div class="settings-grid">
           <label>任务名称<input v-model="summaryTaskDraft.task_name" /></label>
-          <label>分类<input v-model="summaryTaskDraft.category" list="summary-categories" /></label>
+          <label>分类<input v-model="summaryTaskDraft.category" list="summary-categories" @change="dialogMode === 'add' && resetSummaryTaskDocumentTemplate()" /></label>
           <label>范围<input v-model.number="summaryTaskDraft.start_days_before" type="number" min="1" step="1" /></label>
           <label>平台<input v-model="summaryTaskDraft.platform" /></label>
           <label>定时 Cron<input v-model="summaryTaskDraft.cron_expression" placeholder="0 7 * * *" /></label>
@@ -466,6 +473,13 @@ onMounted(loadPage)
             <p>示例：{{ summaryTaskSample }}</p>
           </div>
           <label class="settings-wide">汇总说明<textarea v-model="summaryTaskDraft.summary_instruction" rows="6" /></label>
+          <label class="settings-wide">
+            <span class="field-label-actions">
+              <span>输出文档模板</span>
+              <button class="ghost compact-action" type="button" @click.prevent="resetSummaryTaskDocumentTemplate">使用分类默认模板</button>
+            </span>
+            <textarea v-model="summaryTaskDraft.document_template" rows="10" />
+          </label>
         </div>
         <div class="dialog-actions">
           <button class="ghost" type="button" :disabled="saving" @click="closeAddDialog">取消</button>
