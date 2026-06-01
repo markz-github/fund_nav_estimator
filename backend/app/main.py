@@ -11,7 +11,7 @@ from app.modules.fund_nav.api import estimates, funds, market
 from app.modules.information.api import errors, tasks, videos
 from app.config import get_settings
 from app.logging_config import configure_logging
-from app.scheduler.jobs import create_scheduler
+from app.scheduler.scheduler import create_scheduler
 from app.scheduler.runtime import set_scheduler
 
 

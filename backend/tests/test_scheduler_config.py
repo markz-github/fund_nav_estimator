@@ -67,7 +67,7 @@ class SchedulerConfigTests(unittest.TestCase):
             db.close()
 
     def test_create_scheduler_can_register_only_fund_jobs(self) -> None:
-        with patch("app.scheduler.jobs.get_settings", return_value=settings(True, False)):
+        with patch("app.scheduler.scheduler.get_settings", return_value=settings(True, False)):
             scheduler = create_scheduler()
 
         self.assertEqual(
@@ -109,8 +109,8 @@ class SchedulerConfigTests(unittest.TestCase):
             db.close()
 
         with (
-            patch("app.scheduler.jobs.get_settings", return_value=settings(False, True)),
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.scheduler.get_settings", return_value=settings(False, True)),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
         ):
             scheduler = create_scheduler()
 
@@ -143,8 +143,8 @@ class SchedulerConfigTests(unittest.TestCase):
             db.close()
 
         with (
-            patch("app.scheduler.jobs.get_settings", return_value=settings(False, True)),
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.scheduler.get_settings", return_value=settings(False, True)),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
         ):
             scheduler = create_scheduler()
             register_information_summary_task_config_jobs(scheduler)
@@ -177,8 +177,8 @@ class SchedulerConfigTests(unittest.TestCase):
         }
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.NoteService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -196,8 +196,8 @@ class SchedulerConfigTests(unittest.TestCase):
         }
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.NoteService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -229,8 +229,8 @@ class SchedulerConfigTests(unittest.TestCase):
         }
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.NoteService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -263,8 +263,8 @@ class SchedulerConfigTests(unittest.TestCase):
         }
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.NoteService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -300,8 +300,8 @@ class SchedulerConfigTests(unittest.TestCase):
         }
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.NoteService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -335,8 +335,8 @@ class SchedulerConfigTests(unittest.TestCase):
         }
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.NoteService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.NoteService", return_value=service),
         ):
             generate_information_video_notes_job()
 
@@ -351,8 +351,8 @@ class SchedulerConfigTests(unittest.TestCase):
         service.scan_enabled_sources.return_value = {"source_count": 3, "created": 0}
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.SourceService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.SourceService", return_value=service),
         ):
             scan_information_videos_job()
 
@@ -367,8 +367,8 @@ class SchedulerConfigTests(unittest.TestCase):
         }
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.SourceService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.SourceService", return_value=service),
         ):
             scan_information_videos_job()
 
@@ -480,8 +480,8 @@ class SchedulerConfigTests(unittest.TestCase):
         service.run_summary_task_config.return_value = None
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.SummaryDocumentService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.SummaryDocumentService", return_value=service),
         ):
             generate_information_summary_task_config_job(7)
 
@@ -492,8 +492,8 @@ class SchedulerConfigTests(unittest.TestCase):
         service.run_summary_task_config.return_value = None
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.SummaryDocumentService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.SummaryDocumentService", return_value=service),
         ):
             generate_information_summary_task_config_job(7)
 
@@ -510,8 +510,8 @@ class SchedulerConfigTests(unittest.TestCase):
         }
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.SummaryDocumentService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.SummaryDocumentService", return_value=service),
         ):
             poll_information_summary_documents_job()
 
@@ -528,8 +528,8 @@ class SchedulerConfigTests(unittest.TestCase):
         }
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.SummaryDocumentService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.SummaryDocumentService", return_value=service),
         ):
             poll_information_summary_documents_job()
 
@@ -549,8 +549,8 @@ class SchedulerConfigTests(unittest.TestCase):
         }
 
         with (
-            patch("app.scheduler.jobs.SessionLocal", self.SessionLocal),
-            patch("app.scheduler.jobs.SummaryDocumentService", return_value=service),
+            patch("app.scheduler.information_jobs.SessionLocal", self.SessionLocal),
+            patch("app.scheduler.information_jobs.SummaryDocumentService", return_value=service),
         ):
             poll_information_summary_documents_job()
 

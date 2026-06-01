@@ -24,7 +24,7 @@ def refresh_summary_task_config_jobs() -> None:
     if scheduler is None:
         return
     try:
-        from app.scheduler.jobs import register_information_summary_task_config_jobs
+        from app.scheduler.information_jobs import register_information_summary_task_config_jobs
 
         register_information_summary_task_config_jobs(scheduler)
     except Exception:

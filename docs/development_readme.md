@@ -315,6 +315,11 @@ Hermes 汇总也拆成两类任务日志：
 │  ├─ app/
 │  │  ├─ models/
 │  │  ├─ scheduler/
+│  │  │  ├─ fund_jobs.py
+│  │  │  ├─ information_jobs.py
+│  │  │  ├─ scheduler.py
+│  │  │  ├─ jobs.py
+│  │  │  └─ runtime.py
 │  │  ├─ modules/
 │  │  │  ├─ fund_nav/
 │  │  │  └─ information/
@@ -341,6 +346,14 @@ Hermes 汇总也拆成两类任务日志：
 ├─ docs/
 └─ README.md
 ```
+
+调度任务按业务模块拆分：
+
+- `scheduler/fund_jobs.py`：基金净值、资料、持仓、行情和估算任务。
+- `scheduler/information_jobs.py`：信息源扫描、笔记生成、汇总配置和 Hermes 轮询任务。
+- `scheduler/scheduler.py`：创建 APScheduler 实例并注册各模块任务。
+- `scheduler/jobs.py`：兼容旧导入路径，只做 re-export。新增代码不要继续向该文件添加任务实现。
+- `scheduler/runtime.py`：运行时刷新已注册的信息流汇总任务配置。
 
 ## 主要接口
 
