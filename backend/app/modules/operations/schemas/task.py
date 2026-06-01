@@ -34,3 +34,8 @@ class TaskLogPageOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class TaskLogOptionsOut(BaseModel):
+    task_statuses: list[dict[str, str]]
+    fund_nav_task_types: list[dict[str, str]]

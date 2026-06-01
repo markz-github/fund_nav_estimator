@@ -9,7 +9,11 @@
 - 基金持仓：股票、债券、ETF、指数等底层资产及持仓比例。
 - 市场行情：底层资产的最新价、昨收价和当日涨跌幅。
 
-所有 akshare 调用都应集中在 `backend/app/data_sources/akshare_source.py`，避免业务服务直接依赖具体接口名称。
+所有 AkShare 调用都应集中在 `backend/app/modules/fund_nav/data_sources/akshare_source.py`，避免业务服务直接依赖具体接口名称。
+
+高耗时全量行情接口使用进程内 DataFrame 缓存和接口级锁。行情缓存 TTL 为 5 分钟，开放式基金净值表缓存 TTL 为 10 分钟。缓存未命中时只有获得锁的线程请求 AkShare；等待线程获得锁后会再次查询缓存。刷新失败且存在旧缓存时允许使用旧缓存并记录 warning。
+
+基金名称和类型优先查询 `fund_profiles`。目标基金不存在时，单个线程调用 `fund_name_em()` 全量同步数据库；同步后仍不存在则停止，不循环重试。
 
 ## akshare 接口使用结论
 

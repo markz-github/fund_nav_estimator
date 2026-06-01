@@ -280,7 +280,7 @@ coverage_ratio = 72% / 85%
 ### 当前状态
 
 - [已完成] APScheduler 已引入。
-- [已完成] 调度任务已按模块拆分为 `scheduler/fund_jobs.py` 和 `scheduler/information_jobs.py`，由 `scheduler/scheduler.py` 统一注册；`scheduler/jobs.py` 仅保留兼容导出。
+- [已完成] 基金调度任务已拆分到 `scheduler/fund_jobs.py`，由 `scheduler/scheduler.py` 注册；`scheduler/jobs.py` 仅保留兼容导出。
 - [已完成] 具体任务逻辑已接入。
 
 ### 待处理
@@ -296,7 +296,6 @@ coverage_ratio = 72% / 85%
 
 ```env
 SCHEDULER_FUND_ENABLED=true
-SCHEDULER_INFORMATION_ENABLED=true
 ```
 
 ### 相关表

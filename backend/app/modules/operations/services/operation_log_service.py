@@ -7,12 +7,14 @@ from sqlalchemy.orm import Session
 from app.modules.operations.models.data_fetch_error import DataFetchError
 from app.modules.operations.models.task_log import TaskLog
 
+TASK_STATUS_PENDING = "pending"
 TASK_STATUS_RUNNING = "running"
 TASK_STATUS_SUCCESS = "success"
 TASK_STATUS_PARTIAL = "partial"
 TASK_STATUS_FAILED = "failed"
 TASK_STATUS_SKIPPED = "skipped"
 TASK_STATUSES = {
+    TASK_STATUS_PENDING,
     TASK_STATUS_RUNNING,
     TASK_STATUS_SUCCESS,
     TASK_STATUS_PARTIAL,

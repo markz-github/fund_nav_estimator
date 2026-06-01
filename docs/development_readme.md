@@ -2,7 +2,7 @@
 
 这份文档面向项目开发和维护，包含本地启动、数据库初始化、项目结构和开发文档入口。
 
-> 信息流系统已经拆分到同级目录 `..\信息系统`。本文档中仍出现的信息流章节仅作为历史迁移参考；基金项目运行时不再加载信息流模块。
+本项目只包含基金估值系统。信息系统已经拆分为独立项目。
 
 ## 本地环境
 
@@ -196,17 +196,16 @@ log_level = "INFO"
 log_backup_days = 5
 ```
 
-`log_level` 支持 Python logging 常用级别，例如 `DEBUG`、`INFO`、`WARNING`、`ERROR`。信息流扫描的成功结果日志使用 `INFO`，失败结果日志使用 `ERROR`，过程日志使用 `DEBUG`；如需查看完整扫描过程，可在 `backend/config/local.toml` 中设置：
+`log_level` 支持 Python logging 常用级别，例如 `DEBUG`、`INFO`、`WARNING`、`ERROR`。如需查看完整运行过程，可在 `backend/config/local.toml` 中设置：
 
 ```toml
 log_level = "DEBUG"
 ```
 
-定时任务是否启用按业务模块分别配置：
+基金定时任务是否启用通过以下配置控制：
 
 ```env
 SCHEDULER_FUND_ENABLED=true
-SCHEDULER_INFORMATION_ENABLED=true
 ```
 
 定时任务执行时间也在 `backend/.env` 中配置，使用标准 5 段 cron 表达式：
@@ -217,9 +216,6 @@ SCHEDULER_REFRESH_PROFILES_CRON=10 19 * * *
 SCHEDULER_REFRESH_HOLDINGS_CRON=30 20 * * mon-fri
 SCHEDULER_REFRESH_QUOTES_CRON=0,30 9-15 * * mon-fri
 SCHEDULER_ESTIMATE_NAV_CRON=5,35 9-15 * * mon-fri
-SCHEDULER_SCAN_VIDEOS_CRON=*/3 * * * *
-SCHEDULER_GENERATE_VIDEO_NOTES_INTERVAL_SECONDS=30
-SCHEDULER_POLL_SUMMARY_DOCUMENTS_INTERVAL_SECONDS=30
 ```
 
 默认含义：
@@ -229,85 +225,16 @@ SCHEDULER_POLL_SUMMARY_DOCUMENTS_INTERVAL_SECONDS=30
 - `SCHEDULER_REFRESH_HOLDINGS_CRON`：工作日 20:30 同步基金持仓。
 - `SCHEDULER_REFRESH_QUOTES_CRON`：工作日 09:00-15:00 每 30 分钟同步行情。
 - `SCHEDULER_ESTIMATE_NAV_CRON`：工作日 09:05-15:35 每 30 分钟估算净值。
-- `SCHEDULER_SCAN_VIDEOS_CRON`：每 3 分钟扫描信息流信息源；定时任务每次扫描除系统内置信息源之外的全部已启用账号。
-- `SCHEDULER_GENERATE_VIDEO_NOTES_INTERVAL_SECONDS`：每 30 秒检查或提交 Bilinote 视频总结任务。
-- `SCHEDULER_POLL_SUMMARY_DOCUMENTS_INTERVAL_SECONDS`：每 30 秒检查 Hermes 汇总任务结果。
+## 任务日志状态
 
-信息流汇总任务的执行时间不再通过全局固定配置。后端启动时会读取 `information_summary_task_configs.cron_expression`，为每个启用的汇总任务配置注册定时任务；前端保存、新增、停用或删除汇总任务配置后，也会刷新已注册的汇总定时任务。创建汇总任务时，`information_summary_task_configs.document_template` 会复制当前分类默认输出文档模板，后续可针对单个任务独立修改，不随默认模板变化。是否推送微信由 `information_summary_task_configs.push_to_wechat` 控制；Hermes 汇总轮询完成并写入正文后，会立即判断该配置是否启用微信推送，启用时直接调用微信推送接口。
+`task_logs.status` 使用以下状态：
 
-Bilinote 自动提交视频笔记任务还会读取 `information_settings.video_note_recent_days`，只对最近 N 天内发布或入库的视频提交任务。默认值为 `3`，设置为 `0` 表示不限制天数。手动选中具体信息生成笔记时不受该范围限制。
-
-手动多选生成笔记不会并发提交多条外部任务。后端会先为选中的内容创建或复用 `information_video_notes` 记录，未立即启动的记录保持 `pending`；若当前没有 `running` 笔记，只启动其中一条。手动任务和自动任务共享同一条全局笔记生成队列：只要存在 `information_video_notes.status = running`，新的提交任务只轮询或等待，不再额外提交 Bilinote/Hermes。后续定时任务在 running 完成后继续处理 `pending` 笔记对应的内容。
-
-图文投稿扫描和提交 Hermes 图文笔记前都会读取 `information_settings.article_filter_keywords` 和 `information_settings.article_min_content_chars`。多个关键词可用换行、逗号或分号分隔；命中图文投稿标题或正文时，或正文去除空白后的字数少于最少字数阈值时，该图文投稿会在信息源列表中显示为“无效内容”，状态值为 `invalid_content`，不会进入 Hermes 图文笔记任务。`article_min_content_chars` 默认为 `0`，表示不限制。
-
-信息源扫描多个账号时会读取 `information_settings.video_source_scan_jitter_min_seconds` 和 `information_settings.video_source_scan_jitter_max_seconds`。每个信息源请求和入库处理结束后，若后续仍有待扫描信息源，会在该范围内随机等待后再继续，默认范围为 1 到 3 秒。
-
-## 信息流状态说明
-
-### 枚举使用约定
-
-数据库中的状态、类型等枚举值统一保存英文或数字编码，例如 `task_logs.task_type`、`task_logs.status`。
-
-后端代码中的枚举定义统一维护在 `backend/app/modules/information/status_enums.py`，包括：
-
-- 信息源状态、视频状态、笔记状态、汇总文档状态和任务状态。
-- 基金模块任务类型、信息流模块任务类型。
-
-前端页面展示中文时，不在页面里硬编码英文到中文的映射；筛选下拉框也不在前端维护固定数组。前端应通过统一枚举接口查询选项：
-
-```text
-GET /api/information/status-options
-```
-
-页面拿到枚举后按 `value` 传递筛选参数，按 `label` 展示中文，例如任务类型筛选和笔记汇总类型筛选。
-
-### 视频处理状态
-
-`information_videos.status` 表示视频在信息流处理链路中的状态：
-
-- `note_pending`：视频已扫描入库，等待生成 Bilinote 总结。
-- `note_running`：已提交 Bilinote 任务，正在等待生成结果。
-- `note_done`：Bilinote 总结已生成。
-- `note_failed`：Bilinote 总结生成失败，失败原因见对应 `information_video_notes.error_message`。
-
-### Bilinote 总结状态
-
-`information_video_notes.status` 表示单条 Bilinote 总结任务状态：
-
-- `pending`：总结记录已创建，但尚未提交外部任务。
-- `running`：已获得 Bilinote `task_id`，等待 `/api/task_status/{task_id}` 返回最终结果。
-- `done`：已获得总结正文，正文保存在 `note_text`。
-- `failed`：生成失败或任务过期，失败原因保存在 `error_message`，原始响应保存在 `raw_response`。
-
-Bilinote 状态检查间隔为 30 秒。运行超过 1 天仍未得到结果的任务会标记为 `failed`，错误信息为：
-
-```text
-Bilinote task expired after 1 day without result
-```
-
-### 任务日志状态
-
-`task_logs.status` 在所有模块中新写入的数据统一使用以下状态：
-
+- `pending`：基金任务已提交到队列，等待 worker 领取。
 - `running`：本地后端任务正在执行，尚未写入结束时间。
 - `success`：任务已完成，且没有失败或跳过项。
 - `failed`：任务已完成，全部处理失败，或任务级异常。
 - `partial`：任务已完成，同时存在成功与失败或跳过。
 - `skipped`：任务已完成，但没有可处理对象，或业务上跳过执行。
-
-Bilinote 总结拆成两类任务日志：
-
-- `submit_information_video_note_task`：提交 `/api/generate_note`，创建笔记记录，并在 `task_logs.external_task_id` 记录 Bilinote 返回的 `task_id`。
-- `poll_information_video_notes`：定时扫描 `information_video_notes.status = running` 的记录，调用 `/api/task_status/{task_id}` 获取结果。
-- `mark_information_video_notes_failed`：手动将选中的笔记任务标记为失败。
-
-Hermes 汇总也拆成两类任务日志：
-
-- `generate_information_summary_task_config` / `generate_information_custom_summary` / `retry_information_summary_document`：提交 Hermes run，创建或复用汇总文档，并在文档中保存 `hermes_run_id`。其中 `generate_information_summary_task_config` 来自汇总任务配置表的定时触发。
-- `poll_information_summary_documents`：定时扫描 `information_summary_documents.status = running` 的记录，调用 Hermes 状态接口获取最终汇总正文。
-
-信息流定时任务会精简空跑日志：没有启用信息源、扫描没有新增视频、没有 running Bilinote 任务、没有待提交总结视频、没有可汇总笔记时，不写入 `task_logs`。手动触发的任务仍会写入日志，包括 `skipped` 结果。
 
 ## 项目结构
 
@@ -318,13 +245,11 @@ Hermes 汇总也拆成两类任务日志：
 │  │  ├─ models/
 │  │  ├─ scheduler/
 │  │  │  ├─ fund_jobs.py
-│  │  │  ├─ information_jobs.py
 │  │  │  ├─ scheduler.py
-│  │  │  ├─ jobs.py
-│  │  │  └─ runtime.py
+│  │  │  └─ jobs.py
 │  │  ├─ modules/
 │  │  │  ├─ fund_nav/
-│  │  │  └─ information/
+│  │  │  └─ operations/
 │  │  ├─ config.py
 │  │  ├─ database.py
 │  │  └─ main.py
@@ -338,10 +263,8 @@ Hermes 汇总也拆成两类任务日志：
 │  │  │  ├─ fund_nav/
 │  │  │  │  ├─ api/
 │  │  │  │  ├─ components/
+│  │  │  │  ├─ operations/
 │  │  │  │  └─ views/
-│  │  │  └─ information/
-│  │  │     ├─ api/
-│  │  │     └─ views/
 │  │  ├─ router/
 │  │  └─ main.ts
 │  └─ package.json
@@ -352,10 +275,8 @@ Hermes 汇总也拆成两类任务日志：
 调度任务按业务模块拆分：
 
 - `scheduler/fund_jobs.py`：基金净值、资料、持仓、行情和估算任务。
-- `scheduler/information_jobs.py`：信息源扫描、笔记生成、汇总配置和 Hermes 轮询任务。
-- `scheduler/scheduler.py`：创建 APScheduler 实例并注册各模块任务。
+- `scheduler/scheduler.py`：创建 APScheduler 实例并注册基金任务。
 - `scheduler/jobs.py`：兼容旧导入路径，只做 re-export。新增代码不要继续向该文件添加任务实现。
-- `scheduler/runtime.py`：运行时刷新已注册的信息流汇总任务配置。
 
 ## 主要接口
 
@@ -375,32 +296,11 @@ Hermes 汇总也拆成两类任务日志：
 - `GET /api/tasks/logs`
 - `GET /api/errors`
 - `GET /api/tasks/logs?module=fund_nav`
-- `GET /api/tasks/logs?module=information`
 - `GET /api/errors?module=fund_nav`
-- `GET /api/errors?module=information`
-- `GET /api/information/video-sources`
-- `POST /api/information/video-sources`
-- `PATCH /api/information/video-sources/{source_id}`
-- `DELETE /api/information/video-sources/{source_id}`
-- `GET /api/information/settings`
-- `PUT /api/information/settings`
-- `GET /api/information/summary-task-configs`
-- `POST /api/information/summary-task-configs`
-- `PATCH /api/information/summary-task-configs/{config_id}`
-- `DELETE /api/information/summary-task-configs/{config_id}`
-- `GET /api/information/videos`
-- `GET /api/information/video-notes`
-- `GET /api/information/summary-documents`
-- `GET /api/information/summary-documents/{document_id}`
-- `POST /api/information/summary-documents/{document_id}/retry`
-- `POST /api/information/actions/scan-videos`
-- `POST /api/information/actions/add-manual-link`
-- `POST /api/information/actions/generate-video-notes`
 
 ## 开发文档
 
 - [项目计划](project_plan.md)
-- [待处理问题](todo_issues.md)
 - [数据库设计](database.md)
 - [数据来源](data_sources.md)
 - [需求文档](requirements/README.md)

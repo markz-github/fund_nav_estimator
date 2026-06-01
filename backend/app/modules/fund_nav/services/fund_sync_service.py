@@ -1,61 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from app.database import SessionLocal
-from app.modules.fund_nav.services.estimate_service import EstimateService
-from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
-from app.modules.fund_nav.services.fund_profile_service import FundProfileService
-from app.modules.fund_nav.services.fund_service import FundService
-from app.modules.fund_nav.services.holding_service import HoldingService
-from app.modules.fund_nav.services.market_service import MarketService
-from app.modules.operations.services.operation_log_service import log_fetch_error, log_task, task_status_from_counts
-from app.utils.performance import timed
+from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
+from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 
 
-@timed()
-def sync_new_fund_data(fund_code: str) -> None:
-    started_at = datetime.now()
-    db = SessionLocal()
-    try:
-        fund_service = FundService(db)
-        if FundProfileService(db).get_profile(fund_code) is None:
-            try:
-                FundProfileService(db).refresh_profiles()
-            except Exception:
-                db.rollback()
-        profile = fund_service.refresh_profile(fund_code)
-        index_mapping = FundIndexMappingService(db).refresh_mapping(fund_code)
-        nav = fund_service.refresh_nav(fund_code)
-        holdings = HoldingService(db).refresh_holdings(fund_code)
-        quotes = MarketService(db).refresh_quotes_for_holdings([fund_code]) if holdings else []
-        estimate_result = EstimateService(db).run_estimates([fund_code])
-        status = task_status_from_counts(
-            success=estimate_result["estimated_count"],
-            skipped=
-                (0 if profile is not None else 1)
-                + (0 if nav is not None else 1)
-                + (0 if holdings else 1)
-                + estimate_result["skipped_count"],
-        )
-        log_task(
-            db,
-            "新增基金后同步数据",
+def sync_new_fund_data(fund_code: str) -> FundTaskSubmitOut:
+    """Compatibility helper: new-fund synchronization is always queued."""
+    with SessionLocal() as db:
+        return FundTaskQueueService(db).submit(
             "sync_new_fund_data",
-            status,
-            started_at,
-            (
-                f"profile={profile is not None};nav={nav is not None};"
-                f"index_mapping={index_mapping is not None};"
-                f"holdings={len(holdings)};quotes={len(quotes)};"
-                f"estimated={estimate_result['estimated_count']};"
-                f"skipped={estimate_result['skipped_count']};"
-                f"details={estimate_result['skipped']}"
-            ),
+            "新增基金后同步数据",
+            origin="new_fund",
+            payload={"fund_code": fund_code},
         )
-    except Exception as exc:
-        db.rollback()
-        log_fetch_error(db, "internal", "sync_new_fund_data", fund_code, repr(exc))
-        log_task(db, "新增基金后同步数据", "sync_new_fund_data", "failed", started_at, repr(exc))
-    finally:
-        db.close()

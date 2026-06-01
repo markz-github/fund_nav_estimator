@@ -65,30 +65,16 @@ export async function listFundHoldings(fundCode: string): Promise<FundHolding[]>
   return data
 }
 
-export interface RefreshHoldingsResult {
-  fund_code: string
-  refreshed: boolean
-  holding_count: number
+export interface FundTaskSubmitResult {
+  task_id: number
+  task_log_id: number
+  status: string
+  reused: boolean
+  message: string
 }
 
-export interface RefreshNavResult {
-  fund_code: string
-  refreshed: boolean
-  from_cache?: boolean
-  nav_date?: string | null
-  unit_nav?: string | null
-}
-
-export interface RefreshFundNavsResult {
-  fund_codes: string[]
-  refreshed_count: number
-  from_cache_count: number
-  failed_count: number
-  results: RefreshNavResult[]
-}
-
-export async function refreshFundHoldings(fundCode: string): Promise<RefreshHoldingsResult> {
-  const { data } = await apiClient.post<RefreshHoldingsResult>(`/funds/${fundCode}/refresh-holdings`)
+export async function refreshFundHoldings(fundCode: string): Promise<FundTaskSubmitResult> {
+  const { data } = await apiClient.post<FundTaskSubmitResult>(`/funds/${fundCode}/refresh-holdings`)
   return data
 }
 
@@ -96,13 +82,13 @@ export async function deleteFund(fundCode: string): Promise<void> {
   await apiClient.delete(`/funds/${fundCode}`)
 }
 
-export async function refreshFundNav(fundCode: string): Promise<RefreshNavResult> {
-  const { data } = await apiClient.post<RefreshNavResult>(`/funds/${fundCode}/refresh-nav`)
+export async function refreshFundNav(fundCode: string): Promise<FundTaskSubmitResult> {
+  const { data } = await apiClient.post<FundTaskSubmitResult>(`/funds/${fundCode}/refresh-nav`)
   return data
 }
 
-export async function refreshFundNavs(fundCodes: string[]): Promise<RefreshFundNavsResult> {
-  const { data } = await apiClient.post<RefreshFundNavsResult>(
+export async function refreshFundNavs(fundCodes: string[]): Promise<FundTaskSubmitResult> {
+  const { data } = await apiClient.post<FundTaskSubmitResult>(
     '/funds/actions/refresh-navs',
     { fund_codes: fundCodes },
     { timeout: 180000 },

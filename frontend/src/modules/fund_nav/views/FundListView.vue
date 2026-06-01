@@ -126,12 +126,7 @@ async function confirmDeleteFund() {
 async function refreshNav(code: string) {
   try {
     const result = await refreshFundNav(code)
-    message.value = result.refreshed
-      ? result.from_cache
-        ? '数据源暂时不可用，已保留本地已有基准。'
-        : '官方净值已刷新。'
-      : '未获取到新的官方净值，已记录到运行状态。'
-    await loadFunds({ keepMessage: true })
+    message.value = taskSubmitMessage(result)
   } catch (error) {
     message.value = apiErrorMessage(error, '官方净值刷新失败，请查看运行状态。')
   }
@@ -143,13 +138,10 @@ async function refreshSelectedNavs() {
     selectedFundCodes.value.length > 0
       ? selectedFundCodes.value
       : funds.value.map((fund) => fund.fund_code)
-  message.value = `正在为 ${targetCodes.length} 只基金更新官方净值...`
+  message.value = `正在提交 ${targetCodes.length} 只基金的官方净值更新任务...`
   try {
     const result = await refreshFundNavs(targetCodes)
-    const cacheText = result.from_cache_count ? `，保留本地已有基准 ${result.from_cache_count} 只` : ''
-    const failedText = result.failed_count ? `，失败 ${result.failed_count} 只` : ''
-    message.value = `官方净值更新 ${result.refreshed_count} 只${cacheText}${failedText}。`
-    await loadFunds({ keepMessage: true })
+    message.value = taskSubmitMessage(result)
   } catch (error) {
     message.value = apiErrorMessage(error, '批量更新官方净值失败，请查看运行状态。')
   } finally {
@@ -163,21 +155,21 @@ async function estimateToday() {
     selectedFundCodes.value.length > 0
       ? selectedFundCodes.value
       : funds.value.map((fund) => fund.fund_code)
-  message.value = `正在为 ${targetCodes.length} 只基金刷新行情并估算...`
+  message.value = `正在提交 ${targetCodes.length} 只基金的行情刷新和估算任务...`
   try {
     const estimateResult = await refreshQuotesAndRunEstimates(targetCodes)
-    const skippedText = estimateResult.skipped_count
-      ? `，跳过 ${estimateResult.skipped_count} 只：${estimateResult.skipped
-          .map((item) => `${item.fund_code}(${item.reason})`)
-          .join('、')}`
-      : ''
-    message.value = `行情刷新 ${estimateResult.quote_count} 条，估算成功 ${estimateResult.estimated_count} 只${skippedText}。`
-    await loadFunds({ keepMessage: true })
+    message.value = taskSubmitMessage(estimateResult)
   } catch (error) {
     message.value = apiErrorMessage(error, '估算当日净值失败，请查看运行状态。')
   } finally {
     estimating.value = false
   }
+}
+
+function taskSubmitMessage(result: { reused: boolean; task_id: number }) {
+  return result.reused
+    ? `相同任务已在等待执行，任务 ${result.task_id}。`
+    : `任务 ${result.task_id} 已提交，可在运行状态查看进度。`
 }
 
 onMounted(loadFunds)

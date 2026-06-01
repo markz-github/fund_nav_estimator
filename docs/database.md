@@ -2,18 +2,6 @@
 
 数据库使用 MySQL，字符集建议使用 `utf8mb4`。
 
-> 信息流数据表已经归属同级项目 `..\信息系统`。本文档中以 `information_` 开头的表结构仅作为历史迁移参考，基金项目运行时不再加载这些模型。
-
-## 通用字段
-
-系统所有数据表都应包含软删除字段：
-
-```sql
-is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除标记：0未删除，1已删除'
-```
-
-业务查询默认只返回 `is_deleted = 0` 的数据；删除业务数据时应将 `is_deleted` 更新为 `1`，不做物理删除。
-
 ## funds
 
 自选基金表，保存用户关注的基金基础信息。
@@ -164,23 +152,60 @@ CREATE TABLE fund_estimates (
 
 ## task_logs
 
-定时任务日志表。
+任务运行日志表。队列任务提交后先记录为 `pending`，worker 领取后更新为 `running`。
 
 ```sql
 CREATE TABLE task_logs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_name VARCHAR(100) NOT NULL COMMENT '任务名称',
     task_type VARCHAR(50) NOT NULL COMMENT '任务类型，如 refresh_nav、refresh_holding、refresh_quote、estimate_nav',
-    target_type VARCHAR(50) NULL COMMENT '任务目标类型，如 video、fund、bilinote_task',
-    target_id VARCHAR(100) NULL COMMENT '任务目标 ID，如视频 ID、基金代码',
-    external_task_id VARCHAR(100) NULL COMMENT '外部任务 ID，如 Bilinote taskid',
-    status VARCHAR(20) NOT NULL COMMENT '状态：running、success、failed、partial、skipped',
+    target_type VARCHAR(50) NULL COMMENT '目标类型，如 fund',
+    target_id VARCHAR(100) NULL COMMENT '目标 ID，如基金代码',
+    external_task_id VARCHAR(100) NULL COMMENT '外部任务 ID',
+    status VARCHAR(20) NOT NULL COMMENT '状态：pending、running、success、partial、failed、skipped',
     started_at DATETIME NOT NULL,
     finished_at DATETIME NULL,
     duration_ms BIGINT NULL COMMENT '耗时毫秒',
     message TEXT NULL COMMENT '任务摘要或错误信息',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_task_logs_type_time (task_type, started_at)
+);
+```
+
+已有数据库需要补充任务目标字段：
+
+```sql
+ALTER TABLE task_logs
+    ADD COLUMN target_type VARCHAR(50) NULL COMMENT '目标类型，如 fund' AFTER task_type,
+    ADD COLUMN target_id VARCHAR(100) NULL COMMENT '目标 ID，如基金代码' AFTER target_type,
+    ADD COLUMN external_task_id VARCHAR(100) NULL COMMENT '外部任务 ID' AFTER target_id;
+```
+
+## fund_task_queue
+
+基金耗时任务队列表。Web 接口、定时任务和新增基金流程只提交任务；进程内 worker 池最多并行执行两个任务。
+
+```sql
+CREATE TABLE fund_task_queue (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    task_log_id BIGINT NULL COMMENT '关联 task_logs.id',
+    task_type VARCHAR(50) NOT NULL COMMENT '任务类型',
+    task_name VARCHAR(100) NOT NULL COMMENT '任务名称',
+    origin VARCHAR(20) NOT NULL COMMENT 'manual、scheduled、new_fund',
+    payload_json JSON NULL COMMENT '任务参数',
+    dedupe_key VARCHAR(255) NOT NULL COMMENT '任务类型和规范化参数生成的去重键',
+    status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        COMMENT 'pending、running、success、partial、failed',
+    queued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME NULL,
+    finished_at DATETIME NULL,
+    duration_ms BIGINT NULL,
+    message TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_fund_task_queue_status_time (status, queued_at),
+    INDEX idx_fund_task_queue_type_time (task_type, queued_at),
+    INDEX idx_fund_task_queue_dedupe_status (dedupe_key, status)
 );
 ```
 
@@ -199,377 +224,5 @@ CREATE TABLE data_fetch_errors (
     resolved TINYINT NOT NULL DEFAULT 0 COMMENT '是否已解决',
     INDEX idx_fetch_errors_target (target_code),
     INDEX idx_fetch_errors_time (occurred_at)
-);
-```
-
-## information_video_sources
-
-信息流视频来源账号表，第一版用于维护 B站 UID 或 space 主页 URL。
-
-```sql
-CREATE TABLE information_video_sources (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    platform VARCHAR(30) NOT NULL COMMENT '视频平台，如 bilibili',
-    source_name VARCHAR(100) NOT NULL COMMENT '来源账号名称',
-    source_url VARCHAR(500) NULL COMMENT '来源主页 URL',
-    external_source_id VARCHAR(100) NOT NULL COMMENT '平台账号 ID，如 B站 UID',
-    category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，如财经',
-    enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用扫描',
-    last_scanned_at DATETIME NULL COMMENT '最近扫描时间',
-    remark VARCHAR(255) NULL COMMENT '备注',
-    raw_response LONGTEXT NULL COMMENT '最近扫描原始响应',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_information_video_source_platform_external (platform, external_source_id),
-    INDEX idx_information_video_sources_enabled (enabled)
-);
-```
-
-## information_videos
-
-信息流视频表，保存扫描到的视频基础信息和处理状态。
-
-```sql
-CREATE TABLE information_videos (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    source_id BIGINT NOT NULL COMMENT '来源账号 ID',
-    platform VARCHAR(30) NOT NULL COMMENT '视频平台',
-    external_video_id VARCHAR(100) NOT NULL COMMENT '平台内容 ID，如 BVID 或 article_xxx',
-    title VARCHAR(300) NOT NULL COMMENT '内容标题',
-    video_url VARCHAR(500) NOT NULL COMMENT '内容链接',
-    content_type VARCHAR(30) NOT NULL DEFAULT 'video' COMMENT '内容类型：video/article',
-    content_text LONGTEXT NULL COMMENT '图文正文',
-    duration_seconds INT NULL COMMENT '视频时长秒数',
-    author_name VARCHAR(100) NULL COMMENT '作者名称',
-    category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，默认继承信息源分类',
-    ingest_method VARCHAR(30) NOT NULL DEFAULT 'scan' COMMENT '入库方式：scan扫描入库，manual手动添加',
-    published_at DATETIME NULL COMMENT '发布时间',
-    status VARCHAR(30) NOT NULL DEFAULT 'discovered' COMMENT '处理状态',
-    raw_response LONGTEXT NULL COMMENT '扫描原始响应',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_information_videos_platform_external (platform, external_video_id),
-    INDEX idx_information_videos_source (source_id),
-    INDEX idx_information_videos_status (status),
-    INDEX idx_information_videos_published_at (published_at)
-);
-```
-
-## information_video_notes
-
-Bilinote 视频文字总结表。
-
-```sql
-CREATE TABLE information_video_notes (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    video_id BIGINT NOT NULL COMMENT '视频 ID',
-    provider VARCHAR(50) NOT NULL DEFAULT 'bilinote' COMMENT '总结提供方',
-    external_task_id VARCHAR(100) NULL COMMENT '外部任务 ID',
-    status VARCHAR(30) NOT NULL DEFAULT 'pending' COMMENT '生成状态：pending/running/done/failed',
-    note_text LONGTEXT NULL COMMENT '文字版总结',
-    error_message TEXT NULL COMMENT '错误信息',
-    raw_response LONGTEXT NULL COMMENT '外部接口原始响应',
-    generated_at DATETIME NULL COMMENT '生成时间',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_information_video_notes_video_provider (video_id, provider),
-    INDEX idx_information_video_notes_status (status)
-);
-```
-
-## information_summary_documents
-
-Hermes 二次汇总文档表。配置汇总通过 `summary_task_config_id` 关联来源任务配置；手动汇总的 `summary_task_config_id` 为空。
-
-```sql
-CREATE TABLE information_summary_documents (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    platform VARCHAR(30) NOT NULL COMMENT '视频平台',
-    summary_date DATE NOT NULL COMMENT '汇总日期',
-    category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '汇总限定的信息分类',
-    summary_task_config_id BIGINT NULL COMMENT '来源汇总任务配置 ID；为空表示手动汇总',
-    title VARCHAR(200) NOT NULL COMMENT '文档标题',
-    status VARCHAR(30) NOT NULL DEFAULT 'pending' COMMENT '生成状态',
-    hermes_run_id VARCHAR(100) NULL COMMENT 'Hermes 异步 run ID',
-    document_text LONGTEXT NULL COMMENT '汇总文档正文',
-    error_message TEXT NULL COMMENT '错误信息',
-    raw_response LONGTEXT NULL COMMENT 'Hermes 原始响应',
-    generated_at DATETIME NULL COMMENT '生成时间',
-    is_deleted INT NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_information_summary_documents_status (status),
-    INDEX idx_information_summary_documents_date_category (summary_date, category),
-    INDEX idx_information_summary_documents_task_config (summary_task_config_id)
-);
-```
-
-现有数据库升级 SQL：
-
-```sql
-ALTER TABLE information_video_sources
-    ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，如财经' AFTER external_source_id;
-ALTER TABLE information_videos
-    ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类，默认继承信息源分类' AFTER author_name;
-ALTER TABLE information_videos
-    ADD COLUMN ingest_method VARCHAR(30) NOT NULL DEFAULT 'scan' COMMENT '入库方式：scan扫描入库，manual手动添加' AFTER category;
-UPDATE information_videos v
-JOIN information_video_sources s ON s.id = v.source_id
-SET v.ingest_method = 'manual'
-WHERE s.external_source_id = 'manual'
-   OR s.source_name = '手动录入';
-INSERT INTO information_video_sources (
-    id,
-    platform,
-    source_name,
-    source_url,
-    external_source_id,
-    category,
-    enabled,
-    last_scanned_at,
-    remark,
-    is_deleted
-)
-VALUES (
-    -1,
-    'system',
-    '手动录入',
-    NULL,
-    'manual',
-    '手动录入',
-    1,
-    NULL,
-    '系统内置手动录入来源',
-    0
-)
-ON DUPLICATE KEY UPDATE
-    platform = VALUES(platform),
-    source_name = VALUES(source_name),
-    source_url = VALUES(source_url),
-    external_source_id = VALUES(external_source_id),
-    category = VALUES(category),
-    enabled = VALUES(enabled),
-    remark = VALUES(remark),
-    is_deleted = 0;
-UPDATE information_videos v
-JOIN information_video_sources s ON s.id = v.source_id
-SET
-    v.source_id = -1,
-    v.ingest_method = 'manual'
-WHERE s.external_source_id = 'manual'
-   OR s.source_name = '手动录入';
-UPDATE information_video_sources
-SET
-    enabled = 0,
-    is_deleted = 1
-WHERE id <> -1
-  AND (
-      external_source_id = 'manual'
-      OR source_name = '手动录入'
-  );
-ALTER TABLE information_summary_documents
-    ADD COLUMN category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '汇总限定的信息分类' AFTER summary_date;
-ALTER TABLE information_summary_documents
-    ADD COLUMN summary_task_config_id BIGINT NULL COMMENT '来源汇总任务配置 ID；为空表示手动汇总' AFTER category;
-ALTER TABLE information_summary_documents
-    DROP INDEX uk_information_summary_documents_platform_type_date,
-    DROP INDEX idx_information_summary_documents_type_date,
-    ADD INDEX idx_information_summary_documents_date_category (summary_date, category),
-    ADD INDEX idx_information_summary_documents_task_config (summary_task_config_id);
-```
-
-如果已经执行过上一版按分类扩展的唯一索引，可继续调整为包含汇总任务配置 ID，并删除不再使用的 `summary_type`：
-
-```sql
-ALTER TABLE information_summary_documents
-    DROP INDEX uk_information_summary_documents_platform_type_date_category;
-
-ALTER TABLE information_summary_documents
-    DROP INDEX idx_information_summary_documents_type_date_category,
-    ADD INDEX idx_information_summary_documents_date_category (summary_date, category),
-    DROP COLUMN summary_type;
-```
-
-如果数据库中已经存在配置汇总唯一索引，应删除该唯一索引，允许同一汇总任务多次执行时生成多篇文档：
-
-```sql
-ALTER TABLE information_summary_documents
-    DROP INDEX uk_information_summary_documents_platform_date_category_task;
-```
-
-## information_summary_document_items
-
-汇总文档与 Bilinote 总结的关联表。
-
-```sql
-CREATE TABLE information_summary_document_items (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    document_id BIGINT NOT NULL COMMENT '汇总文档 ID',
-    note_id BIGINT NOT NULL COMMENT '视频总结 ID',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_information_summary_document_items_doc_note (document_id, note_id)
-);
-```
-
-## information_summary_task_configs
-
-信息流定时汇总任务配置表。每条配置定义一个定时汇总任务的内容范围：从 `start_days_before` 天前到昨天，限定指定信息分类。
-
-```sql
-CREATE TABLE information_summary_task_configs (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    task_name VARCHAR(100) NOT NULL COMMENT '任务名称',
-    platform VARCHAR(30) NOT NULL DEFAULT 'bilibili' COMMENT '视频平台',
-    category VARCHAR(50) NOT NULL DEFAULT '财经' COMMENT '信息分类',
-    start_days_before INT NOT NULL DEFAULT 1 COMMENT '汇总发布日期范围开始：几天前；结束固定为昨天',
-    cron_expression VARCHAR(100) NOT NULL DEFAULT '0 7 * * *' COMMENT '定时触发 cron 表达式',
-    title_template VARCHAR(200) NOT NULL DEFAULT '{start_date:%Y-%m-%d} {platform} {category}汇总' COMMENT '汇总结果名称模板，使用 Python format 语法',
-    summary_instruction TEXT NOT NULL COMMENT '任务级汇总说明，空值时使用当前分类默认汇总说明',
-    document_template TEXT NOT NULL COMMENT '任务级输出文档模板，创建任务时复制当前分类默认模板',
-    push_to_wechat TINYINT NOT NULL DEFAULT 0 COMMENT '是否推送到微信：0否，1是',
-    enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
-    is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除标记：0未删除，1已删除',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_information_summary_task_configs_enabled (enabled),
-    INDEX idx_information_summary_task_configs_category (category)
-);
-```
-
-汇总任务配置不再写入系统默认数据；需要执行的汇总任务均通过前端汇总设置页面创建和维护。
-
-
-如果已按上一版创建过 `information_summary_task_configs`，补充执行：
-
-```sql
-ALTER TABLE information_summary_task_configs
-    ADD COLUMN title_template VARCHAR(200) NOT NULL DEFAULT '{start_date:%Y-%m-%d} {platform} {category}汇总' COMMENT '汇总结果名称模板，使用 Python format 语法' AFTER start_days_before;
-
-ALTER TABLE information_summary_task_configs
-    ADD COLUMN cron_expression VARCHAR(100) NOT NULL DEFAULT '0 7 * * *' COMMENT '定时触发 cron 表达式' AFTER start_days_before;
-
-UPDATE information_summary_task_configs
-SET cron_expression = '0 7 * * *'
-WHERE start_days_before = 1 AND (cron_expression IS NULL OR cron_expression = '');
-
-UPDATE information_summary_task_configs
-SET cron_expression = '30 7 * * mon'
-WHERE start_days_before = 7 AND (cron_expression IS NULL OR cron_expression = '');
-
-ALTER TABLE information_summary_task_configs
-    ADD COLUMN summary_instruction TEXT NULL COMMENT '任务级汇总说明，空值时使用当前分类默认汇总说明' AFTER title_template;
-
-UPDATE information_summary_task_configs
-SET summary_instruction = ''
-WHERE summary_instruction IS NULL;
-
-ALTER TABLE information_summary_task_configs
-    MODIFY COLUMN summary_instruction TEXT NOT NULL COMMENT '任务级汇总说明，空值时使用当前分类默认汇总说明';
-
-ALTER TABLE information_summary_task_configs
-    ADD COLUMN document_template TEXT NULL COMMENT '任务级输出文档模板，创建任务时复制当前分类默认模板' AFTER summary_instruction;
-
-UPDATE information_summary_task_configs task_config
-LEFT JOIN information_summary_document_templates default_template
-    ON default_template.category = task_config.category
-SET task_config.document_template = COALESCE(default_template.template_text, '')
-WHERE task_config.document_template IS NULL;
-
-ALTER TABLE information_summary_task_configs
-    MODIFY COLUMN document_template TEXT NOT NULL COMMENT '任务级输出文档模板，创建任务时复制当前分类默认模板';
-
-ALTER TABLE information_summary_task_configs
-    ADD COLUMN push_to_wechat TINYINT NOT NULL DEFAULT 0 COMMENT '是否推送到微信：0否，1是' AFTER document_template;
-
-ALTER TABLE information_summary_task_configs
-    ADD COLUMN is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除标记：0未删除，1已删除' AFTER enabled;
-
-UPDATE information_summary_task_configs
-SET title_template = '{start_date:%Y-%m-%d} {platform} {category}汇总'
-WHERE start_days_before = 1;
-
-UPDATE information_summary_task_configs
-SET title_template = '{start_date:%Y-%m-%d} 至 {end_date:%Y-%m-%d} {platform} {category}汇总'
-WHERE start_days_before = 7;
-
-ALTER TABLE information_summary_task_configs
-    DROP INDEX idx_information_summary_task_configs_enabled_type,
-    ADD INDEX idx_information_summary_task_configs_enabled (enabled),
-    DROP COLUMN summary_type;
-```
-
-## information_settings
-
-信息流功能设置表，用于保存 Bilinote 和 Hermes 默认参数。
-
-当前使用的设置键包括：
-
-- `bilibili_cookie`：B站扫描请求使用的 Cookie，可为空。
-- `article_filter_keywords`：图文投稿过滤关键词，多个关键词可用换行、逗号或分号分隔；扫描时命中标题或正文的图文投稿会标记为 `invalid_content`，不进入 Hermes 图文笔记任务。
-- `article_min_content_chars`：图文投稿正文最少字数，默认 `0` 表示不限制；大于 `0` 时，扫描、手动添加链接或提交 Hermes 图文笔记前，正文去除空白后的字数少于该值会标记为 `invalid_content`。
-- `bilinote_base_url`
-- `bilinote_provider_id`
-- `bilinote_model_name`
-- `bilinote_quality`
-- `hermes_base_url`
-- `hermes_auth_header_name`：Hermes 鉴权请求头名，默认 `Authorization`，也可配置为 `X-API-Key` 等接口要求的头名。
-- `hermes_api_key`：Hermes 接口鉴权令牌。鉴权头名为 `Authorization` 且值未包含认证方案时，后端会以 `Bearer <token>` 形式发送；其他鉴权头名会原样发送该值。
-- `hermes_model`：Hermes Runs API 使用的模型名，默认 `hermes-agent`。
-- `hermes_run_path`：Hermes Runs API 路径，按 Hermes Agent 当前文档默认使用 `/v1/runs`。
-- `hermes_status_path_template`：Hermes Runs 状态轮询路径，按 Hermes Agent 当前文档默认使用 `/v1/runs/{run_id}`。
-- `wechat_push_webhook_url`：微信推送接口地址；Hermes 汇总轮询完成并写入正文后，会推送来源汇总任务配置中启用微信推送的汇总。
-- `wechat_push_token`：微信推送接口可选鉴权令牌。若填写值未包含认证方案，后端会以 `Bearer <token>` 形式发送 `Authorization` 请求头。
-- `video_note_recent_days`：自动提交视频笔记任务时只处理最近 N 天内发布或入库的视频，默认 3 天；设置为 0 表示不限制。手动选中具体信息生成笔记时不受该范围限制。
-- `video_source_scan_jitter_min_seconds`：信息源扫描时源与源之间随机抖动等待的最小秒数，默认 1。
-- `video_source_scan_jitter_max_seconds`：信息源扫描时源与源之间随机抖动等待的最大秒数，默认 3；最大值必须大于或等于最小值。
-
-```sql
-CREATE TABLE information_settings (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    setting_key VARCHAR(100) NOT NULL COMMENT '配置键',
-    setting_value TEXT NOT NULL COMMENT '配置值',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_information_settings_key (setting_key)
-);
-```
-
-## information_summary_document_templates
-
-Hermes 汇总默认模板表。默认汇总说明和输出文档模板都按信息分类维护，每个分类一条记录；生成汇总 prompt 时只按汇总分类选择模板，未配置当前分类时不使用默认模板，不回落到其他分类。模板内容只保存在数据库中，运行时代码和 JSON 文件都不再内置默认模板正文，也不再使用 `information_settings.hermes_summary_instruction`。
-
-```sql
-CREATE TABLE information_summary_document_templates (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    category VARCHAR(50) NOT NULL COMMENT '信息分类，如财经、科技',
-    summary_instruction TEXT NOT NULL COMMENT '默认汇总说明',
-    template_text TEXT NOT NULL COMMENT 'Markdown 输出文档模板',
-    is_deleted TINYINT NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_information_summary_document_templates_category (category)
-);
-```
-
-如果已经创建过上一版 `information_summary_document_templates`，补充执行：
-
-```sql
-ALTER TABLE information_summary_document_templates
-    ADD COLUMN summary_instruction TEXT NOT NULL COMMENT '默认汇总说明' AFTER category;
-```
-
-## information_bilinote_extra_templates
-
-Bilinote 单篇视频总结附加说明表。`extras` 按信息分类维护，每个分类一条记录；提交 Bilinote 视频总结任务时只读取当前视频分类对应的 extras，未配置当前分类时不传 extras，不回落到其他分类。
-
-```sql
-CREATE TABLE information_bilinote_extra_templates (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    category VARCHAR(50) NOT NULL COMMENT '信息分类，如财经、科技',
-    extras TEXT NOT NULL COMMENT '传给 Bilinote generate_note 的 extras 附加说明',
-    is_deleted TINYINT NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_information_bilinote_extra_templates_category (category)
 );
 ```
