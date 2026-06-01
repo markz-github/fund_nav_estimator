@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
+import { routeNames } from '../../../router/routeNames'
 import type { Fund, FundSortBy, SortOrder } from '../api/funds'
 
 const props = defineProps<{
@@ -119,7 +120,7 @@ function sortIndicator(sortBy: FundSortBy) {
             />
           </td>
           <td class="fund-cell">
-            <RouterLink class="fund-name" :to="`/funds/${fund.fund_code}`">{{ fund.fund_name }}</RouterLink>
+            <RouterLink class="fund-name" :to="{ name: routeNames.fundDetail, params: { fundCode: fund.fund_code } }">{{ fund.fund_name }}</RouterLink>
             <span class="muted mono">{{ fund.fund_code }}</span>
           </td>
           <td>
@@ -148,7 +149,7 @@ function sortIndicator(sortBy: FundSortBy) {
           </td>
           <td>
             <div class="quick-actions">
-              <RouterLink class="link-button" :to="`/funds/${fund.fund_code}`">详情</RouterLink>
+              <RouterLink class="link-button" :to="{ name: routeNames.fundDetail, params: { fundCode: fund.fund_code } }">详情</RouterLink>
               <button class="ghost" @click="emit('refresh', fund.fund_code)">刷新</button>
               <button class="danger" @click="emit('delete', fund.fund_code)">删除</button>
             </div>

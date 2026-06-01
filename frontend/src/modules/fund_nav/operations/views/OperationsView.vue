@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { routeNames } from '../../../../router/routeNames'
 import { getTaskLogOptions, listTaskLogs, type OperationModule, type StatusOption, type TaskLog } from '../api/operations'
 
 const route = useRoute()
@@ -90,12 +91,12 @@ function applyQueryFilters() {
 
 async function applyFilters() {
   currentPage.value = 1
-  await router.replace({ name: 'operations', query: filterQuery() })
+  await router.replace({ name: routeNames.operations, query: filterQuery() })
 }
 
 async function goToPage(page: number) {
   currentPage.value = Math.min(Math.max(1, page), totalPages.value)
-  await router.replace({ name: 'operations', query: filterQuery() })
+  await router.replace({ name: routeNames.operations, query: filterQuery() })
 }
 
 function resetFilters() {
@@ -110,7 +111,7 @@ function durationText(durationMs?: number | null) {
 
 function targetRoute(log: TaskLog) {
   if (log.target_type === 'fund' && log.target_id) {
-    return { name: 'fund-detail', params: { fundCode: log.target_id } }
+    return { name: routeNames.fundDetail, params: { fundCode: log.target_id } }
   }
   return null
 }
@@ -150,7 +151,7 @@ watch(
 
 <template>
   <main class="page-shell">
-    <RouterLink class="back-link" to="/">返回基金池</RouterLink>
+    <RouterLink class="back-link" :to="{ name: routeNames.fundList }">返回基金池</RouterLink>
     <section class="detail-hero">
       <div>
         <p class="eyebrow">Operations</p>
@@ -221,7 +222,7 @@ watch(
             <td class="mono">{{ log.id }}</td>
             <td>{{ log.task_name }}</td>
             <td>
-              <RouterLink :to="{ name: 'operations', query: { ...filterQuery(), task_type: log.task_type } }">
+              <RouterLink :to="{ name: routeNames.operations, query: { ...filterQuery(), task_type: log.task_type } }">
                 {{ taskTypeLabel(log.task_type) }}
               </RouterLink>
             </td>

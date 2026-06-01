@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
+import { routeNames } from '../../../router/routeNames'
 import {
   getFund,
   listFundHoldings,
@@ -108,7 +109,7 @@ onMounted(loadDetail)
 
 <template>
   <main class="page-shell">
-    <RouterLink class="back-link" to="/">返回基金池</RouterLink>
+    <RouterLink class="back-link" :to="{ name: routeNames.fundList }">返回基金池</RouterLink>
 
     <section class="detail-hero">
       <div>

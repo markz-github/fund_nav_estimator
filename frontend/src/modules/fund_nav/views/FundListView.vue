@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import AppLogo from '../components/AppLogo.vue'
 import FundTable from '../components/FundTable.vue'
 import { apiErrorMessage, isRequestTimeout } from '../../../api/client'
+import { routeNames } from '../../../router/routeNames'
 import { refreshQuotesAndRunEstimates } from '../api/estimates'
 import {
   createFund,
@@ -202,7 +203,7 @@ onMounted(loadFunds)
                   : '批量更新官方净值'
             }}
           </button>
-          <RouterLink class="link-button" to="/operations">查看运行状态</RouterLink>
+          <RouterLink class="link-button" :to="{ name: routeNames.operations }">查看运行状态</RouterLink>
         </div>
         <form class="inline-add-form" @submit.prevent="submitFund">
           <input v-model="fundCode" class="code-input" placeholder="基金代码" />
