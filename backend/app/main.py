@@ -12,6 +12,7 @@ from app.modules.information.api import errors, tasks
 from app.config import get_settings
 from app.logging_config import configure_logging
 from app.scheduler.jobs import create_scheduler
+from app.modules.fund_nav.services.fund_task_queue_service import dispatcher
 
 
 settings = get_settings()
@@ -56,11 +57,13 @@ def health_check() -> dict[str, str]:
 
 @app.on_event("startup")
 def start_scheduler() -> None:
+    dispatcher.start()
     if scheduler and not scheduler.running:
         scheduler.start()
 
 
 @app.on_event("shutdown")
 def stop_scheduler() -> None:
+    dispatcher.shutdown()
     if scheduler and scheduler.running:
         scheduler.shutdown(wait=False)

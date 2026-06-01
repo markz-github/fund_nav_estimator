@@ -152,20 +152,48 @@ CREATE TABLE fund_estimates (
 
 ## task_logs
 
-定时任务日志表。
+任务运行日志表。队列任务提交后先记录为 `pending`，worker 领取后更新为 `running`。
 
 ```sql
 CREATE TABLE task_logs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_name VARCHAR(100) NOT NULL COMMENT '任务名称',
     task_type VARCHAR(50) NOT NULL COMMENT '任务类型，如 refresh_nav、refresh_holding、refresh_quote、estimate_nav',
-    status VARCHAR(20) NOT NULL COMMENT '状态：success、failed、partial',
+    status VARCHAR(20) NOT NULL COMMENT '状态：pending、running、success、failed、partial',
     started_at DATETIME NOT NULL,
     finished_at DATETIME NULL,
     duration_ms BIGINT NULL COMMENT '耗时毫秒',
     message TEXT NULL COMMENT '任务摘要或错误信息',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_task_logs_type_time (task_type, started_at)
+);
+```
+
+## fund_task_queue
+
+基金耗时任务队列表。Web 接口、定时任务和新增基金流程只提交任务；进程内 worker 池最多并行执行两个任务。
+
+```sql
+CREATE TABLE fund_task_queue (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    task_log_id BIGINT NULL COMMENT '关联 task_logs.id',
+    task_type VARCHAR(50) NOT NULL COMMENT '任务类型',
+    task_name VARCHAR(100) NOT NULL COMMENT '任务名称',
+    origin VARCHAR(20) NOT NULL COMMENT 'manual、scheduled、new_fund',
+    payload_json JSON NULL COMMENT '任务参数',
+    dedupe_key VARCHAR(255) NOT NULL COMMENT '任务类型和规范化参数生成的去重键',
+    status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        COMMENT 'pending、running、success、partial、failed',
+    queued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME NULL,
+    finished_at DATETIME NULL,
+    duration_ms BIGINT NULL,
+    message TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_fund_task_queue_status_time (status, queued_at),
+    INDEX idx_fund_task_queue_type_time (task_type, queued_at),
+    INDEX idx_fund_task_queue_dedupe_status (dedupe_key, status)
 );
 ```
 

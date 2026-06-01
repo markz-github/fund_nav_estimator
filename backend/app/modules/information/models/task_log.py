@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Index, String, Text, func
+from sqlalchemy import BigInteger, DateTime, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -11,7 +11,7 @@ class TaskLog(Base):
     __tablename__ = "task_logs"
     __table_args__ = (Index("idx_task_logs_type_time", "task_type", "started_at"),)
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     task_name: Mapped[str] = mapped_column(String(100), nullable=False)
     task_type: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)

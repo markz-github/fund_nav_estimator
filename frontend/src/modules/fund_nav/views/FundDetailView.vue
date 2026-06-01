@@ -93,9 +93,9 @@ async function refreshHoldings() {
   message.value = ''
   try {
     const result = await refreshFundHoldings(fundCode.value)
-    holdings.value = await listFundHoldings(fundCode.value)
-    selectedReportPeriod.value = latestReportPeriod(holdings.value)
-    message.value = result.refreshed ? `持仓已刷新，共 ${result.holding_count} 条。` : '未获取到持仓数据，已记录到运行状态。'
+    message.value = result.reused
+      ? `相同任务已在等待执行，任务 ${result.task_id}。`
+      : `任务 ${result.task_id} 已提交，可在运行状态查看进度。`
   } catch (error) {
     message.value = apiErrorMessage(error, '持仓刷新失败，请稍后重试。')
   } finally {

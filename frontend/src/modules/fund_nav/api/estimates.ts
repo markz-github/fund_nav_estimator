@@ -1,4 +1,5 @@
 import { apiClient } from '../../../api/client'
+import type { FundTaskSubmitResult } from './funds'
 
 export interface FundEstimate {
   fund_code: string
@@ -31,8 +32,8 @@ export interface RefreshQuotesAndRunEstimatesResult extends RunEstimatesResult {
   quote_count: number
 }
 
-export async function runEstimates(): Promise<RunEstimatesResult> {
-  const { data } = await apiClient.post<RunEstimatesResult>('/estimates/actions/run', undefined, {
+export async function runEstimates(): Promise<FundTaskSubmitResult> {
+  const { data } = await apiClient.post<FundTaskSubmitResult>('/estimates/actions/run', undefined, {
     timeout: 120000,
   })
   return data
@@ -40,8 +41,8 @@ export async function runEstimates(): Promise<RunEstimatesResult> {
 
 export async function refreshQuotesAndRunEstimates(
   fundCodes: string[],
-): Promise<RefreshQuotesAndRunEstimatesResult> {
-  const { data } = await apiClient.post<RefreshQuotesAndRunEstimatesResult>(
+): Promise<FundTaskSubmitResult> {
+  const { data } = await apiClient.post<FundTaskSubmitResult>(
     '/estimates/actions/refresh-quotes-and-run',
     { fund_codes: fundCodes },
     { timeout: 180000 },

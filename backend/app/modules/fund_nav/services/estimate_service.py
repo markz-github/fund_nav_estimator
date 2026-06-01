@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+import logging
+from time import perf_counter
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -47,6 +49,7 @@ class EstimateService:
 
     @timed()
     def run_estimates(self, fund_codes: list[str] | None = None) -> dict:
+        started = perf_counter()
         statement = select(Fund).where(Fund.enabled == 1)
         if fund_codes:
             statement = statement.where(Fund.fund_code.in_(fund_codes))
@@ -62,15 +65,25 @@ class EstimateService:
             else:
                 skipped.append({"fund_code": fund.fund_code, "reason": result})
 
+        commit_started = perf_counter()
         self.db.commit()
         for estimate in estimates:
             self.db.refresh(estimate)
 
-        return {
+        result = {
             "estimated_count": len(estimates),
             "skipped_count": len(skipped),
             "skipped": skipped,
         }
+        logging.getLogger("app.performance").info(
+            "estimate target=%s success=%s skipped=%s commit_ms=%.2f total_ms=%.2f",
+            len(funds),
+            len(estimates),
+            len(skipped),
+            (perf_counter() - commit_started) * 1000,
+            (perf_counter() - started) * 1000,
+        )
+        return result
 
     @staticmethod
     def calculate_estimated_nav(base_nav: Decimal, weighted_growth: Decimal) -> Decimal:

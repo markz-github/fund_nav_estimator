@@ -10,6 +10,7 @@ from app.modules.fund_nav.data_sources.fund_company_source import FundCompanySou
 from app.modules.fund_nav.data_sources.public_web_source import PublicWebFundSource
 from app.modules.fund_nav.data_sources.sina_source import SinaFundSource
 from app.modules.fund_nav.models.fund_holding import FundHolding
+from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
 
 
@@ -152,8 +153,10 @@ class HoldingService:
             return True
 
         try:
-            profile = self.source.get_fund_profile(fund_code)
+            profile = FundProfileService(self.db, self.source).get_or_sync_profile(fund_code)
         except Exception:
+            return False
+        if profile is None:
             return False
         fund_name = profile.fund_name or ""
         fund_type = profile.fund_type or ""

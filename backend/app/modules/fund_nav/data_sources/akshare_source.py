@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 import re
+import logging
+from threading import Lock
 from time import monotonic
 
 import akshare as ak
@@ -51,8 +53,11 @@ class AkshareSource:
 
     source_name = "akshare"
     _fund_daily_cache_ttl_seconds = 600
-    _fund_daily_cache = None
-    _fund_daily_cache_loaded_at = 0.0
+    _realtime_cache_ttl_seconds = 300
+    _cache_wait_timeout_seconds = 60
+    _dataframe_cache: dict[str, tuple[object, float]] = {}
+    _cache_locks: dict[str, Lock] = {}
+    _cache_locks_guard = Lock()
 
     @timed()
     def get_fund_profile(self, fund_code: str) -> FundProfile:
@@ -89,7 +94,21 @@ class AkshareSource:
 
     @staticmethod
     def get_fund_profiles_dataframe():
-        return ak.fund_name_em()
+        started = monotonic()
+        try:
+            dataframe = ak.fund_name_em()
+        except Exception:
+            logging.getLogger("app.performance").exception(
+                "akshare_fetch endpoint=fund_name_em status=failed duration_ms=%.2f",
+                (monotonic() - started) * 1000,
+            )
+            raise
+        logging.getLogger("app.performance").info(
+            "akshare_fetch endpoint=fund_name_em status=success rows=%s duration_ms=%.2f",
+            len(dataframe),
+            (monotonic() - started) * 1000,
+        )
+        return dataframe
 
     @timed()
     def get_latest_fund_nav(self, fund_code: str) -> FundNavSnapshot | None:
@@ -122,16 +141,11 @@ class AkshareSource:
 
     @classmethod
     def get_fund_daily_dataframe(cls):
-        now = monotonic()
-        if (
-            cls._fund_daily_cache is not None
-            and now - cls._fund_daily_cache_loaded_at < cls._fund_daily_cache_ttl_seconds
-        ):
-            return cls._fund_daily_cache
-
-        cls._fund_daily_cache = ak.fund_open_fund_daily_em()
-        cls._fund_daily_cache_loaded_at = now
-        return cls._fund_daily_cache
+        return cls._load_dataframe(
+            "fund_open_fund_daily_em",
+            ak.fund_open_fund_daily_em,
+            cls._fund_daily_cache_ttl_seconds,
+        )
 
     @staticmethod
     def _should_try_etf_first(fund_code: str) -> bool:
@@ -142,7 +156,7 @@ class AkshareSource:
             return None
 
         try:
-            etf_df = ak.fund_etf_spot_em()
+            etf_df = self._get_etf_spot_dataframe()
         except Exception:
             return None
 
@@ -227,50 +241,67 @@ class AkshareSource:
         has_cn_stock = any(len(code) == 6 and not code.startswith(("5", "1")) for code in target_codes)
         us_codes = {code for code in target_codes if self._is_us_stock_code(code)}
 
-        fetch_tasks = []
+        fetch_groups = []
         if has_cn_stock:
-            fetch_tasks.extend(
-                [
-                    ("CN", "stock", ak.stock_zh_a_spot),
-                    ("CN", "stock", ak.stock_zh_a_spot_em),
-                ]
+            fetch_groups.append(
+                ("CN", "stock", [self._get_cn_stock_spot_dataframe, self._get_cn_stock_spot_em_dataframe])
             )
         if has_hk:
-            fetch_tasks.extend(
-                [
-                    ("HK", "stock", ak.stock_hk_spot),
-                    ("HK", "stock", ak.stock_hk_spot_em),
-                ]
+            fetch_groups.append(
+                ("HK", "stock", [self._get_hk_stock_spot_dataframe, self._get_hk_stock_spot_em_dataframe])
             )
         if has_etf:
-            fetch_tasks.append(("CN", "etf", ak.fund_etf_spot_em))
+            fetch_groups.append(("CN", "etf", [self._get_etf_spot_dataframe]))
 
-        for market_name, asset_type, fetcher in fetch_tasks:
-            try:
-                market_df = fetcher()
-            except Exception:
-                continue
-
-            if market_df.empty:
-                continue
-
-            for _, row in market_df.iterrows():
-                raw_code = str(row["代码"]).strip()
-                normalized_code = self._normalize_asset_code(raw_code, market_name)
-                if normalized_code not in target_codes:
+        for market_name, asset_type, fetchers in fetch_groups:
+            group_targets = {
+                code
+                for code in target_codes
+                if (market_name == "HK" and len(code) == 5)
+                or (asset_type == "etf" and len(code) == 6 and code.startswith(("5", "1")))
+                or (market_name == "CN" and asset_type == "stock" and len(code) == 6 and not code.startswith(("5", "1")))
+            }
+            for source_index, fetcher in enumerate(fetchers):
+                missing_targets = group_targets - set(snapshots)
+                if not missing_targets:
+                    break
+                logging.getLogger("app.performance").info(
+                    "akshare_source endpoint=%s market=%s fallback=%s missing=%s",
+                    fetcher.__name__,
+                    market_name,
+                    source_index > 0,
+                    len(missing_targets),
+                )
+                try:
+                    market_df = fetcher()
+                except Exception:
                     continue
-                snapshots[normalized_code] = MarketQuoteSnapshot(
-                    asset_code=normalized_code,
-                    asset_name=self._none_if_nan(row.get("名称") or row.get("中文名称")),
-                    asset_type=asset_type,
-                    market=self._infer_stock_market(normalized_code)
-                    if asset_type == "stock"
-                    else market_name,
-                    trade_date=self._quote_trade_date(row, quote_time),
-                    quote_time=quote_time,
-                    latest_price=self._optional_decimal(row.get("最新价")),
-                    prev_close=self._optional_decimal(row.get("昨收")),
-                    change_rate=self._percent(row.get("涨跌幅")),
+                if market_df.empty:
+                    continue
+                parse_started = monotonic()
+                for _, row in market_df.iterrows():
+                    raw_code = str(row["代码"]).strip()
+                    normalized_code = self._normalize_asset_code(raw_code, market_name)
+                    if normalized_code not in missing_targets:
+                        continue
+                    snapshots[normalized_code] = MarketQuoteSnapshot(
+                        asset_code=normalized_code,
+                        asset_name=self._none_if_nan(row.get("名称") or row.get("中文名称")),
+                        asset_type=asset_type,
+                        market=self._infer_stock_market(normalized_code) if asset_type == "stock" else market_name,
+                        trade_date=self._quote_trade_date(row, quote_time),
+                        quote_time=quote_time,
+                        latest_price=self._optional_decimal(row.get("最新价")),
+                        prev_close=self._optional_decimal(row.get("昨收")),
+                        change_rate=self._percent(row.get("涨跌幅")),
+                    )
+                logging.getLogger("app.performance").info(
+                    "akshare_parse endpoint=%s rows=%s target=%s matched=%s duration_ms=%.2f",
+                    fetcher.__name__,
+                    len(market_df),
+                    len(missing_targets),
+                    len(missing_targets & set(snapshots)),
+                    (monotonic() - parse_started) * 1000,
                 )
 
         for asset_code in us_codes:
@@ -287,6 +318,106 @@ class AkshareSource:
                 snapshots[asset_code] = fallback
 
         return list(snapshots.values())
+
+    @classmethod
+    def _get_etf_spot_dataframe(cls):
+        return cls._load_dataframe("fund_etf_spot_em", ak.fund_etf_spot_em, cls._realtime_cache_ttl_seconds)
+
+    @classmethod
+    def _get_cn_stock_spot_dataframe(cls):
+        return cls._load_dataframe("stock_zh_a_spot", ak.stock_zh_a_spot, cls._realtime_cache_ttl_seconds)
+
+    @classmethod
+    def _get_cn_stock_spot_em_dataframe(cls):
+        return cls._load_dataframe("stock_zh_a_spot_em", ak.stock_zh_a_spot_em, cls._realtime_cache_ttl_seconds)
+
+    @classmethod
+    def _get_hk_stock_spot_dataframe(cls):
+        return cls._load_dataframe("stock_hk_spot", ak.stock_hk_spot, cls._realtime_cache_ttl_seconds)
+
+    @classmethod
+    def _get_hk_stock_spot_em_dataframe(cls):
+        return cls._load_dataframe("stock_hk_spot_em", ak.stock_hk_spot_em, cls._realtime_cache_ttl_seconds)
+
+    @classmethod
+    def _load_dataframe(cls, endpoint: str, fetcher, ttl_seconds: int):
+        cached = cls._fresh_cache(endpoint, ttl_seconds)
+        if cached is not None:
+            return cached
+        lock = cls._cache_lock(endpoint)
+        wait_started = monotonic()
+        if not lock.acquire(timeout=cls._cache_wait_timeout_seconds):
+            logging.getLogger("app.performance").error(
+                "akshare_lock endpoint=%s status=timeout wait_ms=%.2f",
+                endpoint,
+                (monotonic() - wait_started) * 1000,
+            )
+            raise TimeoutError(f"Timed out waiting for AkShare endpoint lock: {endpoint}")
+        try:
+            logging.getLogger("app.performance").info(
+                "akshare_lock endpoint=%s status=acquired wait_ms=%.2f",
+                endpoint,
+                (monotonic() - wait_started) * 1000,
+            )
+            cached = cls._fresh_cache(endpoint, ttl_seconds)
+            if cached is not None:
+                return cached
+            started = monotonic()
+            try:
+                dataframe = fetcher()
+            except Exception:
+                logging.getLogger("app.performance").exception(
+                    "akshare_fetch endpoint=%s status=failed duration_ms=%.2f",
+                    endpoint,
+                    (monotonic() - started) * 1000,
+                )
+                stale = cls._stale_cache(endpoint)
+                if stale is not None:
+                    value, loaded_at = stale
+                    logging.getLogger("app.performance").warning(
+                        "akshare_cache endpoint=%s status=stale_fallback age_seconds=%.2f",
+                        endpoint,
+                        monotonic() - loaded_at,
+                    )
+                    return value
+                raise
+            cls._dataframe_cache[endpoint] = (dataframe, monotonic())
+            logging.getLogger("app.performance").info(
+                "akshare_fetch endpoint=%s status=success rows=%s duration_ms=%.2f",
+                endpoint,
+                len(dataframe),
+                (monotonic() - started) * 1000,
+            )
+            return dataframe
+        finally:
+            lock.release()
+
+    @classmethod
+    def _fresh_cache(cls, endpoint: str, ttl_seconds: int):
+        cached = cls._stale_cache(endpoint)
+        if cached is None:
+            logging.getLogger("app.performance").info("akshare_cache endpoint=%s status=miss", endpoint)
+            return None
+        dataframe, loaded_at = cached
+        age = monotonic() - loaded_at
+        if age >= ttl_seconds:
+            logging.getLogger("app.performance").info(
+                "akshare_cache endpoint=%s status=expired age_seconds=%.2f", endpoint, age
+            )
+            return None
+        logging.getLogger("app.performance").info(
+            "akshare_cache endpoint=%s status=hit age_seconds=%.2f", endpoint, age
+        )
+        return dataframe
+
+    @classmethod
+    def _stale_cache(cls, endpoint: str):
+        return cls._dataframe_cache.get(endpoint)
+
+    @classmethod
+    def _cache_lock(cls, endpoint: str) -> Lock:
+        with cls._cache_locks_guard:
+            return cls._cache_locks.setdefault(endpoint, Lock())
 
     @staticmethod
     def _normalize_fund_code(fund_code: str) -> str:

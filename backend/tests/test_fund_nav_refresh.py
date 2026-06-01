@@ -4,6 +4,8 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from time import monotonic, sleep
 import unittest
 from unittest.mock import Mock, patch
 
@@ -23,8 +25,8 @@ from app.modules.fund_nav.services.fund_service import FundService
 
 class FundNavRefreshTests(unittest.TestCase):
     def setUp(self) -> None:
-        AkshareSource._fund_daily_cache = None
-        AkshareSource._fund_daily_cache_loaded_at = 0.0
+        AkshareSource._dataframe_cache.clear()
+        AkshareSource._cache_locks.clear()
 
     def test_refresh_nav_returns_today_open_fund_local_nav_without_external_fetch(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -219,6 +221,61 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIsInstance(first, FundNavSnapshot)
         self.assertIsInstance(second, FundNavSnapshot)
         self.assertEqual(daily.call_count, 1)
+
+    def test_etf_spot_table_is_cached_for_repeated_refreshes(self) -> None:
+        etf_df = pd.DataFrame([{"代码": "515450", "昨收": "1.098", "涨跌幅": "0.25"}])
+
+        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df) as etf:
+            source = AkshareSource()
+            source.get_latest_fund_nav("515450")
+            source.get_latest_fund_nav("515450")
+
+        self.assertEqual(etf.call_count, 1)
+
+    def test_two_cache_misses_only_fetch_akshare_once(self) -> None:
+        etf_df = pd.DataFrame([{"代码": "515450", "昨收": "1.098", "涨跌幅": "0.25"}])
+
+        def slow_fetch():
+            sleep(0.05)
+            return etf_df
+
+        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", side_effect=slow_fetch) as etf:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(lambda _: AkshareSource._get_etf_spot_dataframe(), range(2)))
+
+        self.assertEqual(etf.call_count, 1)
+        self.assertIs(results[0], results[1])
+
+    def test_expired_cache_falls_back_to_stale_dataframe_when_refresh_fails(self) -> None:
+        etf_df = pd.DataFrame([{"代码": "515450", "昨收": "1.098", "涨跌幅": "0.25"}])
+        AkshareSource._dataframe_cache["fund_etf_spot_em"] = (
+            etf_df,
+            monotonic() - AkshareSource._realtime_cache_ttl_seconds - 1,
+        )
+
+        with patch(
+            "app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em",
+            side_effect=RuntimeError("network down"),
+        ):
+            result = AkshareSource._get_etf_spot_dataframe()
+
+        self.assertIs(result, etf_df)
+
+    def test_cn_primary_spot_source_skips_backup_when_target_is_covered(self) -> None:
+        primary_df = pd.DataFrame(
+            [{"代码": "600000", "名称": "浦发银行", "最新价": "10", "昨收": "9", "涨跌幅": "1"}]
+        )
+
+        with (
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.stock_zh_a_spot", return_value=primary_df),
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.stock_zh_a_spot_em") as backup,
+            patch.object(AkshareSource, "_get_sina_quote", return_value=None),
+            patch.object(AkshareSource, "_get_latest_history_quote", return_value=None),
+        ):
+            snapshots = AkshareSource().get_market_quotes(["600000"])
+
+        self.assertEqual([snapshot.asset_code for snapshot in snapshots], ["600000"])
+        backup.assert_not_called()
 
 
 if __name__ == "__main__":

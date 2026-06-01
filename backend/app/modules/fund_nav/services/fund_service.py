@@ -92,14 +92,11 @@ class FundService:
         if fund is None:
             return None
 
-        profile = FundProfileService(self.db, self.source).get_profile(normalized_code)
+        profile = FundProfileService(self.db, self.source).get_or_sync_profile(normalized_code)
         if profile is None:
-            source_profile = self.source.get_fund_profile(normalized_code)
-            fund.fund_name = source_profile.fund_name
-            fund.fund_type = source_profile.fund_type
-        else:
-            fund.fund_name = profile.fund_name
-            fund.fund_type = profile.fund_type
+            return fund
+        fund.fund_name = profile.fund_name
+        fund.fund_type = profile.fund_type
         self.db.commit()
         self.db.refresh(fund)
         return fund

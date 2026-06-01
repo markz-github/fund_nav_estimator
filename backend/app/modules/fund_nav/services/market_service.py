@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from time import perf_counter
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -20,6 +23,7 @@ class MarketService:
 
     @timed()
     def refresh_quotes_for_holdings(self, fund_codes: list[str] | None = None) -> list[MarketQuote]:
+        started = perf_counter()
         asset_names = self._asset_names_from_latest_holdings(fund_codes)
         asset_codes = list(asset_names.keys())
         snapshots = self.source.get_market_quotes(asset_codes)
@@ -57,7 +61,14 @@ class MarketService:
                 quote.source = self.source.source_name
             quotes.append(quote)
 
+        commit_started = perf_counter()
         self.db.commit()
+        logging.getLogger("app.performance").info(
+            "database operation=upsert_market_quotes rows=%s commit_ms=%.2f total_ms=%.2f",
+            len(quotes),
+            (perf_counter() - commit_started) * 1000,
+            (perf_counter() - started) * 1000,
+        )
         for quote in quotes:
             self.db.refresh(quote)
         return quotes

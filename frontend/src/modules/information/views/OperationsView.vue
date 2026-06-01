@@ -28,6 +28,15 @@ function statusClass(status: string) {
   return 'status-warn'
 }
 
+function statusText(status: string) {
+  if (status === 'pending') return '待执行'
+  if (status === 'running') return '执行中'
+  if (status === 'success') return '成功'
+  if (status === 'partial') return '部分完成'
+  if (status === 'failed') return '失败'
+  return status
+}
+
 function durationText(durationMs?: number | null) {
   return durationMs == null ? '-' : `${durationMs} ms`
 }
@@ -79,7 +88,7 @@ onMounted(loadOperations)
           <tr v-for="log in taskLogs" :key="log.id">
             <td>{{ log.task_name }}</td>
             <td class="mono">{{ log.task_type }}</td>
-            <td><span class="status-pill" :class="statusClass(log.status)">{{ log.status }}</span></td>
+            <td><span class="status-pill" :class="statusClass(log.status)">{{ statusText(log.status) }}</span></td>
             <td>{{ log.started_at }}</td>
             <td>{{ durationText(log.duration_ms) }}</td>
             <td>{{ log.message ?? '-' }}</td>
