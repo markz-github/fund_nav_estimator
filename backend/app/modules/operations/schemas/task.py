@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, computed_field
 
-from app.modules.information.status_enums import TASK_STATUSES, status_label
+from app.modules.operations.status_enums import TASK_STATUSES, status_label
 
 
 class TaskLogOut(BaseModel):

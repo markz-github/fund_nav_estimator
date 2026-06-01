@@ -14,7 +14,7 @@ from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.fund_sync_service import sync_new_fund_data
 from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
 from app.modules.fund_nav.services.holding_service import HoldingService
-from app.modules.information.services.operation_log_service import (
+from app.modules.operations.services.operation_log_service import (
     finish_task,
     log_fetch_error,
     log_task,

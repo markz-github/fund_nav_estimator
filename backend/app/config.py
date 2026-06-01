@@ -16,16 +16,12 @@ class AppConfig(BaseModel):
     log_level: str = "INFO"
     log_backup_days: int = 30
     scheduler_fund_enabled: bool = False
-    scheduler_information_enabled: bool = False
     cors_allow_origins: list[str] = Field(default_factory=list)
     scheduler_refresh_nav_cron: str = "0 20 * * *"
     scheduler_refresh_profiles_cron: str = "10 19 * * *"
     scheduler_refresh_holdings_cron: str = "30 20 * * mon-fri"
     scheduler_refresh_quotes_cron: str = "0,30 9-15 * * mon-fri"
     scheduler_estimate_nav_cron: str = "5,35 9-15 * * mon-fri"
-    scheduler_scan_videos_cron: str = "*/3 * * * *"
-    scheduler_generate_video_notes_interval_seconds: int = 30
-    scheduler_poll_summary_documents_interval_seconds: int = 30
 
 
 class DatabaseConfig(BaseSettings):

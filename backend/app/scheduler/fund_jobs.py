@@ -12,7 +12,7 @@ from app.modules.fund_nav.services.fund_profile_service import FundProfileServic
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.market_service import MarketService
-from app.modules.information.services.operation_log_service import log_fetch_error, log_task, task_status_from_counts
+from app.modules.operations.services.operation_log_service import log_fetch_error, log_task, task_status_from_counts
 
 
 def _run_task(task_name: str, task_type: str, handler) -> None:

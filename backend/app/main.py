@@ -8,11 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 
 from app.modules.fund_nav.api import estimates, funds, market
-from app.modules.information.api import errors, tasks, videos
+from app.modules.operations.api import errors, tasks
 from app.config import get_settings
 from app.logging_config import configure_logging
 from app.scheduler.scheduler import create_scheduler
-from app.scheduler.runtime import set_scheduler
 
 
 settings = get_settings()
@@ -32,9 +31,7 @@ app.include_router(estimates.router, prefix="/api")
 app.include_router(market.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(errors.router, prefix="/api")
-app.include_router(videos.router, prefix="/api")
-scheduler = create_scheduler() if settings.scheduler_fund_enabled or settings.scheduler_information_enabled else None
-set_scheduler(scheduler)
+scheduler = create_scheduler() if settings.scheduler_fund_enabled else None
 
 
 @app.middleware("http")

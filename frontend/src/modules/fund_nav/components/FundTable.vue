@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { Fund, FundSortBy, SortOrder } from '../api/funds'
-import { statusClass as commonStatusClass } from '../../information/utils/status'
+import { statusClass as commonStatusClass } from '../utils/status'
 import { formatDateTime } from '../../../utils/datetime'
 
 const props = defineProps<{

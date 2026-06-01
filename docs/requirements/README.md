@@ -13,5 +13,4 @@
 ## 功能需求文档
 
 - [基金净值估算需求](fund_nav.md)
-- [信息流视频采集与汇总需求](information_video_feed.md)
 - [运行状态与异常观测需求](operations.md)

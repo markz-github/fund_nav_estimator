@@ -4,7 +4,6 @@ log_dir = "logs"
 log_level = "INFO"
 log_backup_days = 5
 scheduler_fund_enabled = false
-scheduler_information_enabled = false
 
 cors_allow_origins = [
   "http://localhost:5173",
@@ -16,6 +15,3 @@ scheduler_refresh_profiles_cron = "10 19 * * *"
 scheduler_refresh_holdings_cron = "30 20 * * mon-fri"
 scheduler_refresh_quotes_cron = "0,30 9-15 * * mon-fri"
 scheduler_estimate_nav_cron = "0,30 9-15 * * mon-fri"
-scheduler_scan_videos_cron = "*/10 * * * *"
-scheduler_generate_video_notes_interval_seconds = 120
-scheduler_poll_summary_documents_interval_seconds = 120

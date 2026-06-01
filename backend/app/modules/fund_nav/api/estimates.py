@@ -11,7 +11,7 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.schemas.estimate import FundEstimateOut, RefreshAndEstimateRequest
 from app.modules.fund_nav.services.estimate_service import EstimateService
 from app.modules.fund_nav.services.market_service import MarketService
-from app.modules.information.services.operation_log_service import finish_task, log_fetch_error, start_task, task_status_from_counts
+from app.modules.operations.services.operation_log_service import finish_task, log_fetch_error, start_task, task_status_from_counts
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.modules.fund_nav.schemas.market import MarketQuoteOut
 from app.modules.fund_nav.services.market_service import MarketService
-from app.modules.information.services.operation_log_service import finish_task, log_fetch_error, start_task
+from app.modules.operations.services.operation_log_service import finish_task, log_fetch_error, start_task
 
 router = APIRouter(prefix="/market", tags=["market"])
 

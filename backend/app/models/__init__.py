@@ -1,12 +1,4 @@
-from app.modules.information.models.data_fetch_error import DataFetchError
-from app.modules.information.models.bilinote_extra_template import InformationBilinoteExtraTemplate
-from app.modules.information.models.information_setting import InformationSetting
-from app.modules.information.models.summary_document import (
-    InformationSummaryDocument,
-    InformationSummaryDocumentItem,
-)
-from app.modules.information.models.summary_document_template import InformationSummaryDocumentTemplate
-from app.modules.information.models.summary_task_config import InformationSummaryTaskConfig
+from app.modules.operations.models.data_fetch_error import DataFetchError
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
@@ -14,10 +6,7 @@ from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.fund_profile import FundProfile
 from app.modules.fund_nav.models.market_quote import MarketQuote
-from app.modules.information.models.task_log import TaskLog
-from app.modules.information.models.video import InformationVideo
-from app.modules.information.models.video_note import InformationVideoNote
-from app.modules.information.models.video_source import InformationVideoSource
+from app.modules.operations.models.task_log import TaskLog
 
 __all__ = [
     "DataFetchError",
@@ -27,15 +16,6 @@ __all__ = [
     "FundIndexMapping",
     "FundNav",
     "FundProfile",
-    "InformationBilinoteExtraTemplate",
-    "InformationSetting",
-    "InformationSummaryDocument",
-    "InformationSummaryDocumentItem",
-    "InformationSummaryDocumentTemplate",
-    "InformationSummaryTaskConfig",
-    "InformationVideo",
-    "InformationVideoNote",
-    "InformationVideoSource",
     "MarketQuote",
     "TaskLog",
 ]
