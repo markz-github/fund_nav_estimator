@@ -159,7 +159,10 @@ CREATE TABLE task_logs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_name VARCHAR(100) NOT NULL COMMENT '任务名称',
     task_type VARCHAR(50) NOT NULL COMMENT '任务类型，如 refresh_nav、refresh_holding、refresh_quote、estimate_nav',
-    status VARCHAR(20) NOT NULL COMMENT '状态：pending、running、success、failed、partial',
+    target_type VARCHAR(50) NULL COMMENT '目标类型，如 fund',
+    target_id VARCHAR(100) NULL COMMENT '目标 ID，如基金代码',
+    external_task_id VARCHAR(100) NULL COMMENT '外部任务 ID',
+    status VARCHAR(20) NOT NULL COMMENT '状态：pending、running、success、partial、failed、skipped',
     started_at DATETIME NOT NULL,
     finished_at DATETIME NULL,
     duration_ms BIGINT NULL COMMENT '耗时毫秒',
@@ -167,6 +170,15 @@ CREATE TABLE task_logs (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_task_logs_type_time (task_type, started_at)
 );
+```
+
+已有数据库需要补充任务目标字段：
+
+```sql
+ALTER TABLE task_logs
+    ADD COLUMN target_type VARCHAR(50) NULL COMMENT '目标类型，如 fund' AFTER task_type,
+    ADD COLUMN target_id VARCHAR(100) NULL COMMENT '目标 ID，如基金代码' AFTER target_type,
+    ADD COLUMN external_task_id VARCHAR(100) NULL COMMENT '外部任务 ID' AFTER target_id;
 ```
 
 ## fund_task_queue

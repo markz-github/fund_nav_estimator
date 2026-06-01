@@ -457,6 +457,69 @@ tbody tr {
   margin-top: 36px;
 }
 
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.compact-filter label {
+  min-width: 180px;
+}
+
+.filter-actions,
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.operations-table {
+  min-width: 1280px;
+}
+
+.operations-table th:nth-child(1) {
+  width: 72px;
+}
+
+.operations-table th:nth-child(8) {
+  width: 110px;
+}
+
+.log-text-cell {
+  max-width: 260px;
+}
+
+.log-text-preview {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pagination-bar {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.log-text-popover {
+  position: fixed;
+  z-index: 30;
+  width: min(720px, calc(100vw - 48px));
+  max-height: min(420px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid rgba(36, 63, 47, 0.18);
+  border-radius: 8px;
+  padding: 14px 16px;
+  color: #26362d;
+  background: #fff;
+  box-shadow: 0 18px 48px rgba(18, 28, 24, 0.2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .fund-cell {
   min-width: 0;
 }

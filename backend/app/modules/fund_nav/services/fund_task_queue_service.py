@@ -71,9 +71,12 @@ class FundTaskQueueService:
                 return self._result(existing, reused=True)
 
             now = datetime.now()
+            target_fund_code = normalized_codes[0] if normalized_codes and len(normalized_codes) == 1 else normalized_payload.get("fund_code")
             task_log = TaskLog(
                 task_name=task_name,
                 task_type=task_type,
+                target_type="fund" if target_fund_code else None,
+                target_id=target_fund_code,
                 status="pending",
                 started_at=now,
                 message=f"queued origin={origin};target={','.join(target)}",

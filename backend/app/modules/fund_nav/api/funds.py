@@ -39,7 +39,7 @@ def create_fund(
         fund = service.create_fund(payload)
     except ValueError as exc:
         db.rollback()
-        log_task(db, "新增自选基金", "create_fund", "duplicate", started_at, str(exc))
+        log_task(db, "新增自选基金", "create_fund", "skipped", started_at, f"duplicate;{exc}")
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         db.rollback()
