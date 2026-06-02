@@ -55,6 +55,7 @@ class AkshareSource:
     _fund_daily_cache_ttl_seconds = 600
     _realtime_cache_ttl_seconds = 300
     _cache_wait_timeout_seconds = 60
+    _normalized_code_column = "_normalized_code"
     _dataframe_cache: dict[str, tuple[object, float]] = {}
     _cache_locks: dict[str, Lock] = {}
     _cache_locks_guard = Lock()
@@ -119,11 +120,15 @@ class AkshareSource:
                 return etf_snapshot
 
         daily_df = self.get_fund_daily_dataframe()
-        matched = daily_df[daily_df["基金代码"].astype(str).str.zfill(6) == normalized_code]
-        if matched.empty:
+        row = self._first_row_by_normalized_code(
+            daily_df,
+            normalized_code,
+            code_column="基金代码",
+            normalizer=self._normalize_fund_code,
+        )
+        if row is None:
             return self._get_latest_etf_nav_snapshot(normalized_code)
 
-        row = matched.iloc[0]
         nav_date = self._extract_latest_nav_date_for_row(row, list(daily_df.columns))
         if nav_date is None:
             return None
@@ -145,6 +150,8 @@ class AkshareSource:
             "fund_open_fund_daily_em",
             ak.fund_open_fund_daily_em,
             cls._fund_daily_cache_ttl_seconds,
+            code_column="基金代码",
+            normalizer=cls._normalize_fund_code,
         )
 
     @staticmethod
@@ -160,11 +167,15 @@ class AkshareSource:
         except Exception:
             return None
 
-        matched = etf_df[etf_df["代码"].astype(str).str.zfill(6) == fund_code]
-        if matched.empty:
+        row = self._first_row_by_normalized_code(
+            etf_df,
+            fund_code,
+            code_column="代码",
+            normalizer=lambda value: self._normalize_asset_code(value, "CN"),
+        )
+        if row is None:
             return None
 
-        row = matched.iloc[0]
         prev_close = self._optional_decimal(row.get("昨收"))
         unit_nav = prev_close
         source = f"{self.source_name}:etf_spot_prev_close"
@@ -279,11 +290,13 @@ class AkshareSource:
                 if market_df.empty:
                     continue
                 parse_started = monotonic()
-                for _, row in market_df.iterrows():
-                    raw_code = str(row["代码"]).strip()
-                    normalized_code = self._normalize_asset_code(raw_code, market_name)
-                    if normalized_code not in missing_targets:
-                        continue
+                matched_rows = self._rows_by_normalized_codes(
+                    market_df,
+                    missing_targets,
+                    code_column="代码",
+                    normalizer=lambda value: self._normalize_asset_code(value, market_name),
+                )
+                for normalized_code, row in matched_rows:
                     snapshots[normalized_code] = MarketQuoteSnapshot(
                         asset_code=normalized_code,
                         asset_name=self._none_if_nan(row.get("名称") or row.get("中文名称")),
@@ -321,26 +334,64 @@ class AkshareSource:
 
     @classmethod
     def _get_etf_spot_dataframe(cls):
-        return cls._load_dataframe("fund_etf_spot_em", ak.fund_etf_spot_em, cls._realtime_cache_ttl_seconds)
+        return cls._load_dataframe(
+            "fund_etf_spot_em",
+            ak.fund_etf_spot_em,
+            cls._realtime_cache_ttl_seconds,
+            code_column="代码",
+            normalizer=lambda value: cls._normalize_asset_code(value, "CN"),
+        )
 
     @classmethod
     def _get_cn_stock_spot_dataframe(cls):
-        return cls._load_dataframe("stock_zh_a_spot", ak.stock_zh_a_spot, cls._realtime_cache_ttl_seconds)
+        return cls._load_dataframe(
+            "stock_zh_a_spot",
+            ak.stock_zh_a_spot,
+            cls._realtime_cache_ttl_seconds,
+            code_column="代码",
+            normalizer=lambda value: cls._normalize_asset_code(value, "CN"),
+        )
 
     @classmethod
     def _get_cn_stock_spot_em_dataframe(cls):
-        return cls._load_dataframe("stock_zh_a_spot_em", ak.stock_zh_a_spot_em, cls._realtime_cache_ttl_seconds)
+        return cls._load_dataframe(
+            "stock_zh_a_spot_em",
+            ak.stock_zh_a_spot_em,
+            cls._realtime_cache_ttl_seconds,
+            code_column="代码",
+            normalizer=lambda value: cls._normalize_asset_code(value, "CN"),
+        )
 
     @classmethod
     def _get_hk_stock_spot_dataframe(cls):
-        return cls._load_dataframe("stock_hk_spot", ak.stock_hk_spot, cls._realtime_cache_ttl_seconds)
+        return cls._load_dataframe(
+            "stock_hk_spot",
+            ak.stock_hk_spot,
+            cls._realtime_cache_ttl_seconds,
+            code_column="代码",
+            normalizer=lambda value: cls._normalize_asset_code(value, "HK"),
+        )
 
     @classmethod
     def _get_hk_stock_spot_em_dataframe(cls):
-        return cls._load_dataframe("stock_hk_spot_em", ak.stock_hk_spot_em, cls._realtime_cache_ttl_seconds)
+        return cls._load_dataframe(
+            "stock_hk_spot_em",
+            ak.stock_hk_spot_em,
+            cls._realtime_cache_ttl_seconds,
+            code_column="代码",
+            normalizer=lambda value: cls._normalize_asset_code(value, "HK"),
+        )
 
     @classmethod
-    def _load_dataframe(cls, endpoint: str, fetcher, ttl_seconds: int):
+    def _load_dataframe(
+        cls,
+        endpoint: str,
+        fetcher,
+        ttl_seconds: int,
+        *,
+        code_column: str | None = None,
+        normalizer=None,
+    ):
         cached = cls._fresh_cache(endpoint, ttl_seconds)
         if cached is not None:
             return cached
@@ -381,6 +432,7 @@ class AkshareSource:
                     )
                     return value
                 raise
+            dataframe = cls._indexed_dataframe(dataframe, code_column=code_column, normalizer=normalizer)
             cls._dataframe_cache[endpoint] = (dataframe, monotonic())
             logging.getLogger("app.performance").info(
                 "akshare_fetch endpoint=%s status=success rows=%s duration_ms=%.2f",
@@ -418,6 +470,54 @@ class AkshareSource:
     def _cache_lock(cls, endpoint: str) -> Lock:
         with cls._cache_locks_guard:
             return cls._cache_locks.setdefault(endpoint, Lock())
+
+    @classmethod
+    def _indexed_dataframe(cls, dataframe, *, code_column: str | None, normalizer):
+        if code_column is None or normalizer is None or code_column not in dataframe.columns:
+            return dataframe
+        indexed = dataframe.copy()
+        indexed[cls._normalized_code_column] = indexed[code_column].map(normalizer)
+        return indexed.set_index(cls._normalized_code_column, drop=False)
+
+    @classmethod
+    def _first_row_by_normalized_code(cls, dataframe, normalized_code: str, *, code_column: str, normalizer):
+        rows = cls._rows_by_normalized_codes(
+            dataframe,
+            {normalized_code},
+            code_column=code_column,
+            normalizer=normalizer,
+        )
+        return rows[0][1] if rows else None
+
+    @classmethod
+    def _rows_by_normalized_codes(cls, dataframe, normalized_codes: set[str], *, code_column: str, normalizer):
+        if not normalized_codes or dataframe.empty:
+            return []
+        if cls._normalized_code_column in dataframe.columns:
+            if dataframe.index.name == cls._normalized_code_column:
+                rows = []
+                for normalized_code in normalized_codes:
+                    try:
+                        selected = dataframe.loc[normalized_code]
+                    except KeyError:
+                        continue
+                    if hasattr(selected, "to_frame"):
+                        rows.append((normalized_code, selected))
+                    else:
+                        for _, row in selected.iterrows():
+                            rows.append((normalized_code, row))
+                return rows
+            matched = dataframe[dataframe[cls._normalized_code_column].isin(normalized_codes)]
+            return [(row[cls._normalized_code_column], row) for _, row in matched.iterrows()]
+
+        if code_column not in dataframe.columns:
+            return []
+        matched_rows = []
+        for _, row in dataframe.iterrows():
+            normalized_code = normalizer(row[code_column])
+            if normalized_code in normalized_codes:
+                matched_rows.append((normalized_code, row))
+        return matched_rows
 
     @staticmethod
     def _normalize_fund_code(fund_code: str) -> str:
