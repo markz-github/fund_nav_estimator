@@ -55,6 +55,7 @@ class HoldingService:
             target_fund_snapshots = self._collect_target_fund_holdings(normalized_code)
             if target_fund_snapshots:
                 snapshots = target_fund_snapshots
+        snapshots = self._deduplicate_snapshots(snapshots)
         refreshed: list[FundHolding] = []
         self._delete_stale_holdings(normalized_code, snapshots)
 
@@ -142,6 +143,29 @@ class HoldingService:
             and snapshot["asset_name"]
             and snapshot["holding_ratio"] is not None
         ]
+
+    @staticmethod
+    def _deduplicate_snapshots(snapshots: list[dict]) -> list[dict]:
+        deduped: dict[tuple[str, str, str], dict] = {}
+        for snapshot in snapshots:
+            key = (snapshot["fund_code"], snapshot["report_period"], snapshot["asset_code"])
+            existing = deduped.get(key)
+            if existing is None:
+                deduped[key] = dict(snapshot)
+                continue
+
+            existing["holding_ratio"] += snapshot["holding_ratio"]
+            existing_value = existing.get("holding_value")
+            next_value = snapshot.get("holding_value")
+            if existing_value is None:
+                existing["holding_value"] = next_value
+            elif next_value is not None:
+                existing["holding_value"] = existing_value + next_value
+            if not existing.get("asset_name"):
+                existing["asset_name"] = snapshot["asset_name"]
+            if not existing.get("market"):
+                existing["market"] = snapshot.get("market")
+        return list(deduped.values())
 
     def _should_use_target_fund_holdings(
         self, fund_code: str, snapshots: list[dict]

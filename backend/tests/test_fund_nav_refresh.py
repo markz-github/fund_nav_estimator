@@ -21,6 +21,7 @@ from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, Fund
 from app.database import Base
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.services.fund_service import FundService
+from app.modules.fund_nav.services.holding_service import HoldingService
 
 
 class FundNavRefreshTests(unittest.TestCase):
@@ -275,7 +276,42 @@ class FundNavRefreshTests(unittest.TestCase):
             snapshots = AkshareSource().get_market_quotes(["600000"])
 
         self.assertEqual([snapshot.asset_code for snapshot in snapshots], ["600000"])
+        cached, _ = AkshareSource._dataframe_cache["stock_zh_a_spot"]
+        self.assertIn("_normalized_code", cached.columns)
+        self.assertEqual(cached.index.name, "_normalized_code")
         backup.assert_not_called()
+
+    def test_holdings_are_deduplicated_by_unique_key_before_insert(self) -> None:
+        snapshots = [
+            {
+                "fund_code": "018172",
+                "report_period": "2026Q2",
+                "asset_code": "130026",
+                "asset_name": "资产A",
+                "asset_type": "stock",
+                "market": "SZ",
+                "holding_ratio": Decimal("0.10"),
+                "holding_value": Decimal("100"),
+                "source": "akshare",
+            },
+            {
+                "fund_code": "018172",
+                "report_period": "2026Q2",
+                "asset_code": "130026",
+                "asset_name": "资产A",
+                "asset_type": "stock",
+                "market": "SZ",
+                "holding_ratio": Decimal("0.20"),
+                "holding_value": Decimal("200"),
+                "source": "akshare",
+            },
+        ]
+
+        deduplicated = HoldingService._deduplicate_snapshots(snapshots)
+
+        self.assertEqual(len(deduplicated), 1)
+        self.assertEqual(deduplicated[0]["holding_ratio"], Decimal("0.30"))
+        self.assertEqual(deduplicated[0]["holding_value"], Decimal("300"))
 
 
 if __name__ == "__main__":
