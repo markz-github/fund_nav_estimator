@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { apiErrorMessage } from '../../../api/client'
 import {
   getHistorySyncStatus,
@@ -18,6 +18,7 @@ const loading = ref(false)
 const starting = ref(false)
 const message = ref('')
 const status = ref<HistorySyncStatus | null>(null)
+let refreshTimer: number | undefined
 const doneCount = computed(() => countByStatus('done'))
 const runningCount = computed(() => countByStatus('running'))
 const failedCount = computed(() => countByStatus('failed'))
@@ -60,11 +61,23 @@ async function refreshStatus() {
   loading.value = true
   try {
     status.value = await getHistorySyncStatus()
+    updateAutoRefresh()
   } catch (error) {
     message.value = apiErrorMessage(error, 'A 股行情同步状态加载失败，请确认后端服务。')
   } finally {
     loading.value = false
   }
+}
+
+function updateAutoRefresh() {
+  if (refreshTimer !== undefined) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = undefined
+  }
+  if (!status.value?.running) return
+  refreshTimer = window.setInterval(() => {
+    refreshStatus()
+  }, 10000)
 }
 
 async function submitSync() {
@@ -92,6 +105,11 @@ function itemName(item: ProgressItem) {
 }
 
 onMounted(refreshStatus)
+onUnmounted(() => {
+  if (refreshTimer !== undefined) {
+    window.clearInterval(refreshTimer)
+  }
+})
 </script>
 
 <template>
