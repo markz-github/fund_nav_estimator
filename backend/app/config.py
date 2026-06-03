@@ -29,6 +29,11 @@ class DatabaseConfig(BaseSettings):
     mysql_user: str = "root"
     mysql_password: str = "change_me"
     mysql_database: str = "fund_nav_estimator"
+    a_stock_mysql_host: str = "127.0.0.1"
+    a_stock_mysql_port: int = 3306
+    a_stock_mysql_user: str = "root"
+    a_stock_mysql_password: str = "change_me"
+    a_stock_mysql_database: str = "a_stock_market_data"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -41,6 +46,11 @@ class Settings(AppConfig):
     mysql_user: str = "root"
     mysql_password: str = "change_me"
     mysql_database: str = "fund_nav_estimator"
+    a_stock_mysql_host: str = "127.0.0.1"
+    a_stock_mysql_port: int = 3306
+    a_stock_mysql_user: str = "root"
+    a_stock_mysql_password: str = "change_me"
+    a_stock_mysql_database: str = "a_stock_market_data"
 
     @property
     def database_url(self) -> str:
@@ -54,6 +64,20 @@ class Settings(AppConfig):
         return (
             f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
             f"@{self.mysql_host}:{self.mysql_port}?charset=utf8mb4"
+        )
+
+    @property
+    def a_stock_mysql_server_url(self) -> str:
+        return (
+            f"mysql+pymysql://{self.a_stock_mysql_user}:{self.a_stock_mysql_password}"
+            f"@{self.a_stock_mysql_host}:{self.a_stock_mysql_port}?charset=utf8mb4"
+        )
+
+    @property
+    def a_stock_database_url(self) -> str:
+        return (
+            f"mysql+pymysql://{self.a_stock_mysql_user}:{self.a_stock_mysql_password}"
+            f"@{self.a_stock_mysql_host}:{self.a_stock_mysql_port}/{self.a_stock_mysql_database}?charset=utf8mb4"
         )
 
 
@@ -89,4 +113,9 @@ def get_settings() -> Settings:
         mysql_user=database_config.mysql_user,
         mysql_password=database_config.mysql_password,
         mysql_database=database_config.mysql_database,
+        a_stock_mysql_host=database_config.a_stock_mysql_host,
+        a_stock_mysql_port=database_config.a_stock_mysql_port,
+        a_stock_mysql_user=database_config.a_stock_mysql_user,
+        a_stock_mysql_password=database_config.a_stock_mysql_password,
+        a_stock_mysql_database=database_config.a_stock_mysql_database,
     )
