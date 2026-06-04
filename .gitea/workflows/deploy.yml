@@ -79,6 +79,8 @@ jobs:
       - name: Deploy frontend
         env:
           DEPLOY_ENV: test
+          DOCKER_BUILDKIT: "1"
+          COMPOSE_DOCKER_CLI_BUILD: "1"
           VITE_APP_BASE_PATH: /fund-nav-estimator/
           VITE_API_BASE_URL: /fund-nav-estimator/api
         run: |
@@ -124,17 +126,31 @@ jobs:
 
           if [[ "$DEPLOY_BACKEND" == "true" ]]; then
             echo "Testing backend before deployment." | tee -a .deploy.log
-            rm -rf backend/.ci-venv
-            python3 -m venv backend/.ci-venv
-            backend/.ci-venv/bin/python -m pip install --upgrade pip \
-              -i "$PIP_INDEX_URL" \
-              --trusted-host "$PIP_TRUSTED_HOST" \
-              --timeout 120 2>&1 | tee -a .deploy.log
-            backend/.ci-venv/bin/python -m pip install -r backend/requirements-dev.txt \
-              -i "$PIP_INDEX_URL" \
-              --trusted-host "$PIP_TRUSTED_HOST" \
-              --timeout 120 2>&1 | tee -a .deploy.log
-            backend/.ci-venv/bin/python -B -m pytest backend/tests 2>&1 | tee -a .deploy.log
+            export PIP_CACHE_DIR="$HOME/.cache/pip"
+            mkdir -p "$HOME/.cache/fund-nav-estimator" "$PIP_CACHE_DIR"
+            requirements_hash="$(sha256sum backend/requirements.txt backend/requirements-dev.txt | sha256sum | awk '{print $1}')"
+            python_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+            venv_dir="$HOME/.cache/fund-nav-estimator/backend-ci-venv-py${python_version}"
+            marker_file="${venv_dir}/.requirements.hash"
+
+            if [[ ! -x "${venv_dir}/bin/python" ]] || [[ ! -f "$marker_file" ]] || [[ "$(cat "$marker_file")" != "$requirements_hash" ]]; then
+              echo "Creating backend test venv: ${venv_dir}" | tee -a .deploy.log
+              rm -rf "$venv_dir"
+              python3 -m venv "$venv_dir"
+              "${venv_dir}/bin/python" -m pip install --upgrade pip \
+                -i "$PIP_INDEX_URL" \
+                --trusted-host "$PIP_TRUSTED_HOST" \
+                --timeout 120 2>&1 | tee -a .deploy.log
+              "${venv_dir}/bin/python" -m pip install -r backend/requirements-dev.txt \
+                -i "$PIP_INDEX_URL" \
+                --trusted-host "$PIP_TRUSTED_HOST" \
+                --timeout 120 2>&1 | tee -a .deploy.log
+              printf '%s' "$requirements_hash" > "$marker_file"
+            else
+              echo "Reusing backend test venv: ${venv_dir}" | tee -a .deploy.log
+            fi
+
+            "${venv_dir}/bin/python" -B -m pytest backend/tests 2>&1 | tee -a .deploy.log
           else
             echo "No backend changes detected; skipping backend tests." | tee -a .deploy.log
           fi

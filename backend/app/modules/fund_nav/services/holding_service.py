@@ -56,17 +56,20 @@ class HoldingService:
     def refresh_holdings(self, fund_code: str) -> list[FundHolding]:
         normalized_code = self.source._normalize_fund_code(fund_code)
         snapshots = self._collect_holdings(normalized_code)
+        replace_all_periods = False
         if self._should_use_target_fund_holdings(normalized_code, snapshots):
             target_fund_snapshots = self._collect_target_fund_holdings(normalized_code)
             if target_fund_snapshots:
                 snapshots = target_fund_snapshots
+                replace_all_periods = True
             else:
                 inferred_target = self._infer_target_fund_holding(normalized_code)
                 if inferred_target is not None:
                     snapshots = [inferred_target]
+                    replace_all_periods = True
         snapshots = self._deduplicate_snapshots(snapshots)
         refreshed: list[FundHolding] = []
-        self._delete_stale_holdings(normalized_code, snapshots)
+        self._delete_stale_holdings(normalized_code, snapshots, replace_all_periods)
 
         for snapshot in snapshots:
             holding = self.db.scalar(
@@ -96,7 +99,21 @@ class HoldingService:
             self.db.refresh(holding)
         return refreshed
 
-    def _delete_stale_holdings(self, fund_code: str, snapshots: list[dict]) -> None:
+    def _delete_stale_holdings(self, fund_code: str, snapshots: list[dict], replace_all_periods: bool = False) -> None:
+        if replace_all_periods:
+            snapshot_keys = {
+                (snapshot["report_period"], snapshot["asset_code"])
+                for snapshot in snapshots
+            }
+            stale_rows = self.db.scalars(
+                select(FundHolding)
+                .where(FundHolding.fund_code == fund_code)
+                .execution_options(include_deleted=True)
+            ).all()
+            for holding in stale_rows:
+                holding.is_deleted = 0 if (holding.report_period, holding.asset_code) in snapshot_keys else 1
+            return
+
         by_period: dict[str, set[str]] = {}
         for snapshot in snapshots:
             by_period.setdefault(snapshot["report_period"], set()).add(snapshot["asset_code"])
@@ -193,11 +210,14 @@ class HoldingService:
         try:
             profile = FundProfileService(self.db, self.source).get_or_sync_profile(fund_code)
         except Exception:
-            return False
+            profile = None
         if profile is None:
-            return False
-        fund_name = profile.fund_name or ""
-        fund_type = profile.fund_type or ""
+            local_fund = self.db.scalar(select(Fund).where(Fund.fund_code == fund_code))
+            fund_name = local_fund.fund_name if local_fund is not None else ""
+            fund_type = local_fund.fund_type if local_fund is not None else ""
+        else:
+            fund_name = profile.fund_name or ""
+            fund_type = profile.fund_type or ""
         return "ETF联接" in fund_name or "联接" in fund_name or "QDII" in fund_type
 
     def _infer_target_fund_holding(self, fund_code: str) -> dict | None:

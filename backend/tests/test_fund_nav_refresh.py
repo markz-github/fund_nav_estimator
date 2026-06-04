@@ -21,6 +21,7 @@ from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, Fund
 from app.modules.fund_nav.data_sources.eastmoney_source import EastmoneySource
 from app.database import Base
 from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.services.fund_service import FundService
@@ -222,6 +223,97 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(snapshot.source, "akshare:etf_spot_prev_close")
         self.assertEqual(snapshot.unit_nav, Decimal("1.098"))
         self.assertEqual(snapshot.nav_date, date(2026, 4, 27))
+
+    def test_target_fund_holdings_replace_stale_stock_holdings_from_newer_period(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        source.get_fund_holdings.return_value = [
+            {
+                "fund_code": "012805",
+                "report_period": "2025Q1",
+                "asset_code": "00772",
+                "asset_name": "阅文集团",
+                "asset_type": "stock",
+                "market": "HK",
+                "holding_ratio": Decimal("0.050000"),
+                "holding_value": None,
+                "source": "akshare",
+            }
+        ]
+        target_source = Mock()
+        target_source.get_target_fund_holdings.return_value = [
+            {
+                "fund_code": "012805",
+                "report_period": "2024Q4",
+                "asset_code": "513380",
+                "asset_name": "广发恒生科技(QDII-ETF)",
+                "asset_type": "etf",
+                "market": "CN",
+                "holding_ratio": Decimal("0.930800"),
+                "holding_value": Decimal("211284.48"),
+                "source": "etf88",
+            }
+        ]
+        db.add(
+            Fund(
+                id=1,
+                fund_code="012805",
+                fund_name="广发恒生科技ETF联接(QDII)A",
+                fund_type="QDII",
+            )
+        )
+        db.add(
+            FundHolding(
+                id=1,
+                fund_code="012805",
+                report_period="2025Q1",
+                asset_code="00772",
+                asset_name="阅文集团",
+                asset_type="stock",
+                market="HK",
+                holding_ratio=Decimal("0.050000"),
+                holding_value=None,
+                source="akshare",
+            )
+        )
+        db.add(
+            FundHolding(
+                id=2,
+                fund_code="012805",
+                report_period="2024Q4",
+                asset_code="513380",
+                asset_name="广发恒生科技(QDII-ETF)",
+                asset_type="etf",
+                market="CN",
+                holding_ratio=Decimal("0.930800"),
+                holding_value=Decimal("211284.48"),
+                source="etf88",
+                is_deleted=1,
+            )
+        )
+        db.commit()
+
+        try:
+            refreshed = HoldingService(
+                db,
+                source=source,
+                holding_sources=[source],
+                target_fund_sources=[target_source],
+            ).refresh_holdings("012805")
+            visible_holdings = db.scalars(
+                select(FundHolding)
+                .where(FundHolding.fund_code == "012805")
+                .order_by(FundHolding.report_period.desc(), FundHolding.holding_ratio.desc())
+            ).all()
+        finally:
+            db.close()
+
+        self.assertEqual([holding.asset_code for holding in refreshed], ["513380"])
+        self.assertEqual([holding.asset_code for holding in visible_holdings], ["513380"])
 
     def test_open_fund_daily_table_is_cached_for_repeated_refreshes(self) -> None:
         daily_df = pd.DataFrame(

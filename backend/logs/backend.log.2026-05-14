@@ -1,2 +1,0 @@
-2026-05-15 16:14:23 INFO [pid=6544 thread=30516] app.performance: method=app.services.fund_service.FundService.list_funds duration_ms=246.80
-2026-05-15 16:14:23 INFO [pid=6544 thread=3380] app.performance: request method=GET path=/api/funds status=200 duration_ms=251.58

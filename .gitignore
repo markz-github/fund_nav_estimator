@@ -1,7 +1,7 @@
 .vscode/
 backend/.venv/
 backend/.tmp/
-backend/.env
+backend/logs/
 .runtime/
 __pycache__/
 *.pyc
