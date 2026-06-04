@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from app.config import get_settings
+from app.logging_config import resolve_log_dir
 from app.modules.a_stock.schemas import AStockHistorySyncRequest
 
 
@@ -55,14 +56,11 @@ class AStockHistorySyncService:
                 "message": "A 股历史行情同步任务已在运行。",
             }
 
-        log_dir = PROJECT_ROOT / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir = resolve_log_dir(self.settings.log_dir)
         runtime_dir = PID_FILE.parent
         runtime_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = date.today().strftime("%Y%m%d")
-        time_part = __import__("datetime").datetime.now().strftime("%H%M%S")
-        stdout_log = log_dir / f"a_stock_daily_sync_web_{timestamp}_{time_part}.out.log"
-        stderr_log = log_dir / f"a_stock_daily_sync_web_{timestamp}_{time_part}.err.log"
+        stdout_log = log_dir / "a_stock_daily_sync.log"
+        stderr_log = log_dir / "a_stock_daily_sync.err.log"
         command = [
             sys.executable,
             "-B",
@@ -79,11 +77,11 @@ class AStockHistorySyncService:
             "--end-date",
             end_date,
         ]
-        with stdout_log.open("ab") as stdout_file, stderr_log.open("ab") as stderr_file:
+        with stderr_log.open("ab") as stderr_file:
             process = subprocess.Popen(
                 command,
                 cwd=PROJECT_ROOT,
-                stdout=stdout_file,
+                stdout=subprocess.DEVNULL,
                 stderr=stderr_file,
                 stdin=subprocess.DEVNULL,
                 close_fds=os.name != "nt",
@@ -95,8 +93,8 @@ class AStockHistorySyncService:
             "start_date": start_date,
             "end_date": end_date,
             "workers": payload.workers,
-            "stdout_log": str(stdout_log.relative_to(PROJECT_ROOT)),
-            "stderr_log": str(stderr_log.relative_to(PROJECT_ROOT)),
+            "stdout_log": self._display_path(stdout_log),
+            "stderr_log": self._display_path(stderr_log),
         }
         PID_FILE.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
         return {
@@ -197,6 +195,13 @@ class AStockHistorySyncService:
     @staticmethod
     def _empty_progress() -> dict[str, list[object]]:
         return {"counts": [], "latest_done": [], "running_items": [], "failed_items": []}
+
+    @staticmethod
+    def _display_path(path: Path) -> str:
+        try:
+            return str(path.relative_to(PROJECT_ROOT))
+        except ValueError:
+            return str(path)
 
     @staticmethod
     def _is_pid_running(pid: int) -> bool:

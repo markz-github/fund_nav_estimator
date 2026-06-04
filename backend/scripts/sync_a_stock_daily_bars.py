@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+import logging
 import os
 from pathlib import Path
 import re
@@ -46,6 +47,7 @@ if str(BACKEND_DIR) not in sys.path:
 os.chdir(BACKEND_DIR)
 
 from app.config import get_settings
+from app.logging_config import configure_logging
 
 
 ADJUST_TABLES = {
@@ -54,12 +56,13 @@ ADJUST_TABLES = {
     "hfq": "stock_daily_bars_hfq",
 }
 PROGRESS_TABLE = "stock_daily_bars_sync_progress"
+PROGRESS_RUNNING_STALE_MINUTES = 30
 _hist_source_available = True
 _hist_source_lock = Lock()
 _akshare_fetch_lock = Lock()
-_print_lock = Lock()
 _progress_lock = Lock()
 _rebuild_lock = Lock()
+logger = logging.getLogger("app.a_stock.daily_sync")
 
 
 @dataclass(frozen=True)
@@ -227,8 +230,18 @@ def load_completed_symbols(engine: Engine, start_date: str, end_date: str) -> se
         }
 
 
-def mark_progress_running(engine: Engine, stock: StockInfo, start_date: str, end_date: str) -> None:
-    statement = text(
+def claim_progress_running(engine: Engine, stock: StockInfo, start_date: str, end_date: str) -> str:
+    select_statement = text(
+        f"""
+        SELECT status, started_at
+        FROM {quote_identifier(PROGRESS_TABLE)}
+        WHERE symbol = :symbol
+          AND start_date = :start_date
+          AND end_date = :end_date
+        FOR UPDATE
+        """
+    )
+    insert_statement = text(
         f"""
         INSERT INTO {quote_identifier(PROGRESS_TABLE)} (
             symbol, stock_name, start_date, end_date, status, started_at, finished_at,
@@ -237,26 +250,45 @@ def mark_progress_running(engine: Engine, stock: StockInfo, start_date: str, end
             :symbol, :stock_name, :start_date, :end_date, 'running', NOW(), NULL,
             NULL, NULL, 1
         )
-        ON DUPLICATE KEY UPDATE
-            stock_name = VALUES(stock_name),
+        """
+    )
+    update_statement = text(
+        f"""
+        UPDATE {quote_identifier(PROGRESS_TABLE)}
+        SET stock_name = :stock_name,
             status = 'running',
             started_at = NOW(),
             finished_at = NULL,
             duration_seconds = NULL,
             error = NULL,
             run_count = run_count + 1
+        WHERE symbol = :symbol
+          AND start_date = :start_date
+          AND end_date = :end_date
         """
     )
     with engine.begin() as connection:
-        connection.execute(
-            statement,
-            {
-                "symbol": stock.symbol,
-                "stock_name": stock.name,
-                "start_date": start_date,
-                "end_date": end_date,
-            },
-        )
+        params = {
+            "symbol": stock.symbol,
+            "stock_name": stock.name,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+        row = connection.execute(select_statement, params).mappings().first()
+        if row is None:
+            connection.execute(insert_statement, params)
+            return "claimed"
+        if row["status"] == "done":
+            return "done"
+        if row["status"] == "running" and row["started_at"] is not None:
+            stale = connection.execute(
+                text("SELECT TIMESTAMPDIFF(MINUTE, :started_at, NOW())"),
+                {"started_at": row["started_at"]},
+            ).scalar()
+            if stale is not None and int(stale) < PROGRESS_RUNNING_STALE_MINUTES:
+                return "running"
+        connection.execute(update_statement, params)
+        return "claimed"
 
 
 def mark_progress_done(
@@ -507,7 +539,7 @@ def sync_stock_with_conflict_retry(
     skip_existing: bool,
     insert_only: bool,
     retry_conflicts: bool,
-) -> tuple[dict[str, int], bool]:
+) -> tuple[dict[str, int], str | None]:
     retry_count = 0
     while True:
         try:
@@ -520,15 +552,14 @@ def sync_stock_with_conflict_retry(
                     skip_existing=skip_existing if retry_count == 0 else False,
                     insert_only=insert_only,
                 ),
-                retry_count > 0,
+                None,
             )
         except IntegrityError:
             if not insert_only or not retry_conflicts or retry_count >= 1:
                 raise
             retry_count += 1
             with _rebuild_lock:
-                with _print_lock:
-                    print(f"CONFLICT {stock.symbol} delete_existing_rows=true retry={retry_count}", flush=True)
+                logger.warning("CONFLICT %s delete_existing_rows=true retry=%s", stock.symbol, retry_count)
                 delete_symbol_rows(engine, stock.symbol)
                 return (
                     sync_stock(
@@ -539,7 +570,7 @@ def sync_stock_with_conflict_retry(
                         skip_existing=False,
                         insert_only=True,
                     ),
-                    True,
+                    "integrity_conflict",
                 )
         except OperationalError as exc:
             error_code = getattr(getattr(exc, "orig", None), "args", [None])[0]
@@ -547,8 +578,7 @@ def sync_stock_with_conflict_retry(
                 raise
             retry_count += 1
             with _rebuild_lock:
-                with _print_lock:
-                    print(f"LOCK_TIMEOUT {stock.symbol} delete_existing_rows=true retry={retry_count}", flush=True)
+                logger.warning("LOCK_TIMEOUT %s delete_existing_rows=true retry=%s", stock.symbol, retry_count)
                 delete_symbol_rows(engine, stock.symbol)
                 sleep(5 * retry_count)
                 return (
@@ -560,13 +590,14 @@ def sync_stock_with_conflict_retry(
                         skip_existing=False,
                         insert_only=True,
                     ),
-                    True,
+                    "lock_timeout",
                 )
 
 
 def import_completed_from_logs(engine: Engine, log_paths: list[str], start_date: str, end_date: str) -> int:
     completed_pattern = re.compile(
-        r"^\[\d+/\d+\]\s+"
+        r"\[\d+/\d+\]\s+"
+        r"(?:DONE\s+)?"
         r"(?P<symbol>\d{6})\s+.*?"
         r"stock_daily_bars_none=(?P<rows_none>\d+),\s+"
         r"stock_daily_bars_qfq=(?P<rows_qfq>\d+),\s+"
@@ -651,18 +682,24 @@ def sync_one_with_status(
 ) -> tuple[str, str | None]:
     with _progress_lock:
         if use_progress and stock.symbol in completed_symbols:
-            with _print_lock:
-                print(f"[{index}/{total}] SKIP {stock.symbol} {stock.name or ''} progress=done", flush=True)
+            logger.info("[%s/%s] SKIP %s %s progress=done source=memory", index, total, stock.symbol, stock.name or "")
             return stock.symbol, None
 
     started = monotonic()
-    with _print_lock:
-        print(f"[{index}/{total}] START {stock.symbol} {stock.name or ''}", flush=True)
     if use_progress:
-        mark_progress_running(engine, stock, start_date, end_date)
+        claim_status = claim_progress_running(engine, stock, start_date, end_date)
+        if claim_status == "done":
+            with _progress_lock:
+                completed_symbols.add(stock.symbol)
+            logger.info("[%s/%s] SKIP %s %s progress=done source=database", index, total, stock.symbol, stock.name or "")
+            return stock.symbol, None
+        if claim_status == "running":
+            logger.info("[%s/%s] SKIP %s %s progress=running source=database", index, total, stock.symbol, stock.name or "")
+            return stock.symbol, None
+    logger.info("[%s/%s] START %s %s", index, total, stock.symbol, stock.name or "")
 
     try:
-        counts, retried = sync_stock_with_conflict_retry(
+        counts, retry_reason = sync_stock_with_conflict_retry(
             engine=engine,
             stock=stock,
             start_date=start_date,
@@ -679,24 +716,36 @@ def sync_one_with_status(
         count_text = ", ".join(
             f"{table}={'skip' if count == -1 else count}" for table, count in counts.items()
         )
-        with _print_lock:
-            print(
-                f"[{index}/{total}] DONE {stock.symbol} {stock.name or ''} "
-                f"{count_text} duration={duration_seconds:.2f}s retried_conflict={retried}",
-                flush=True,
-            )
+        logger.info(
+            "[%s/%s] DONE %s %s %s duration=%.2fs retried_rebuild=%s retry_reason=%s",
+            index,
+            total,
+            stock.symbol,
+            stock.name or "",
+            count_text,
+            duration_seconds,
+            retry_reason is not None,
+            retry_reason or "none",
+        )
         return stock.symbol, None
     except Exception as exc:
         duration_seconds = monotonic() - started
         if use_progress:
             mark_progress_failed(engine, stock, start_date, end_date, str(exc), duration_seconds)
-        with _print_lock:
-            print(f"[{index}/{total}] FAILED {stock.symbol} duration={duration_seconds:.2f}s error={exc}", flush=True)
+        logger.exception("[%s/%s] FAILED %s duration=%.2fs error=%s", index, total, stock.symbol, duration_seconds, exc)
         return stock.symbol, str(exc)
 
 
 def main() -> None:
     args = parse_args()
+    settings = get_settings()
+    configure_logging(
+        settings.log_dir,
+        settings.log_backup_days,
+        settings.log_level,
+        log_file_name="a_stock_daily_sync.log",
+        console=False,
+    )
     ensure_database_exists(args.database)
     engine = database_engine(args.database)
     create_tables(engine)
@@ -707,7 +756,7 @@ def main() -> None:
             start_date=args.start_date,
             end_date=args.end_date,
         )
-        print(f"Imported completed symbols from logs: {imported_count}")
+        logger.info("Imported completed symbols from logs: %s", imported_count)
 
     completed_symbols = load_completed_symbols(engine, args.start_date, args.end_date) if args.use_progress else set()
 
@@ -722,14 +771,14 @@ def main() -> None:
         stocks = stocks[: args.limit]
 
     total = len(stocks)
-    print(f"Target database: {args.database}")
-    print(f"Date range: {args.start_date} - {args.end_date}")
-    print(f"Stock count: {total}")
-    print(f"Tables: {', '.join(ADJUST_TABLES.values())}")
-    print(f"Workers: {args.workers}")
-    print(f"Insert only: {args.insert_only}")
-    print(f"Use progress: {args.use_progress}")
-    print(f"Completed symbols loaded: {len(completed_symbols)}")
+    logger.info("Target database: %s", args.database)
+    logger.info("Date range: %s - %s", args.start_date, args.end_date)
+    logger.info("Stock count: %s", total)
+    logger.info("Tables: %s", ", ".join(ADJUST_TABLES.values()))
+    logger.info("Workers: %s", args.workers)
+    logger.info("Insert only: %s", args.insert_only)
+    logger.info("Use progress: %s", args.use_progress)
+    logger.info("Completed symbols loaded: %s", len(completed_symbols))
 
     failures: list[tuple[str, str]] = []
     if args.workers <= 1:
@@ -780,9 +829,9 @@ def main() -> None:
                     failures.append((symbol, error))
 
     if failures:
-        print("Failures:")
+        logger.error("Failures:")
         for symbol, error in failures:
-            print(f"- {symbol}: {error}")
+            logger.error("- %s: %s", symbol, error)
         raise SystemExit(1)
 
 
