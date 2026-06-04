@@ -109,7 +109,7 @@ export async function getHistorySyncTask(taskId: number): Promise<HistorySyncTas
   return data
 }
 
-export async function rerunFailedHistorySyncTask(taskId: number): Promise<HistorySyncStartResult> {
-  const { data } = await apiClient.post<HistorySyncStartResult>(`/a-stocks/history-sync/tasks/${taskId}/rerun-failed`)
+export async function rerunHistorySyncTask(taskId: number): Promise<HistorySyncStartResult> {
+  const { data } = await apiClient.post<HistorySyncStartResult>(`/a-stocks/history-sync/tasks/${taskId}/rerun`)
   return data
 }

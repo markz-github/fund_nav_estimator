@@ -47,14 +47,23 @@ def get_history_sync_task(task_id: int) -> dict[str, object]:
 
 
 @router.post(
+    "/history-sync/tasks/{task_id}/rerun",
+    response_model=AStockHistorySyncStartOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def rerun_history_sync_task(task_id: int) -> dict[str, object]:
+    try:
+        return AStockHistorySyncService().rerun_task(task_id)
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
     "/history-sync/tasks/{task_id}/rerun-failed",
     response_model=AStockHistorySyncStartOut,
     status_code=status.HTTP_202_ACCEPTED,
 )
 def rerun_failed_history_sync_task(task_id: int) -> dict[str, object]:
-    try:
-        return AStockHistorySyncService().rerun_failed(task_id)
-    except ValueError as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return rerun_history_sync_task(task_id)

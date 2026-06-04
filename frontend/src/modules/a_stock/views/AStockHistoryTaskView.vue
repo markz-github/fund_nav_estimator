@@ -5,7 +5,7 @@ import { apiErrorMessage } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
 import {
   getHistorySyncTask,
-  rerunFailedHistorySyncTask,
+  rerunHistorySyncTask,
   type HistorySyncTaskDetail,
   type ProgressItem,
 } from '../api/history'
@@ -85,12 +85,12 @@ function updateAutoRefresh() {
   }, 10000)
 }
 
-async function rerunFailed() {
+async function rerunTask() {
   if (!task.value) return
   rerunning.value = true
   message.value = ''
   try {
-    const result = await rerunFailedHistorySyncTask(task.value.id)
+    const result = await rerunHistorySyncTask(task.value.id)
     message.value = result.message
     if (result.task_id) {
       await router.push({ name: routeNames.aStockHistoryTask, params: { taskId: result.task_id } })
@@ -98,7 +98,7 @@ async function rerunFailed() {
       await refreshTask()
     }
   } catch (error) {
-    message.value = apiErrorMessage(error, '失败股票重跑任务提交失败。')
+    message.value = apiErrorMessage(error, '任务重跑提交失败。')
   } finally {
     rerunning.value = false
   }
@@ -125,8 +125,8 @@ onUnmounted(() => {
         <button class="ghost" :disabled="loading" type="button" @click="refreshTask">
           {{ loading ? '刷新中...' : '刷新' }}
         </button>
-        <button type="button" :disabled="rerunning || !failedCount" @click="rerunFailed">
-          {{ rerunning ? '提交中...' : '重跑失败' }}
+        <button type="button" :disabled="rerunning" @click="rerunTask">
+          {{ rerunning ? '提交中...' : '重跑任务' }}
         </button>
       </div>
     </section>

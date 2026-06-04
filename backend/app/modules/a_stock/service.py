@@ -114,7 +114,7 @@ class AStockHistorySyncService:
             "message": "A 股历史行情同步任务已启动。",
         }
 
-    def rerun_failed(self, task_id: int) -> dict[str, object]:
+    def rerun_task(self, task_id: int) -> dict[str, object]:
         existing = self.current_process()
         task = self.get_task(task_id)
         if task is None:
@@ -131,26 +131,10 @@ class AStockHistorySyncService:
                 "stderr_log": existing.get("stderr_log") or "",
                 "message": "A 股历史行情同步任务已在运行。",
             }
-        symbols = self.failed_symbols(task_id)
-        if not symbols:
-            return {
-                "task_id": task_id,
-                "pid": 0,
-                "started": False,
-                "start_date": task["start_date"],
-                "end_date": task["end_date"],
-                "workers": task["workers"],
-                "stdout_log": task.get("stdout_log") or "",
-                "stderr_log": task.get("stderr_log") or "",
-                "message": "该任务没有失败股票需要重跑。",
-            }
-        return self._start_symbols(
-            start_date=task["start_date"],
-            end_date=task["end_date"],
-            workers=int(task["workers"] or 1),
-            symbols=symbols,
-            retry_count=int(task["retry_count"] or 0) + 1,
-        )
+        return self._restart_task(task)
+
+    def rerun_failed(self, task_id: int) -> dict[str, object]:
+        return self.rerun_task(task_id)
 
     def status(self, start_date: str | None = None, end_date: str | None = None) -> dict[str, object]:
         process = self.current_process()
@@ -294,45 +278,17 @@ class AStockHistorySyncService:
         ).mappings()
         return [dict(row) for row in rows]
 
-    def failed_symbols(self, task_id: int) -> list[str]:
-        task = self.get_task(task_id)
-        if task is None:
-            return []
-        try:
-            with self.engine().connect() as connection:
-                rows = connection.execute(
-                    text(
-                        f"""
-                        SELECT symbol
-                        FROM {PROGRESS_TABLE}
-                        WHERE task_id = :task_id
-                          AND start_date = :start_date
-                          AND end_date = :end_date
-                          AND status = 'failed'
-                        ORDER BY symbol ASC
-                        """
-                    ),
-                    {"task_id": task_id, "start_date": task["start_date"], "end_date": task["end_date"]},
-                )
-                return [str(row.symbol) for row in rows]
-        except Exception:
-            return []
-
-    def _start_symbols(
-        self,
-        *,
-        start_date: str,
-        end_date: str,
-        workers: int,
-        symbols: list[str],
-        retry_count: int,
-    ) -> dict[str, object]:
-        task_id = self._create_task(start_date, end_date, workers, retry_count=retry_count, total_count=len(symbols))
+    def _restart_task(self, task: dict[str, object]) -> dict[str, object]:
+        task_id = int(task["id"])
+        start_date = str(task["start_date"])
+        end_date = str(task["end_date"])
+        workers = int(task["workers"] or 1)
         log_dir = resolve_log_dir(self.settings.log_dir)
         runtime_dir = PID_FILE.parent
         runtime_dir.mkdir(parents=True, exist_ok=True)
         stdout_log = log_dir / "a_stock_daily_sync.log"
         stderr_log = log_dir / "a_stock_daily_sync.err.log"
+        self._mark_task_restarting(task_id)
         command = [
             sys.executable,
             "-B",
@@ -350,8 +306,6 @@ class AStockHistorySyncService:
             end_date,
             "--task-id",
             str(task_id),
-            "--symbols",
-            *symbols,
         ]
         try:
             with stderr_log.open("ab") as stderr_file:
@@ -378,7 +332,7 @@ class AStockHistorySyncService:
         }
         self._mark_task_started(task_id, process.pid, record["stdout_log"], record["stderr_log"])
         PID_FILE.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {**record, "started": True, "message": f"已提交失败股票重跑任务，共 {len(symbols)} 只。"}
+        return {**record, "started": True, "message": "已重新启动该 A 股历史行情同步任务。"}
 
     def _create_task(
         self,
@@ -427,6 +381,23 @@ class AStockHistorySyncService:
                     """
                 ),
                 {"task_id": task_id, "pid": pid, "stdout_log": stdout_log, "stderr_log": stderr_log},
+            )
+
+    def _mark_task_restarting(self, task_id: int) -> None:
+        with self.engine().begin() as connection:
+            connection.execute(
+                text(
+                    f"""
+                    UPDATE {TASK_TABLE}
+                    SET status = 'pending',
+                        retry_count = retry_count + 1,
+                        finished_at = NULL,
+                        duration_seconds = NULL,
+                        message = '任务重新提交'
+                    WHERE id = :task_id
+                    """
+                ),
+                {"task_id": task_id},
             )
 
     def _mark_task_failed_to_start(self, task_id: int, message: str) -> None:
@@ -517,6 +488,39 @@ class AStockHistorySyncService:
                 ).scalar()
                 if not task_index_exists:
                     connection.execute(text(f"ALTER TABLE {PROGRESS_TABLE} ADD INDEX idx_task_status (task_id, status)"))
+                old_unique_exists = connection.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM information_schema.statistics
+                        WHERE table_schema = DATABASE()
+                          AND table_name = :table_name
+                          AND index_name = 'uk_symbol_range'
+                        """
+                    ),
+                    {"table_name": PROGRESS_TABLE},
+                ).scalar()
+                if old_unique_exists:
+                    connection.execute(text(f"ALTER TABLE {PROGRESS_TABLE} DROP INDEX uk_symbol_range"))
+                task_unique_exists = connection.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM information_schema.statistics
+                        WHERE table_schema = DATABASE()
+                          AND table_name = :table_name
+                          AND index_name = 'uk_task_symbol_range'
+                        """
+                    ),
+                    {"table_name": PROGRESS_TABLE},
+                ).scalar()
+                if not task_unique_exists:
+                    connection.execute(
+                        text(
+                            f"ALTER TABLE {PROGRESS_TABLE} "
+                            "ADD UNIQUE KEY uk_task_symbol_range (task_id, symbol, start_date, end_date)"
+                        )
+                    )
 
     @staticmethod
     def _empty_progress() -> dict[str, list[object]]:

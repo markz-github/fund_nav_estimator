@@ -4,7 +4,7 @@ import { apiErrorMessage } from '../../../api/client'
 import {
   getHistorySyncStatus,
   listHistorySyncTasks,
-  rerunFailedHistorySyncTask,
+  rerunHistorySyncTask,
   startHistorySync,
   type HistorySyncTask,
   type HistorySyncMode,
@@ -107,15 +107,15 @@ async function submitSync() {
   }
 }
 
-async function rerunFailed(task: HistorySyncTask) {
+async function rerunTask(task: HistorySyncTask) {
   rerunningTaskId.value = task.id
   message.value = ''
   try {
-    const result = await rerunFailedHistorySyncTask(task.id)
+    const result = await rerunHistorySyncTask(task.id)
     message.value = result.message
     await refreshStatus()
   } catch (error) {
-    message.value = apiErrorMessage(error, '失败股票重跑任务提交失败。')
+    message.value = apiErrorMessage(error, '任务重跑提交失败。')
   } finally {
     rerunningTaskId.value = null
   }
@@ -272,10 +272,10 @@ onUnmounted(() => {
                 </RouterLink>
                 <button
                   type="button"
-                  :disabled="status?.running || !task.failed_count || rerunningTaskId === task.id"
-                  @click="rerunFailed(task)"
+                  :disabled="status?.running || rerunningTaskId === task.id"
+                  @click="rerunTask(task)"
                 >
-                  {{ rerunningTaskId === task.id ? '提交中...' : '重跑失败' }}
+                  {{ rerunningTaskId === task.id ? '提交中...' : '重跑任务' }}
                 </button>
               </div>
             </td>

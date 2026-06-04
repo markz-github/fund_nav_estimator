@@ -185,7 +185,7 @@ def create_tables(engine: Engine) -> None:
     progress_sql = f"""
     CREATE TABLE IF NOT EXISTS {quote_identifier(PROGRESS_TABLE)} (
         id BIGINT PRIMARY KEY AUTO_INCREMENT,
-        task_id BIGINT NULL COMMENT '最近一次同步任务 ID',
+        task_id BIGINT NULL COMMENT '同步任务 ID',
         symbol VARCHAR(10) NOT NULL COMMENT '股票代码',
         stock_name VARCHAR(100) NULL COMMENT '股票名称',
         start_date CHAR(8) NOT NULL COMMENT '同步开始日期',
@@ -201,7 +201,7 @@ def create_tables(engine: Engine) -> None:
         run_count INT NOT NULL DEFAULT 0,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uk_symbol_range (symbol, start_date, end_date),
+        UNIQUE KEY uk_task_symbol_range (task_id, symbol, start_date, end_date),
         INDEX idx_task_status (task_id, status),
         INDEX idx_status (status),
         INDEX idx_symbol_status (symbol, status)
@@ -244,9 +244,16 @@ def create_tables(engine: Engine) -> None:
             connection,
             PROGRESS_TABLE,
             "task_id",
-            "ADD COLUMN task_id BIGINT NULL COMMENT '最近一次同步任务 ID' AFTER id",
+            "ADD COLUMN task_id BIGINT NULL COMMENT '同步任务 ID' AFTER id",
         )
         _ensure_index(connection, PROGRESS_TABLE, "idx_task_status", "ADD INDEX idx_task_status (task_id, status)")
+        _drop_index_if_exists(connection, PROGRESS_TABLE, "uk_symbol_range")
+        _ensure_index(
+            connection,
+            PROGRESS_TABLE,
+            "uk_task_symbol_range",
+            "ADD UNIQUE KEY uk_task_symbol_range (task_id, symbol, start_date, end_date)",
+        )
 
 
 def _ensure_column(connection, table_name: str, column_name: str, alter_clause: str) -> None:
@@ -283,7 +290,25 @@ def _ensure_index(connection, table_name: str, index_name: str, alter_clause: st
         connection.execute(text(f"ALTER TABLE {quote_identifier(table_name)} {alter_clause}"))
 
 
-def load_completed_symbols(engine: Engine, start_date: str, end_date: str) -> set[str]:
+def _drop_index_if_exists(connection, table_name: str, index_name: str) -> None:
+    exists = connection.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.statistics
+            WHERE table_schema = DATABASE()
+              AND table_name = :table_name
+              AND index_name = :index_name
+            """
+        ),
+        {"table_name": table_name, "index_name": index_name},
+    ).scalar()
+    if exists:
+        connection.execute(text(f"ALTER TABLE {quote_identifier(table_name)} DROP INDEX {quote_identifier(index_name)}"))
+
+
+def load_completed_symbols(engine: Engine, start_date: str, end_date: str, task_id: int | None) -> set[str]:
+    task_filter = "AND task_id = :task_id" if task_id is not None else "AND task_id IS NULL"
     statement = text(
         f"""
         SELECT symbol
@@ -291,6 +316,7 @@ def load_completed_symbols(engine: Engine, start_date: str, end_date: str) -> se
         WHERE start_date = :start_date
           AND end_date = :end_date
           AND status = 'done'
+          {task_filter}
         """
     )
     with engine.connect() as connection:
@@ -298,12 +324,19 @@ def load_completed_symbols(engine: Engine, start_date: str, end_date: str) -> se
             row.symbol
             for row in connection.execute(
                 statement,
-                {"start_date": start_date, "end_date": end_date},
+                {"start_date": start_date, "end_date": end_date, "task_id": task_id},
             )
         }
 
 
-def list_progress_by_status(engine: Engine, start_date: str, end_date: str, status: str) -> list[StockInfo]:
+def list_progress_by_status(
+    engine: Engine,
+    start_date: str,
+    end_date: str,
+    status: str,
+    task_id: int | None,
+) -> list[StockInfo]:
+    task_filter = "AND task_id = :task_id" if task_id is not None else "AND task_id IS NULL"
     statement = text(
         f"""
         SELECT symbol, stock_name
@@ -311,6 +344,7 @@ def list_progress_by_status(engine: Engine, start_date: str, end_date: str, stat
         WHERE start_date = :start_date
           AND end_date = :end_date
           AND status = :status
+          {task_filter}
         ORDER BY symbol ASC
         """
     )
@@ -321,12 +355,19 @@ def list_progress_by_status(engine: Engine, start_date: str, end_date: str, stat
                 "start_date": start_date,
                 "end_date": end_date,
                 "status": status,
+                "task_id": task_id,
             },
         ).mappings()
         return [StockInfo(symbol=row["symbol"], name=row["stock_name"]) for row in rows]
 
 
-def list_stale_running_progress(engine: Engine, start_date: str, end_date: str) -> list[StockInfo]:
+def list_stale_running_progress(
+    engine: Engine,
+    start_date: str,
+    end_date: str,
+    task_id: int | None,
+) -> list[StockInfo]:
+    task_filter = "AND task_id = :task_id" if task_id is not None else "AND task_id IS NULL"
     statement = text(
         f"""
         SELECT symbol, stock_name
@@ -334,6 +375,7 @@ def list_stale_running_progress(engine: Engine, start_date: str, end_date: str) 
         WHERE start_date = :start_date
           AND end_date = :end_date
           AND status = 'running'
+          {task_filter}
           AND (
               started_at IS NULL
               OR TIMESTAMPDIFF(MINUTE, started_at, NOW()) >= :stale_minutes
@@ -348,6 +390,7 @@ def list_stale_running_progress(engine: Engine, start_date: str, end_date: str) 
                 "start_date": start_date,
                 "end_date": end_date,
                 "stale_minutes": PROGRESS_RUNNING_STALE_MINUTES,
+                "task_id": task_id,
             },
         ).mappings()
         return [StockInfo(symbol=row["symbol"], name=row["stock_name"]) for row in rows]
@@ -371,7 +414,8 @@ def claim_progress_running(
         f"""
         SELECT status, started_at
         FROM {quote_identifier(PROGRESS_TABLE)}
-        WHERE symbol = :symbol
+        WHERE task_id <=> :task_id
+          AND symbol = :symbol
           AND start_date = :start_date
           AND end_date = :end_date
         FOR UPDATE
@@ -400,6 +444,7 @@ def claim_progress_running(
             error = NULL,
             run_count = run_count + 1
         WHERE symbol = :symbol
+          AND task_id <=> :task_id
           AND start_date = :start_date
           AND end_date = :end_date
         """
@@ -813,7 +858,7 @@ def mark_task_running(engine: Engine, task_id: int | None, total_count: int) -> 
 def finish_task(engine: Engine, task_id: int | None, start_date: str, end_date: str, message: str | None = None) -> None:
     if task_id is None:
         return
-    counts = progress_counts(engine, start_date, end_date)
+    counts = progress_counts(engine, start_date, end_date, task_id)
     done_count = counts.get("done", 0)
     failed_count = counts.get("failed", 0)
     running_count = counts.get("running", 0)
@@ -860,19 +905,24 @@ def finish_task(engine: Engine, task_id: int | None, start_date: str, end_date: 
         )
 
 
-def progress_counts(engine: Engine, start_date: str, end_date: str) -> dict[str, int]:
+def progress_counts(engine: Engine, start_date: str, end_date: str, task_id: int | None) -> dict[str, int]:
+    task_filter = "AND task_id = :task_id" if task_id is not None else "AND task_id IS NULL"
     statement = text(
         f"""
         SELECT status, COUNT(*) AS count
         FROM {quote_identifier(PROGRESS_TABLE)}
         WHERE start_date = :start_date AND end_date = :end_date
+          {task_filter}
         GROUP BY status
         """
     )
     with engine.connect() as connection:
         return {
             str(row["status"]): int(row["count"])
-            for row in connection.execute(statement, {"start_date": start_date, "end_date": end_date}).mappings()
+            for row in connection.execute(
+                statement,
+                {"start_date": start_date, "end_date": end_date, "task_id": task_id},
+            ).mappings()
         }
 
 
@@ -1055,7 +1105,7 @@ def main() -> None:
         )
         logger.info("Imported completed symbols from logs: %s", imported_count)
 
-    completed_symbols = load_completed_symbols(engine, args.start_date, args.end_date) if args.use_progress else set()
+    completed_symbols = load_completed_symbols(engine, args.start_date, args.end_date, args.task_id) if args.use_progress else set()
 
     if args.symbols:
         stocks = [StockInfo(symbol=normalize_symbol(symbol), name=None) for symbol in args.symbols]
@@ -1097,7 +1147,7 @@ def main() -> None:
         stale_round = 1
         while True:
             stale_stocks = merge_stocks_by_symbol(
-                list_stale_running_progress(engine, args.start_date, args.end_date)
+                list_stale_running_progress(engine, args.start_date, args.end_date, args.task_id)
             )
             if not stale_stocks:
                 break
@@ -1126,7 +1176,7 @@ def main() -> None:
             stale_round += 1
 
         failed_stocks = merge_stocks_by_symbol(
-            list_progress_by_status(engine, args.start_date, args.end_date, "failed")
+            list_progress_by_status(engine, args.start_date, args.end_date, "failed", args.task_id)
         )
         if failed_stocks:
             logger.info("Failed progress retry count=%s", len(failed_stocks))
@@ -1146,7 +1196,7 @@ def main() -> None:
             )
             failures = [
                 (stock.symbol, "failed_after_retry")
-                for stock in list_progress_by_status(engine, args.start_date, args.end_date, "failed")
+                for stock in list_progress_by_status(engine, args.start_date, args.end_date, "failed", args.task_id)
             ]
 
     finish_task(engine, args.task_id, args.start_date, args.end_date)
