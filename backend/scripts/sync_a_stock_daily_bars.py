@@ -77,6 +77,31 @@ def quote_identifier(identifier: str) -> str:
     return f"`{identifier.replace('`', '``')}`"
 
 
+def mysql_error_code(exc: OperationalError) -> int | None:
+    return getattr(getattr(exc, "orig", None), "args", [None])[0]
+
+
+def run_progress_transaction(engine: Engine, operation: str, callback):
+    for attempt in range(1, 4):
+        try:
+            with engine.begin() as connection:
+                return callback(connection)
+        except OperationalError as exc:
+            error_code = mysql_error_code(exc)
+            if error_code not in (1205, 1213) or attempt >= 3:
+                raise
+            wait_seconds = 0.2 * attempt
+            logger.warning(
+                "progress_db_retry operation=%s mysql_error=%s attempt=%s wait_seconds=%.2f",
+                operation,
+                error_code,
+                attempt,
+                wait_seconds,
+            )
+            sleep(wait_seconds)
+    raise RuntimeError(f"progress transaction failed: {operation}")
+
+
 def decimal_or_none(value) -> Decimal | None:
     if value is None:
         return None
@@ -468,7 +493,7 @@ def claim_progress_running(
           AND end_date = :end_date
         """
     )
-    with engine.begin() as connection:
+    def execute(connection):
         params = {
             "symbol": stock.symbol,
             "stock_name": stock.name,
@@ -492,6 +517,8 @@ def claim_progress_running(
         connection.execute(update_statement, params)
         return "claimed"
 
+    return run_progress_transaction(engine, "claim_progress_running", execute)
+
 
 def mark_progress_done(
     engine: Engine,
@@ -502,7 +529,25 @@ def mark_progress_done(
     duration_seconds: float,
     task_id: int | None,
 ) -> None:
-    statement = text(
+    update_statement = text(
+        f"""
+        UPDATE {quote_identifier(PROGRESS_TABLE)}
+        SET task_id = :task_id,
+            stock_name = :stock_name,
+            status = 'done',
+            rows_none = :rows_none,
+            rows_qfq = :rows_qfq,
+            rows_hfq = :rows_hfq,
+            finished_at = NOW(),
+            duration_seconds = :duration_seconds,
+            error = NULL
+        WHERE symbol = :symbol
+          AND task_id <=> :task_id
+          AND start_date = :start_date
+          AND end_date = :end_date
+        """
+    )
+    insert_statement = text(
         f"""
         INSERT INTO {quote_identifier(PROGRESS_TABLE)} (
             task_id, symbol, stock_name, start_date, end_date, status,
@@ -513,33 +558,26 @@ def mark_progress_done(
             :rows_none, :rows_qfq, :rows_hfq, NOW(), NOW(),
             :duration_seconds, NULL, 1
         )
-        ON DUPLICATE KEY UPDATE
-            task_id = VALUES(task_id),
-            stock_name = VALUES(stock_name),
-            status = 'done',
-            rows_none = VALUES(rows_none),
-            rows_qfq = VALUES(rows_qfq),
-            rows_hfq = VALUES(rows_hfq),
-            finished_at = NOW(),
-            duration_seconds = VALUES(duration_seconds),
-            error = NULL
         """
     )
-    with engine.begin() as connection:
-        connection.execute(
-            statement,
-            {
-                "symbol": stock.symbol,
-                "stock_name": stock.name,
-                "start_date": start_date,
-                "end_date": end_date,
-                "task_id": task_id,
-                "rows_none": counts.get("stock_daily_bars_none"),
-                "rows_qfq": counts.get("stock_daily_bars_qfq"),
-                "rows_hfq": counts.get("stock_daily_bars_hfq"),
-                "duration_seconds": round(duration_seconds, 3),
-            },
-        )
+    def execute(connection):
+        params = {
+            "symbol": stock.symbol,
+            "stock_name": stock.name,
+            "start_date": start_date,
+            "end_date": end_date,
+            "task_id": task_id,
+            "rows_none": counts.get("stock_daily_bars_none"),
+            "rows_qfq": counts.get("stock_daily_bars_qfq"),
+            "rows_hfq": counts.get("stock_daily_bars_hfq"),
+            "duration_seconds": round(duration_seconds, 3),
+        }
+        result = connection.execute(update_statement, params)
+        if result.rowcount == 0:
+            logger.warning("progress_missing_before_done symbol=%s task_id=%s", stock.symbol, task_id)
+            connection.execute(insert_statement, params)
+
+    run_progress_transaction(engine, "mark_progress_done", execute)
 
 
 def mark_progress_failed(
@@ -551,7 +589,22 @@ def mark_progress_failed(
     duration_seconds: float,
     task_id: int | None,
 ) -> None:
-    statement = text(
+    update_statement = text(
+        f"""
+        UPDATE {quote_identifier(PROGRESS_TABLE)}
+        SET task_id = :task_id,
+            stock_name = :stock_name,
+            status = 'failed',
+            finished_at = NOW(),
+            duration_seconds = :duration_seconds,
+            error = :error
+        WHERE symbol = :symbol
+          AND task_id <=> :task_id
+          AND start_date = :start_date
+          AND end_date = :end_date
+        """
+    )
+    insert_statement = text(
         f"""
         INSERT INTO {quote_identifier(PROGRESS_TABLE)} (
             task_id, symbol, stock_name, start_date, end_date, status, started_at, finished_at,
@@ -560,28 +613,24 @@ def mark_progress_failed(
             :task_id, :symbol, :stock_name, :start_date, :end_date, 'failed', NOW(), NOW(),
             :duration_seconds, :error, 1
         )
-        ON DUPLICATE KEY UPDATE
-            task_id = VALUES(task_id),
-            stock_name = VALUES(stock_name),
-            status = 'failed',
-            finished_at = NOW(),
-            duration_seconds = VALUES(duration_seconds),
-            error = VALUES(error)
         """
     )
-    with engine.begin() as connection:
-        connection.execute(
-            statement,
-            {
-                "symbol": stock.symbol,
-                "stock_name": stock.name,
-                "start_date": start_date,
-                "end_date": end_date,
-                "task_id": task_id,
-                "duration_seconds": round(duration_seconds, 3),
-                "error": error[:4000],
-            },
-        )
+    def execute(connection):
+        params = {
+            "symbol": stock.symbol,
+            "stock_name": stock.name,
+            "start_date": start_date,
+            "end_date": end_date,
+            "task_id": task_id,
+            "duration_seconds": round(duration_seconds, 3),
+            "error": error[:4000],
+        }
+        result = connection.execute(update_statement, params)
+        if result.rowcount == 0:
+            logger.warning("progress_missing_before_failed symbol=%s task_id=%s", stock.symbol, task_id)
+            connection.execute(insert_statement, params)
+
+    run_progress_transaction(engine, "mark_progress_failed", execute)
 
 
 def get_stock_pool() -> list[StockInfo]:
@@ -872,8 +921,11 @@ def import_completed_from_logs(engine: Engine, log_paths: list[str], start_date:
             }
     if not imported:
         return 0
-    with engine.begin() as connection:
+
+    def execute(connection):
         connection.execute(statement, list(imported.values()))
+
+    run_progress_transaction(engine, "import_completed_from_logs", execute)
     return len(imported)
 
 
