@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from threading import Lock
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -36,6 +37,8 @@ def date_range_from_request(payload: AStockHistorySyncRequest) -> tuple[str, str
 
 
 class AStockHistorySyncService:
+    _start_lock = Lock()
+
     def __init__(self) -> None:
         self.settings = get_settings()
 
@@ -43,95 +46,50 @@ class AStockHistorySyncService:
         return create_engine(self.settings.a_stock_database_url, pool_pre_ping=True)
 
     def start(self, payload: AStockHistorySyncRequest) -> dict[str, object]:
-        existing = self.current_process()
-        start_date, end_date = date_range_from_request(payload)
-        if existing["running"]:
-            return {
-                "task_id": existing.get("task_id"),
-                "pid": existing["pid"],
-                "started": False,
-                "start_date": existing.get("start_date") or start_date,
-                "end_date": existing.get("end_date") or end_date,
-                "workers": existing.get("workers") or payload.workers,
-                "stdout_log": existing.get("stdout_log") or "",
-                "stderr_log": existing.get("stderr_log") or "",
-                "message": "A 股历史行情同步任务已在运行。",
-            }
+        with self._start_lock:
+            existing = self.current_process()
+            start_date, end_date = date_range_from_request(payload)
+            if existing["running"]:
+                return {
+                    "task_id": existing.get("task_id"),
+                    "pid": existing["pid"],
+                    "started": False,
+                    "start_date": existing.get("start_date") or start_date,
+                    "end_date": existing.get("end_date") or end_date,
+                    "workers": existing.get("workers") or payload.workers,
+                    "stdout_log": existing.get("stdout_log") or "",
+                    "stderr_log": existing.get("stderr_log") or "",
+                    "message": "A 股历史行情同步任务已在运行。",
+                }
 
-        task_id = self._create_task(start_date, end_date, payload.workers)
-        log_dir = resolve_log_dir(self.settings.log_dir)
-        runtime_dir = PID_FILE.parent
-        runtime_dir.mkdir(parents=True, exist_ok=True)
-        stdout_log = log_dir / "a_stock_daily_sync.log"
-        stderr_log = log_dir / "a_stock_daily_sync.err.log"
-        command = [
-            sys.executable,
-            "-B",
-            str(SCRIPT_PATH),
-            "--use-progress",
-            "--insert-only",
-            "--retry-conflicts",
-            "--workers",
-            str(payload.workers),
-            "--sleep-seconds",
-            "0",
-            "--start-date",
-            start_date,
-            "--end-date",
-            end_date,
-            "--task-id",
-            str(task_id),
-        ]
-        try:
-            with stderr_log.open("ab") as stderr_file:
-                process = subprocess.Popen(
-                    command,
-                    cwd=PROJECT_ROOT,
-                    stdout=subprocess.DEVNULL,
-                    stderr=stderr_file,
-                    stdin=subprocess.DEVNULL,
-                    close_fds=os.name != "nt",
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                )
-        except Exception as exc:
-            self._mark_task_failed_to_start(task_id, repr(exc))
-            raise
-
-        record = {
-            "task_id": task_id,
-            "pid": process.pid,
-            "start_date": start_date,
-            "end_date": end_date,
-            "workers": payload.workers,
-            "stdout_log": self._display_path(stdout_log),
-            "stderr_log": self._display_path(stderr_log),
-        }
-        self._mark_task_started(task_id, process.pid, record["stdout_log"], record["stderr_log"])
-        PID_FILE.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {
-            **record,
-            "started": True,
-            "message": "A 股历史行情同步任务已启动。",
-        }
+            task_id = self._create_task(start_date, end_date, payload.workers)
+            return self._start_task_process(
+                task_id=task_id,
+                start_date=start_date,
+                end_date=end_date,
+                workers=payload.workers,
+                message="A 股历史行情同步任务已启动。",
+            )
 
     def rerun_task(self, task_id: int) -> dict[str, object]:
-        existing = self.current_process()
-        task = self.get_task(task_id)
-        if task is None:
-            raise ValueError("任务不存在")
-        if existing["running"]:
-            return {
-                "task_id": existing.get("task_id"),
-                "pid": existing["pid"],
-                "started": False,
-                "start_date": existing.get("start_date") or task["start_date"],
-                "end_date": existing.get("end_date") or task["end_date"],
-                "workers": existing.get("workers") or task["workers"],
-                "stdout_log": existing.get("stdout_log") or "",
-                "stderr_log": existing.get("stderr_log") or "",
-                "message": "A 股历史行情同步任务已在运行。",
-            }
-        return self._restart_task(task)
+        with self._start_lock:
+            existing = self.current_process()
+            task = self.get_task(task_id)
+            if task is None:
+                raise ValueError("任务不存在")
+            if existing["running"]:
+                return {
+                    "task_id": existing.get("task_id"),
+                    "pid": existing["pid"],
+                    "started": False,
+                    "start_date": existing.get("start_date") or task["start_date"],
+                    "end_date": existing.get("end_date") or task["end_date"],
+                    "workers": existing.get("workers") or task["workers"],
+                    "stdout_log": existing.get("stdout_log") or "",
+                    "stderr_log": existing.get("stderr_log") or "",
+                    "message": "A 股历史行情同步任务已在运行。",
+                }
+            return self._restart_task(task)
 
     def rerun_failed(self, task_id: int) -> dict[str, object]:
         return self.rerun_task(task_id)
@@ -283,12 +241,29 @@ class AStockHistorySyncService:
         start_date = str(task["start_date"])
         end_date = str(task["end_date"])
         workers = int(task["workers"] or 1)
+        self._mark_task_restarting(task_id)
+        return self._start_task_process(
+            task_id=task_id,
+            start_date=start_date,
+            end_date=end_date,
+            workers=workers,
+            message="已重新启动该 A 股历史行情同步任务。",
+        )
+
+    def _start_task_process(
+        self,
+        *,
+        task_id: int,
+        start_date: str,
+        end_date: str,
+        workers: int,
+        message: str,
+    ) -> dict[str, object]:
         log_dir = resolve_log_dir(self.settings.log_dir)
         runtime_dir = PID_FILE.parent
         runtime_dir.mkdir(parents=True, exist_ok=True)
         stdout_log = log_dir / "a_stock_daily_sync.log"
         stderr_log = log_dir / "a_stock_daily_sync.err.log"
-        self._mark_task_restarting(task_id)
         command = [
             sys.executable,
             "-B",
@@ -332,7 +307,7 @@ class AStockHistorySyncService:
         }
         self._mark_task_started(task_id, process.pid, record["stdout_log"], record["stderr_log"])
         PID_FILE.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {**record, "started": True, "message": "已重新启动该 A 股历史行情同步任务。"}
+        return {**record, "started": True, "message": message}
 
     def _create_task(
         self,
