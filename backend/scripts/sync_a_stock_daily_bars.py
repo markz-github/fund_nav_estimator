@@ -36,6 +36,7 @@ def _session_init_without_env_proxy(self, *args, **kwargs):
 requests.sessions.Session.__init__ = _session_init_without_env_proxy
 
 import akshare as ak
+import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -124,12 +125,31 @@ def fetch_history_dataframe(symbol: str, start_date: str, end_date: str, adjust:
                 with _hist_source_lock:
                     _hist_source_available = False
 
-        dataframe = ak.stock_zh_a_daily(
-            symbol=prefixed_symbol(symbol),
-            start_date=start_date,
-            end_date=end_date,
-            adjust=adjust,
-        )
+        try:
+            dataframe = ak.stock_zh_a_daily(
+                symbol=prefixed_symbol(symbol),
+                start_date=start_date,
+                end_date=end_date,
+                adjust=adjust,
+            )
+        except KeyError as exc:
+            if str(exc).strip("'\"") != "date":
+                raise
+            logger.warning(
+                "akshare_empty_response endpoint=stock_zh_a_daily symbol=%s adjust=%s missing_column=date",
+                symbol,
+                adjust or "none",
+            )
+            return pd.DataFrame(), "akshare:stock_zh_a_daily:empty"
+
+        if not dataframe.empty and "date" not in dataframe.columns and "日期" not in dataframe.columns:
+            logger.warning(
+                "akshare_invalid_response endpoint=stock_zh_a_daily symbol=%s adjust=%s columns=%s",
+                symbol,
+                adjust or "none",
+                ",".join(str(column) for column in dataframe.columns),
+            )
+            return pd.DataFrame(), "akshare:stock_zh_a_daily:invalid"
         return dataframe, "akshare:stock_zh_a_daily"
 
 
@@ -418,7 +438,6 @@ def claim_progress_running(
           AND symbol = :symbol
           AND start_date = :start_date
           AND end_date = :end_date
-        FOR UPDATE
         """
     )
     insert_statement = text(
@@ -570,10 +589,12 @@ def get_stock_pool() -> list[StockInfo]:
     code_column = "code" if "code" in dataframe.columns else "代码"
     name_column = "name" if "name" in dataframe.columns else "名称"
     stocks: list[StockInfo] = []
+    seen_symbols: set[str] = set()
     for _, row in dataframe.iterrows():
         symbol = normalize_symbol(row[code_column])
         name = str(row[name_column]).strip() if name_column in dataframe.columns else None
-        if symbol.isdigit() and len(symbol) == 6:
+        if symbol.isdigit() and len(symbol) == 6 and symbol not in seen_symbols:
+            seen_symbols.add(symbol)
             stocks.append(StockInfo(symbol=symbol, name=name or None))
     return stocks
 
@@ -689,12 +710,18 @@ def write_rows(engine: Engine, table_name: str, rows: list[dict], insert_only: b
         connection.execute(statement, rows)
 
 
-def delete_symbol_rows(engine: Engine, symbol: str) -> None:
+def delete_symbol_rows_in_range(engine: Engine, symbol: str, start_date: str, end_date: str) -> None:
     with engine.begin() as connection:
         for table_name in ADJUST_TABLES.values():
             connection.execute(
-                text(f"DELETE FROM {quote_identifier(table_name)} WHERE symbol = :symbol"),
-                {"symbol": symbol},
+                text(
+                    f"""
+                    DELETE FROM {quote_identifier(table_name)}
+                    WHERE symbol = :symbol
+                      AND trade_date BETWEEN :start_date AND :end_date
+                    """
+                ),
+                {"symbol": symbol, "start_date": start_date, "end_date": end_date},
             )
 
 
@@ -748,8 +775,14 @@ def sync_stock_with_conflict_retry(
                 raise
             retry_count += 1
             with _rebuild_lock:
-                logger.warning("CONFLICT %s delete_existing_rows=true retry=%s", stock.symbol, retry_count)
-                delete_symbol_rows(engine, stock.symbol)
+                logger.warning(
+                    "CONFLICT %s delete_existing_range=true start_date=%s end_date=%s retry=%s",
+                    stock.symbol,
+                    start_date,
+                    end_date,
+                    retry_count,
+                )
+                delete_symbol_rows_in_range(engine, stock.symbol, start_date, end_date)
                 return (
                     sync_stock(
                         engine=engine,
@@ -767,8 +800,14 @@ def sync_stock_with_conflict_retry(
                 raise
             retry_count += 1
             with _rebuild_lock:
-                logger.warning("LOCK_TIMEOUT %s delete_existing_rows=true retry=%s", stock.symbol, retry_count)
-                delete_symbol_rows(engine, stock.symbol)
+                logger.warning(
+                    "LOCK_TIMEOUT %s delete_existing_range=true start_date=%s end_date=%s retry=%s",
+                    stock.symbol,
+                    start_date,
+                    end_date,
+                    retry_count,
+                )
+                delete_symbol_rows_in_range(engine, stock.symbol, start_date, end_date)
                 sleep(5 * retry_count)
                 return (
                     sync_stock(
@@ -1111,6 +1150,9 @@ def main() -> None:
         stocks = [StockInfo(symbol=normalize_symbol(symbol), name=None) for symbol in args.symbols]
     else:
         stocks = get_stock_pool()
+    raw_stock_count = len(stocks)
+    stocks = merge_stocks_by_symbol(stocks)
+    deduped_stock_count = len(stocks)
     if args.start_after:
         start_after = normalize_symbol(args.start_after)
         stocks = [stock for stock in stocks if stock.symbol > start_after]
@@ -1121,6 +1163,7 @@ def main() -> None:
     logger.info("Target database: %s", args.database)
     logger.info("Date range: %s - %s", args.start_date, args.end_date)
     logger.info("Stock count: %s", total)
+    logger.info("Stock dedupe: raw=%s unique=%s duplicates=%s", raw_stock_count, deduped_stock_count, raw_stock_count - deduped_stock_count)
     logger.info("Tables: %s", ", ".join(ADJUST_TABLES.values()))
     logger.info("Workers: %s", args.workers)
     logger.info("Insert only: %s", args.insert_only)
