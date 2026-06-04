@@ -26,18 +26,22 @@ class SinaFundSource:
 
         text = self._flatten_text(payload)
         match = re.search(
-            r"(?P<code>[15]\d{5})[^，。；;\n]{0,40}"
+            r"(?P<code>(?<!\d)[15]\d{5}(?!\d))[^，。；;\n]{0,40}"
             r"(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)",
             text,
         )
-        if not match or match.group("code") == normalized_code:
+        if not match:
+            return []
+        asset_code = match.group("code")
+        asset_name = re.sub(r"\s+", "", match.group("name"))
+        if not self._is_valid_target_hint(normalized_code, asset_code, asset_name):
             return []
         return [
             {
                 "fund_code": normalized_code,
                 "report_period": self._current_report_period(),
-                "asset_code": match.group("code"),
-                "asset_name": re.sub(r"\s+", "", match.group("name")),
+                "asset_code": asset_code,
+                "asset_name": asset_name,
                 "asset_type": "etf",
                 "market": "CN",
                 "holding_ratio": Decimal("1"),
@@ -181,6 +185,23 @@ class SinaFundSource:
         if asset_type == "etf":
             return "CN"
         return SinaFundSource._infer_stock_market(asset_code)
+
+    @staticmethod
+    def _is_valid_target_hint(fund_code: str, asset_code: str, asset_name: str) -> bool:
+        if asset_code == fund_code:
+            return False
+        if fund_code in asset_name:
+            return False
+        return not any(
+            marker in asset_name
+            for marker in (
+                "基金资产配置",
+                "基金基本概况",
+                "基金档案",
+                "天天基金",
+                "网站备案号",
+            )
+        )
 
     @staticmethod
     def _current_report_period() -> str:

@@ -18,6 +18,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, FundNavSnapshot
+from app.modules.fund_nav.data_sources.eastmoney_source import EastmoneySource
 from app.database import Base
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_nav import FundNav
@@ -326,6 +327,38 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(snapshots[0].change_rate, Decimal("0.0283"))
         etf.assert_called_once()
 
+    def test_etf_quote_falls_back_to_eastmoney_single_quote_when_spot_table_fails(self) -> None:
+        response = Mock()
+        response.json.return_value = {
+            "data": {
+                "f43": 1490,
+                "f58": "电力ETF华泰柏瑞",
+                "f60": 1513,
+                "f86": 1780560711,
+                "f170": -152,
+            }
+        }
+        response.raise_for_status.return_value = None
+
+        with (
+            patch(
+                "app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em",
+                side_effect=RuntimeError("remote disconnected"),
+            ),
+            patch("app.modules.fund_nav.data_sources.akshare_source.requests.get", return_value=response),
+            patch.object(AkshareSource, "_get_sina_quote", return_value=None),
+            patch.object(AkshareSource, "_get_latest_history_quote", return_value=None),
+        ):
+            snapshots = AkshareSource().get_market_quotes(["561560"])
+
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0].asset_code, "561560")
+        self.assertEqual(snapshots[0].asset_name, "电力ETF华泰柏瑞")
+        self.assertEqual(snapshots[0].asset_type, "etf")
+        self.assertEqual(snapshots[0].latest_price, Decimal("1.49"))
+        self.assertEqual(snapshots[0].prev_close, Decimal("1.513"))
+        self.assertEqual(snapshots[0].change_rate, Decimal("-0.0152"))
+
     def test_akshare_holdings_mark_etf_assets(self) -> None:
         holding_df = pd.DataFrame(
             [
@@ -347,6 +380,17 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(holdings[0]["asset_type"], "etf")
         self.assertEqual(holdings[0]["market"], "CN")
         self.assertEqual(holdings[0]["holding_ratio"], Decimal("0.85"))
+
+    def test_eastmoney_target_hint_ignores_footer_code_and_page_title(self) -> None:
+        html_text = (
+            "沪ICP备11042629号-1 沪B2-20130026 网站备案号 "
+            "华泰柏瑞中证电力全指ETF发起式联接A(018172)基金资产配置"
+        )
+
+        with patch.object(EastmoneySource, "_fetch_pages_text", return_value=html_text):
+            holdings = EastmoneySource().get_target_fund_holdings("018172")
+
+        self.assertEqual(holdings, [])
 
     def test_holdings_are_deduplicated_by_unique_key_before_insert(self) -> None:
         snapshots = [

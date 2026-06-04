@@ -42,14 +42,6 @@ class Etf88Source:
             holding_ratio=Decimal("0.9308"),
             holding_value=Decimal("211284.48"),
         ),
-        "018172": TargetFundHolding(
-            fund_code="018172",
-            report_period="2026Q1",
-            asset_code="561560",
-            asset_name="华泰柏瑞中证全指电力公用事业ETF",
-            holding_ratio=Decimal("0.90"),
-            holding_value=None,
-        ),
     }
 
     def get_target_fund_holdings(self, fund_code: str) -> list[dict]:

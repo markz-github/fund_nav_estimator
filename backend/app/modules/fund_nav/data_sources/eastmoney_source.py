@@ -74,22 +74,23 @@ class EastmoneySource:
         # Some ETF feeder pages mention the target ETF in prose rather than a table.
         # Treat these as low-confidence 100% target mappings only when a code/name is explicit.
         for pattern in (
-            r"目标ETF[^0-9]{0,40}(?P<code>[15]\d{5})[^，。；;\n]{0,40}(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)",
-            r"(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)\((?P<code>[15]\d{5})\)",
-            r"(?P<code>[15]\d{5})[^，。；;\n]{0,30}(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)",
+            r"目标ETF[^0-9]{0,40}(?P<code>(?<!\d)[15]\d{5}(?!\d))[^，。；;\n]{0,40}(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)",
+            r"(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)\((?P<code>(?<!\d)[15]\d{5}(?!\d))\)",
+            r"(?P<code>(?<!\d)[15]\d{5}(?!\d))[^，。；;\n]{0,30}(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)",
         ):
             match = re.search(pattern, text)
             if not match:
                 continue
             asset_code = match.group("code")
-            if asset_code == normalized_code:
+            asset_name = re.sub(r"\s+", "", match.group("name"))
+            if not self._is_valid_target_hint(normalized_code, asset_code, asset_name):
                 continue
             return [
                 {
                     "fund_code": normalized_code,
                     "report_period": self._current_report_period(),
                     "asset_code": asset_code,
-                    "asset_name": re.sub(r"\s+", "", match.group("name")),
+                    "asset_name": asset_name,
                     "asset_type": "etf",
                     "market": "CN",
                     "holding_ratio": Decimal("1"),
@@ -257,6 +258,23 @@ class EastmoneySource:
         if asset_type == "etf":
             return "CN"
         return EastmoneySource._infer_stock_market(asset_code)
+
+    @staticmethod
+    def _is_valid_target_hint(fund_code: str, asset_code: str, asset_name: str) -> bool:
+        if asset_code == fund_code:
+            return False
+        if fund_code in asset_name:
+            return False
+        return not any(
+            marker in asset_name
+            for marker in (
+                "基金资产配置",
+                "基金基本概况",
+                "基金档案",
+                "天天基金",
+                "网站备案号",
+            )
+        )
 
     @classmethod
     def _latest_period_holdings(cls, holdings: list[ParsedHolding]) -> list[ParsedHolding]:

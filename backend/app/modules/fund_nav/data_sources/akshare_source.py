@@ -325,7 +325,9 @@ class AkshareSource:
 
         missing_codes = target_codes - set(snapshots.keys())
         for asset_code in missing_codes:
-            fallback = self._get_sina_quote(asset_code, quote_time)
+            fallback = self._get_eastmoney_etf_quote(asset_code, quote_time)
+            if fallback is None:
+                fallback = self._get_sina_quote(asset_code, quote_time)
             if fallback is None:
                 fallback = self._get_latest_history_quote(asset_code, quote_time)
             if fallback is not None:
@@ -800,6 +802,88 @@ class AkshareSource:
             prev_close=prev_close,
             change_rate=change_rate,
         )
+
+    def _get_eastmoney_etf_quote(
+        self, asset_code: str, quote_time: datetime
+    ) -> MarketQuoteSnapshot | None:
+        if not (asset_code.isdigit() and len(asset_code) == 6 and asset_code.startswith(("5", "1"))):
+            return None
+        market_id = "1" if asset_code.startswith("5") else "0"
+        try:
+            response = requests.get(
+                "https://push2.eastmoney.com/api/qt/stock/get",
+                params={
+                    "secid": f"{market_id}.{asset_code}",
+                    "fields": "f43,f58,f60,f86,f170",
+                },
+                headers={
+                    "Referer": "https://quote.eastmoney.com/",
+                    "User-Agent": "Mozilla/5.0",
+                },
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception:
+            logging.getLogger("app.performance").exception(
+                "fallback_quote source=eastmoney_etf asset_code=%s status=failed",
+                asset_code,
+            )
+            return None
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            return None
+
+        latest_price = self._eastmoney_price(data.get("f43"))
+        prev_close = self._eastmoney_price(data.get("f60"))
+        change_rate = self._eastmoney_change_rate(data.get("f170"))
+        if latest_price is None and change_rate is None:
+            return None
+
+        quote_datetime = quote_time
+        raw_time = data.get("f86")
+        try:
+            if raw_time not in (None, "-", ""):
+                quote_datetime = datetime.fromtimestamp(int(raw_time))
+        except (ValueError, OSError, OverflowError):
+            pass
+
+        logging.getLogger("app.performance").info(
+            "fallback_quote source=eastmoney_etf asset_code=%s status=success",
+            asset_code,
+        )
+        return MarketQuoteSnapshot(
+            asset_code=asset_code,
+            asset_name=self._none_if_nan(data.get("f58")),
+            asset_type="etf",
+            market="CN",
+            trade_date=quote_datetime.date(),
+            quote_time=quote_datetime,
+            latest_price=latest_price,
+            prev_close=prev_close,
+            change_rate=change_rate,
+        )
+
+    @classmethod
+    def _eastmoney_price(cls, value) -> Decimal | None:
+        try:
+            decimal_value = cls._optional_decimal(value)
+        except ValueError:
+            return None
+        if decimal_value is None:
+            return None
+        return decimal_value / Decimal("1000")
+
+    @classmethod
+    def _eastmoney_change_rate(cls, value) -> Decimal | None:
+        try:
+            decimal_value = cls._optional_decimal(value)
+        except ValueError:
+            return None
+        if decimal_value is None:
+            return None
+        return decimal_value / Decimal("10000")
 
     @staticmethod
     def _sina_asset_code(asset_code: str) -> str | None:

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
+import re
+
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -9,6 +13,7 @@ from app.modules.fund_nav.data_sources.etf88_source import Etf88Source
 from app.modules.fund_nav.data_sources.fund_company_source import FundCompanySource
 from app.modules.fund_nav.data_sources.public_web_source import PublicWebFundSource
 from app.modules.fund_nav.data_sources.sina_source import SinaFundSource
+from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
@@ -55,6 +60,10 @@ class HoldingService:
             target_fund_snapshots = self._collect_target_fund_holdings(normalized_code)
             if target_fund_snapshots:
                 snapshots = target_fund_snapshots
+            else:
+                inferred_target = self._infer_target_fund_holding(normalized_code)
+                if inferred_target is not None:
+                    snapshots = [inferred_target]
         snapshots = self._deduplicate_snapshots(snapshots)
         refreshed: list[FundHolding] = []
         self._delete_stale_holdings(normalized_code, snapshots)
@@ -190,3 +199,54 @@ class HoldingService:
         fund_name = profile.fund_name or ""
         fund_type = profile.fund_type or ""
         return "ETF联接" in fund_name or "联接" in fund_name or "QDII" in fund_type
+
+    def _infer_target_fund_holding(self, fund_code: str) -> dict | None:
+        profile = self.db.scalar(select(Fund).where(Fund.fund_code == fund_code))
+        if profile is None or not profile.fund_name:
+            return None
+        fund_name = profile.fund_name
+        if "联接" not in fund_name:
+            return None
+
+        candidates = self.db.scalars(
+            select(Fund)
+            .where(
+                Fund.enabled == 1,
+                Fund.fund_code != fund_code,
+                Fund.fund_code.regexp_match(r"^[15][0-9]{5}$"),
+                Fund.fund_name.like("%ETF%"),
+            )
+            .order_by(Fund.fund_code.asc())
+        ).all()
+        for candidate in candidates:
+            candidate_name = candidate.fund_name or ""
+            if self._is_target_fund_name_match(fund_name, candidate_name):
+                return {
+                    "fund_code": fund_code,
+                    "report_period": self._current_report_period(),
+                    "asset_code": candidate.fund_code,
+                    "asset_name": candidate_name,
+                    "asset_type": "etf",
+                    "market": "CN",
+                    "holding_ratio": Decimal("1"),
+                    "holding_value": None,
+                    "source": "local:fund_name_match",
+                }
+        return None
+
+    @staticmethod
+    def _is_target_fund_name_match(fund_name: str, candidate_name: str) -> bool:
+        chunks = [
+            chunk
+            for chunk in re.split(r"ETF|交易型开放式|指数|基金|联接|发起式|[（）()A-Za-z0-9\-]+", candidate_name)
+            if len(chunk) >= 2
+        ]
+        if not chunks:
+            return False
+        return all(chunk in fund_name for chunk in chunks)
+
+    @staticmethod
+    def _current_report_period() -> str:
+        today = date.today()
+        quarter = (today.month - 1) // 3 + 1
+        return f"{today.year}Q{quarter}"
