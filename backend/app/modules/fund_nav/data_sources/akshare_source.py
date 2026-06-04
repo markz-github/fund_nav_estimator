@@ -222,14 +222,15 @@ class AkshareSource:
             holdings = []
             for _, row in holding_df.iterrows():
                 asset_code = self._normalize_holding_asset_code(row["股票代码"])
+                asset_type = self._infer_holding_asset_type(asset_code)
                 holdings.append(
                     {
                         "fund_code": normalized_code,
                         "report_period": self._parse_report_period(str(row["季度"])),
                         "asset_code": asset_code,
                         "asset_name": str(row["股票名称"]).strip(),
-                        "asset_type": "stock",
-                        "market": self._infer_stock_market(asset_code),
+                        "asset_type": asset_type,
+                        "market": self._infer_holding_market(asset_code, asset_type),
                         "holding_ratio": self._percent(row["占净值比例"]),
                         "holding_value": self._optional_decimal(row.get("持仓市值")),
                         "source": self.source_name,
@@ -606,6 +607,18 @@ class AkshareSource:
         if asset_code.startswith(("4", "8")):
             return "BJ"
         return None
+
+    @staticmethod
+    def _infer_holding_asset_type(asset_code: str) -> str:
+        if len(asset_code) == 6 and asset_code.startswith(("5", "1")):
+            return "etf"
+        return "stock"
+
+    @staticmethod
+    def _infer_holding_market(asset_code: str, asset_type: str) -> str | None:
+        if asset_type == "etf":
+            return "CN"
+        return AkshareSource._infer_stock_market(asset_code)
 
     @staticmethod
     def _normalize_asset_code(asset_code: str, market: str | None = None) -> str:

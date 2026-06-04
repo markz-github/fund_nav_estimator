@@ -46,6 +46,8 @@ MYSQL_DATABASE=fund_nav_estimator
 
 同步进度额外保存到 `stock_daily_bars_sync_progress`。进度表以 `(symbol, start_date, end_date)` 做唯一键，只有三张 K 线表都写入成功后才标记 `done`。
 
+任务级运行记录保存到 `a_stock_history_sync_tasks`。每次从后端启动同步都会创建一条任务记录，保存日期范围、线程数、运行状态、PID、日志路径、成功数、失败数、运行中数量、耗时和摘要。进度表中的 `task_id` 表示该股票最近一次所属同步任务，用于任务详情页展示明细。
+
 ## 字段
 
 每张表包含：
@@ -95,6 +97,10 @@ cd <project-root>\backend
 cd <project-root>\backend
 .\.venv\Scripts\python.exe scripts\sync_a_stock_daily_bars.py --use-progress --insert-only --retry-conflicts --workers 8 --sleep-seconds 0
 ```
+
+运行过程中如果遇到进度表中已有 `running` 且开始时间未超过 30 分钟的股票，脚本会先跳过该股票，避免多个同步进程处理同一只股票。主扫描结束后，脚本会重新扫描本次日期范围内超过 30 分钟的 `running` 记录；如果存在，会继续处理这些股票，直到没有超时 `running` 记录。随后脚本会把本次日期范围内仍处于 `failed` 的股票再补跑一次；补跑后仍失败的股票会保留 `failed` 状态，并导致脚本以失败退出。
+
+前端 A 股历史行情页面展示任务列表。点击任务详情可查看该任务的正在处理、最近完成和失败股票。任务存在失败股票时，可通过“重跑失败”创建新的同步任务，只处理该任务下失败的股票。
 
 如果需要从历史 stdout 日志恢复确定完成的股票，可先导入日志中三张表都有明确行数的记录。日志中的 `skip` 不会被当作完成：
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, status
 
 from app.modules.a_stock.schemas import (
+    AStockHistoryTaskDetailOut,
+    AStockHistoryTaskListOut,
     AStockHistorySyncRequest,
     AStockHistorySyncStartOut,
     AStockHistorySyncStatusOut,
@@ -27,3 +29,32 @@ def get_history_sync_status(
     end_date: str | None = Query(default=None, pattern=r"^\d{8}$"),
 ) -> dict[str, object]:
     return AStockHistorySyncService().status(start_date=start_date, end_date=end_date)
+
+
+@router.get("/history-sync/tasks", response_model=AStockHistoryTaskListOut)
+def list_history_sync_tasks() -> dict[str, object]:
+    return {"tasks": AStockHistorySyncService().list_tasks()}
+
+
+@router.get("/history-sync/tasks/{task_id}", response_model=AStockHistoryTaskDetailOut)
+def get_history_sync_task(task_id: int) -> dict[str, object]:
+    task = AStockHistorySyncService().task_detail(task_id)
+    if task is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return task
+
+
+@router.post(
+    "/history-sync/tasks/{task_id}/rerun-failed",
+    response_model=AStockHistorySyncStartOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def rerun_failed_history_sync_task(task_id: int) -> dict[str, object]:
+    try:
+        return AStockHistorySyncService().rerun_failed(task_id)
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

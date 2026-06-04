@@ -3,11 +3,14 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { apiErrorMessage } from '../../../api/client'
 import {
   getHistorySyncStatus,
+  listHistorySyncTasks,
+  rerunFailedHistorySyncTask,
   startHistorySync,
+  type HistorySyncTask,
   type HistorySyncMode,
   type HistorySyncStatus,
-  type ProgressItem,
 } from '../api/history'
+import { routeNames } from '../../../router/routeNames'
 
 const mode = ref<HistorySyncMode>('recent_days')
 const recentDays = ref(10)
@@ -18,6 +21,8 @@ const loading = ref(false)
 const starting = ref(false)
 const message = ref('')
 const status = ref<HistorySyncStatus | null>(null)
+const tasks = ref<HistorySyncTask[]>([])
+const rerunningTaskId = ref<number | null>(null)
 let refreshTimer: number | undefined
 const doneCount = computed(() => countByStatus('done'))
 const runningCount = computed(() => countByStatus('running'))
@@ -60,7 +65,9 @@ function durationText(value?: number | null) {
 async function refreshStatus() {
   loading.value = true
   try {
-    status.value = await getHistorySyncStatus()
+    const [nextStatus, nextTasks] = await Promise.all([getHistorySyncStatus(), listHistorySyncTasks()])
+    status.value = nextStatus
+    tasks.value = nextTasks
     updateAutoRefresh()
   } catch (error) {
     message.value = apiErrorMessage(error, 'A 股行情同步状态加载失败，请确认后端服务。')
@@ -100,8 +107,30 @@ async function submitSync() {
   }
 }
 
-function itemName(item: ProgressItem) {
-  return item.stock_name ? `${item.symbol} ${item.stock_name}` : item.symbol
+async function rerunFailed(task: HistorySyncTask) {
+  rerunningTaskId.value = task.id
+  message.value = ''
+  try {
+    const result = await rerunFailedHistorySyncTask(task.id)
+    message.value = result.message
+    await refreshStatus()
+  } catch (error) {
+    message.value = apiErrorMessage(error, '失败股票重跑任务提交失败。')
+  } finally {
+    rerunningTaskId.value = null
+  }
+}
+
+function statusText(value: string) {
+  const map: Record<string, string> = {
+    pending: '等待中',
+    running: '运行中',
+    success: '成功',
+    partial: '部分完成',
+    failed: '失败',
+    skipped: '已跳过',
+  }
+  return map[value] ?? value
 }
 
 onMounted(refreshStatus)
@@ -200,83 +229,56 @@ onUnmounted(() => {
 
     <section class="section-title">
       <div>
-        <p class="eyebrow">Running</p>
-        <h2>正在处理</h2>
+        <p class="eyebrow">Tasks</p>
+        <h2>同步任务</h2>
       </div>
-      <span>{{ runningCount }} 只</span>
+      <span>{{ tasks.length }} 条</span>
     </section>
     <div class="table-card">
       <table class="a-stock-table">
         <thead>
           <tr>
-            <th>股票</th>
+            <th>任务</th>
+            <th>状态</th>
+            <th>日期范围</th>
+            <th>成功</th>
+            <th>失败</th>
+            <th>执行中</th>
             <th>开始时间</th>
             <th>耗时</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!status?.running_items.length">
-            <td colspan="3">暂无正在处理的股票。</td>
+          <tr v-if="!tasks.length">
+            <td colspan="9">暂无同步任务。</td>
           </tr>
-          <tr v-for="item in status?.running_items" :key="item.symbol">
-            <td>{{ itemName(item) }}</td>
-            <td>{{ formatDateTime(item.started_at) }}</td>
-            <td>{{ durationText(item.duration_seconds) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <section class="section-title">
-      <div>
-        <p class="eyebrow">Latest Done</p>
-        <h2>最近完成</h2>
-      </div>
-      <span>{{ doneCount }} 只已完成</span>
-    </section>
-    <div class="table-card">
-      <table class="a-stock-table">
-        <thead>
-          <tr>
-            <th>股票</th>
-            <th>完成时间</th>
-            <th>耗时</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="!status?.latest_done.length">
-            <td colspan="3">暂无完成记录。</td>
-          </tr>
-          <tr v-for="item in status?.latest_done" :key="item.symbol">
-            <td>{{ itemName(item) }}</td>
-            <td>{{ formatDateTime(item.finished_at) }}</td>
-            <td>{{ durationText(item.duration_seconds) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <section v-if="status?.failed_items.length" class="section-title">
-      <div>
-        <p class="eyebrow">Failed</p>
-        <h2>失败记录</h2>
-      </div>
-      <span>{{ failedCount }} 只</span>
-    </section>
-    <div v-if="status?.failed_items.length" class="table-card">
-      <table class="a-stock-table">
-        <thead>
-          <tr>
-            <th>股票</th>
-            <th>完成时间</th>
-            <th>错误</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in status.failed_items" :key="item.symbol">
-            <td>{{ itemName(item) }}</td>
-            <td>{{ formatDateTime(item.finished_at) }}</td>
-            <td class="log-text-preview">{{ item.error ?? '-' }}</td>
+          <tr v-for="task in tasks" :key="task.id">
+            <td>#{{ task.id }}</td>
+            <td>{{ statusText(task.status) }}</td>
+            <td>{{ task.start_date }} - {{ task.end_date }}</td>
+            <td>{{ task.success_count }}</td>
+            <td>{{ task.failed_count }}</td>
+            <td>{{ task.running_count }}</td>
+            <td>{{ formatDateTime(task.started_at) }}</td>
+            <td>{{ durationText(task.duration_seconds) }}</td>
+            <td>
+              <div class="quick-actions">
+                <RouterLink
+                  class="link-button"
+                  :to="{ name: routeNames.aStockHistoryTask, params: { taskId: task.id } }"
+                >
+                  详情
+                </RouterLink>
+                <button
+                  type="button"
+                  :disabled="status?.running || !task.failed_count || rerunningTaskId === task.id"
+                  @click="rerunFailed(task)"
+                >
+                  {{ rerunningTaskId === task.id ? '提交中...' : '重跑失败' }}
+                </button>
+              </div>
+            </td>
           </tr>
         </tbody>
       </table>

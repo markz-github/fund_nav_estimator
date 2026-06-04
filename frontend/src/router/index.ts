@@ -3,6 +3,7 @@ import FundListView from '../modules/fund_nav/views/FundListView.vue'
 import FundDetailView from '../modules/fund_nav/views/FundDetailView.vue'
 import OperationsView from '../modules/fund_nav/operations/views/OperationsView.vue'
 import AStockHistoryView from '../modules/a_stock/views/AStockHistoryView.vue'
+import AStockHistoryTaskView from '../modules/a_stock/views/AStockHistoryTaskView.vue'
 import { routeNames } from './routeNames'
 
 const router = createRouter({
@@ -35,6 +36,11 @@ const router = createRouter({
       path: '/a-stocks/history',
       name: routeNames.aStockHistory,
       component: AStockHistoryView,
+    },
+    {
+      path: '/a-stocks/history/tasks/:taskId',
+      name: routeNames.aStockHistoryTask,
+      component: AStockHistoryTaskView,
     },
     {
       path: '/funds/:fundCode',

@@ -81,14 +81,15 @@ class SinaFundSource:
             if not code or not name or ratio is None:
                 continue
             asset_code = str(code).strip().zfill(5 if len(str(code).strip()) == 5 else 6)
+            asset_type = self._infer_asset_type(asset_code)
             holdings.append(
                 {
                     "fund_code": fund_code,
                     "report_period": str(self._first_value(row, ("date", "rq", "reportdate", "bgrq")) or "latest"),
                     "asset_code": asset_code,
                     "asset_name": str(name).strip(),
-                    "asset_type": "stock",
-                    "market": self._infer_stock_market(asset_code),
+                    "asset_type": asset_type,
+                    "market": self._infer_market(asset_code, asset_type),
                     "holding_ratio": self._percent(ratio),
                     "holding_value": self._optional_decimal(value),
                     "source": self.source_name,
@@ -168,6 +169,18 @@ class SinaFundSource:
         if asset_code.startswith(("4", "8")):
             return "BJ"
         return None
+
+    @staticmethod
+    def _infer_asset_type(asset_code: str) -> str:
+        if len(asset_code) == 6 and asset_code.startswith(("5", "1")):
+            return "etf"
+        return "stock"
+
+    @staticmethod
+    def _infer_market(asset_code: str, asset_type: str) -> str | None:
+        if asset_type == "etf":
+            return "CN"
+        return SinaFundSource._infer_stock_market(asset_code)
 
     @staticmethod
     def _current_report_period() -> str:

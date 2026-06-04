@@ -56,6 +56,7 @@ ADJUST_TABLES = {
     "hfq": "stock_daily_bars_hfq",
 }
 PROGRESS_TABLE = "stock_daily_bars_sync_progress"
+TASK_TABLE = "a_stock_history_sync_tasks"
 PROGRESS_RUNNING_STALE_MINUTES = 30
 _hist_source_available = True
 _hist_source_lock = Lock()
@@ -184,6 +185,7 @@ def create_tables(engine: Engine) -> None:
     progress_sql = f"""
     CREATE TABLE IF NOT EXISTS {quote_identifier(PROGRESS_TABLE)} (
         id BIGINT PRIMARY KEY AUTO_INCREMENT,
+        task_id BIGINT NULL COMMENT '最近一次同步任务 ID',
         symbol VARCHAR(10) NOT NULL COMMENT '股票代码',
         stock_name VARCHAR(100) NULL COMMENT '股票名称',
         start_date CHAR(8) NOT NULL COMMENT '同步开始日期',
@@ -200,14 +202,85 @@ def create_tables(engine: Engine) -> None:
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uk_symbol_range (symbol, start_date, end_date),
+        INDEX idx_task_status (task_id, status),
         INDEX idx_status (status),
         INDEX idx_symbol_status (symbol, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    """
+    task_sql = f"""
+    CREATE TABLE IF NOT EXISTS {quote_identifier(TASK_TABLE)} (
+        id BIGINT PRIMARY KEY AUTO_INCREMENT,
+        task_type VARCHAR(50) NOT NULL DEFAULT 'history_sync',
+        status VARCHAR(20) NOT NULL DEFAULT 'pending'
+            COMMENT 'pending/running/success/partial/failed/skipped',
+        start_date CHAR(8) NOT NULL,
+        end_date CHAR(8) NOT NULL,
+        workers INT NOT NULL DEFAULT 1,
+        total_count INT NOT NULL DEFAULT 0,
+        success_count INT NOT NULL DEFAULT 0,
+        failed_count INT NOT NULL DEFAULT 0,
+        running_count INT NOT NULL DEFAULT 0,
+        skipped_count INT NOT NULL DEFAULT 0,
+        retry_count INT NOT NULL DEFAULT 0,
+        pid INT NULL,
+        stdout_log VARCHAR(500) NULL,
+        stderr_log VARCHAR(500) NULL,
+        message TEXT NULL,
+        started_at DATETIME NULL,
+        finished_at DATETIME NULL,
+        duration_seconds DECIMAL(12, 3) NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_status_time (status, created_at),
+        INDEX idx_range_time (start_date, end_date, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """
     with engine.begin() as connection:
         for table_name in ADJUST_TABLES.values():
             connection.execute(text(table_sql.format(table_name=quote_identifier(table_name))))
+        connection.execute(text(task_sql))
         connection.execute(text(progress_sql))
+        _ensure_column(
+            connection,
+            PROGRESS_TABLE,
+            "task_id",
+            "ADD COLUMN task_id BIGINT NULL COMMENT '最近一次同步任务 ID' AFTER id",
+        )
+        _ensure_index(connection, PROGRESS_TABLE, "idx_task_status", "ADD INDEX idx_task_status (task_id, status)")
+
+
+def _ensure_column(connection, table_name: str, column_name: str, alter_clause: str) -> None:
+    exists = connection.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = :table_name
+              AND column_name = :column_name
+            """
+        ),
+        {"table_name": table_name, "column_name": column_name},
+    ).scalar()
+    if not exists:
+        connection.execute(text(f"ALTER TABLE {quote_identifier(table_name)} {alter_clause}"))
+
+
+def _ensure_index(connection, table_name: str, index_name: str, alter_clause: str) -> None:
+    exists = connection.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.statistics
+            WHERE table_schema = DATABASE()
+              AND table_name = :table_name
+              AND index_name = :index_name
+            """
+        ),
+        {"table_name": table_name, "index_name": index_name},
+    ).scalar()
+    if not exists:
+        connection.execute(text(f"ALTER TABLE {quote_identifier(table_name)} {alter_clause}"))
 
 
 def load_completed_symbols(engine: Engine, start_date: str, end_date: str) -> set[str]:
@@ -230,7 +303,70 @@ def load_completed_symbols(engine: Engine, start_date: str, end_date: str) -> se
         }
 
 
-def claim_progress_running(engine: Engine, stock: StockInfo, start_date: str, end_date: str) -> str:
+def list_progress_by_status(engine: Engine, start_date: str, end_date: str, status: str) -> list[StockInfo]:
+    statement = text(
+        f"""
+        SELECT symbol, stock_name
+        FROM {quote_identifier(PROGRESS_TABLE)}
+        WHERE start_date = :start_date
+          AND end_date = :end_date
+          AND status = :status
+        ORDER BY symbol ASC
+        """
+    )
+    with engine.connect() as connection:
+        rows = connection.execute(
+            statement,
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "status": status,
+            },
+        ).mappings()
+        return [StockInfo(symbol=row["symbol"], name=row["stock_name"]) for row in rows]
+
+
+def list_stale_running_progress(engine: Engine, start_date: str, end_date: str) -> list[StockInfo]:
+    statement = text(
+        f"""
+        SELECT symbol, stock_name
+        FROM {quote_identifier(PROGRESS_TABLE)}
+        WHERE start_date = :start_date
+          AND end_date = :end_date
+          AND status = 'running'
+          AND (
+              started_at IS NULL
+              OR TIMESTAMPDIFF(MINUTE, started_at, NOW()) >= :stale_minutes
+          )
+        ORDER BY symbol ASC
+        """
+    )
+    with engine.connect() as connection:
+        rows = connection.execute(
+            statement,
+            {
+                "start_date": start_date,
+                "end_date": end_date,
+                "stale_minutes": PROGRESS_RUNNING_STALE_MINUTES,
+            },
+        ).mappings()
+        return [StockInfo(symbol=row["symbol"], name=row["stock_name"]) for row in rows]
+
+
+def merge_stocks_by_symbol(stocks: list[StockInfo]) -> list[StockInfo]:
+    merged: dict[str, StockInfo] = {}
+    for stock in stocks:
+        merged[stock.symbol] = stock
+    return list(merged.values())
+
+
+def claim_progress_running(
+    engine: Engine,
+    stock: StockInfo,
+    start_date: str,
+    end_date: str,
+    task_id: int | None,
+) -> str:
     select_statement = text(
         f"""
         SELECT status, started_at
@@ -244,10 +380,10 @@ def claim_progress_running(engine: Engine, stock: StockInfo, start_date: str, en
     insert_statement = text(
         f"""
         INSERT INTO {quote_identifier(PROGRESS_TABLE)} (
-            symbol, stock_name, start_date, end_date, status, started_at, finished_at,
+            task_id, symbol, stock_name, start_date, end_date, status, started_at, finished_at,
             duration_seconds, error, run_count
         ) VALUES (
-            :symbol, :stock_name, :start_date, :end_date, 'running', NOW(), NULL,
+            :task_id, :symbol, :stock_name, :start_date, :end_date, 'running', NOW(), NULL,
             NULL, NULL, 1
         )
         """
@@ -255,7 +391,8 @@ def claim_progress_running(engine: Engine, stock: StockInfo, start_date: str, en
     update_statement = text(
         f"""
         UPDATE {quote_identifier(PROGRESS_TABLE)}
-        SET stock_name = :stock_name,
+        SET task_id = :task_id,
+            stock_name = :stock_name,
             status = 'running',
             started_at = NOW(),
             finished_at = NULL,
@@ -273,6 +410,7 @@ def claim_progress_running(engine: Engine, stock: StockInfo, start_date: str, en
             "stock_name": stock.name,
             "start_date": start_date,
             "end_date": end_date,
+            "task_id": task_id,
         }
         row = connection.execute(select_statement, params).mappings().first()
         if row is None:
@@ -298,19 +436,21 @@ def mark_progress_done(
     end_date: str,
     counts: dict[str, int],
     duration_seconds: float,
+    task_id: int | None,
 ) -> None:
     statement = text(
         f"""
         INSERT INTO {quote_identifier(PROGRESS_TABLE)} (
-            symbol, stock_name, start_date, end_date, status,
+            task_id, symbol, stock_name, start_date, end_date, status,
             rows_none, rows_qfq, rows_hfq, started_at, finished_at,
             duration_seconds, error, run_count
         ) VALUES (
-            :symbol, :stock_name, :start_date, :end_date, 'done',
+            :task_id, :symbol, :stock_name, :start_date, :end_date, 'done',
             :rows_none, :rows_qfq, :rows_hfq, NOW(), NOW(),
             :duration_seconds, NULL, 1
         )
         ON DUPLICATE KEY UPDATE
+            task_id = VALUES(task_id),
             stock_name = VALUES(stock_name),
             status = 'done',
             rows_none = VALUES(rows_none),
@@ -329,6 +469,7 @@ def mark_progress_done(
                 "stock_name": stock.name,
                 "start_date": start_date,
                 "end_date": end_date,
+                "task_id": task_id,
                 "rows_none": counts.get("stock_daily_bars_none"),
                 "rows_qfq": counts.get("stock_daily_bars_qfq"),
                 "rows_hfq": counts.get("stock_daily_bars_hfq"),
@@ -344,17 +485,19 @@ def mark_progress_failed(
     end_date: str,
     error: str,
     duration_seconds: float,
+    task_id: int | None,
 ) -> None:
     statement = text(
         f"""
         INSERT INTO {quote_identifier(PROGRESS_TABLE)} (
-            symbol, stock_name, start_date, end_date, status, started_at, finished_at,
+            task_id, symbol, stock_name, start_date, end_date, status, started_at, finished_at,
             duration_seconds, error, run_count
         ) VALUES (
-            :symbol, :stock_name, :start_date, :end_date, 'failed', NOW(), NOW(),
+            :task_id, :symbol, :stock_name, :start_date, :end_date, 'failed', NOW(), NOW(),
             :duration_seconds, :error, 1
         )
         ON DUPLICATE KEY UPDATE
+            task_id = VALUES(task_id),
             stock_name = VALUES(stock_name),
             status = 'failed',
             finished_at = NOW(),
@@ -370,6 +513,7 @@ def mark_progress_failed(
                 "stock_name": stock.name,
                 "start_date": start_date,
                 "end_date": end_date,
+                "task_id": task_id,
                 "duration_seconds": round(duration_seconds, 3),
                 "error": error[:4000],
             },
@@ -649,6 +793,89 @@ def import_completed_from_logs(engine: Engine, log_paths: list[str], start_date:
     return len(imported)
 
 
+def mark_task_running(engine: Engine, task_id: int | None, total_count: int) -> None:
+    if task_id is None:
+        return
+    statement = text(
+        f"""
+        UPDATE {quote_identifier(TASK_TABLE)}
+        SET status = 'running',
+            total_count = :total_count,
+            started_at = COALESCE(started_at, NOW()),
+            message = '任务执行中'
+        WHERE id = :task_id
+        """
+    )
+    with engine.begin() as connection:
+        connection.execute(statement, {"task_id": task_id, "total_count": total_count})
+
+
+def finish_task(engine: Engine, task_id: int | None, start_date: str, end_date: str, message: str | None = None) -> None:
+    if task_id is None:
+        return
+    counts = progress_counts(engine, start_date, end_date)
+    done_count = counts.get("done", 0)
+    failed_count = counts.get("failed", 0)
+    running_count = counts.get("running", 0)
+    total_count = sum(counts.values())
+    if total_count == 0:
+        status = "skipped"
+    elif failed_count == 0 and running_count == 0:
+        status = "success"
+    elif done_count == 0 and failed_count > 0:
+        status = "failed"
+    else:
+        status = "partial"
+    statement = text(
+        f"""
+        UPDATE {quote_identifier(TASK_TABLE)}
+        SET status = :status,
+            total_count = :total_count,
+            success_count = :success_count,
+            failed_count = :failed_count,
+            running_count = :running_count,
+            skipped_count = :skipped_count,
+            finished_at = NOW(),
+            duration_seconds = CASE
+                WHEN started_at IS NULL THEN duration_seconds
+                ELSE TIMESTAMPDIFF(SECOND, started_at, NOW())
+            END,
+            message = :message
+        WHERE id = :task_id
+        """
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            statement,
+            {
+                "task_id": task_id,
+                "status": status,
+                "total_count": total_count,
+                "success_count": done_count,
+                "failed_count": failed_count,
+                "running_count": running_count,
+                "skipped_count": counts.get("skipped", 0),
+                "message": message or f"done={done_count};failed={failed_count};running={running_count}",
+            },
+        )
+
+
+def progress_counts(engine: Engine, start_date: str, end_date: str) -> dict[str, int]:
+    statement = text(
+        f"""
+        SELECT status, COUNT(*) AS count
+        FROM {quote_identifier(PROGRESS_TABLE)}
+        WHERE start_date = :start_date AND end_date = :end_date
+        GROUP BY status
+        """
+    )
+    with engine.connect() as connection:
+        return {
+            str(row["status"]): int(row["count"])
+            for row in connection.execute(statement, {"start_date": start_date, "end_date": end_date}).mappings()
+        }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sync 10 years of A-share daily bars from AkShare into a separate MySQL database.")
     parser.add_argument("--database", default=get_settings().a_stock_mysql_database)
@@ -663,6 +890,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--insert-only", action="store_true", help="Use plain INSERT instead of upsert.")
     parser.add_argument("--retry-conflicts", action="store_true", help="On insert duplicate key, delete that symbol from all bar tables and retry once.")
     parser.add_argument("--use-progress", action="store_true", help="Skip symbols marked done in the progress table and update progress per symbol.")
+    parser.add_argument("--task-id", type=int, default=None, help="Optional a_stock_history_sync_tasks.id to update.")
     parser.add_argument("--import-completed-from-logs", nargs="*", help="Import definitely completed symbols from old stdout logs before syncing.")
     return parser.parse_args()
 
@@ -679,6 +907,7 @@ def sync_one_with_status(
     retry_conflicts: bool,
     use_progress: bool,
     completed_symbols: set[str],
+    task_id: int | None,
 ) -> tuple[str, str | None]:
     with _progress_lock:
         if use_progress and stock.symbol in completed_symbols:
@@ -687,7 +916,7 @@ def sync_one_with_status(
 
     started = monotonic()
     if use_progress:
-        claim_status = claim_progress_running(engine, stock, start_date, end_date)
+        claim_status = claim_progress_running(engine, stock, start_date, end_date, task_id)
         if claim_status == "done":
             with _progress_lock:
                 completed_symbols.add(stock.symbol)
@@ -710,7 +939,7 @@ def sync_one_with_status(
         )
         duration_seconds = monotonic() - started
         if use_progress:
-            mark_progress_done(engine, stock, start_date, end_date, counts, duration_seconds)
+            mark_progress_done(engine, stock, start_date, end_date, counts, duration_seconds, task_id)
             with _progress_lock:
                 completed_symbols.add(stock.symbol)
         count_text = ", ".join(
@@ -731,9 +960,77 @@ def sync_one_with_status(
     except Exception as exc:
         duration_seconds = monotonic() - started
         if use_progress:
-            mark_progress_failed(engine, stock, start_date, end_date, str(exc), duration_seconds)
+            mark_progress_failed(engine, stock, start_date, end_date, str(exc), duration_seconds, task_id)
         logger.exception("[%s/%s] FAILED %s duration=%.2fs error=%s", index, total, stock.symbol, duration_seconds, exc)
         return stock.symbol, str(exc)
+
+
+def sync_stock_batch(
+    engine: Engine,
+    stocks: list[StockInfo],
+    start_date: str,
+    end_date: str,
+    skip_existing: bool,
+    insert_only: bool,
+    retry_conflicts: bool,
+    use_progress: bool,
+    completed_symbols: set[str],
+    workers: int,
+    sleep_seconds: float,
+    task_id: int | None,
+) -> list[tuple[str, str]]:
+    total = len(stocks)
+    failures: list[tuple[str, str]] = []
+    if workers <= 1:
+        for index, stock in enumerate(stocks, start=1):
+            symbol, error = sync_one_with_status(
+                engine=engine,
+                stock=stock,
+                index=index,
+                total=total,
+                start_date=start_date,
+                end_date=end_date,
+                skip_existing=skip_existing,
+                insert_only=insert_only,
+                retry_conflicts=retry_conflicts,
+                use_progress=use_progress,
+                completed_symbols=completed_symbols,
+                task_id=task_id,
+            )
+            if error is not None:
+                failures.append((symbol, error))
+            if sleep_seconds > 0:
+                sleep(sleep_seconds)
+        return failures
+
+    max_workers = max(1, workers)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = []
+        for index, stock in enumerate(stocks, start=1):
+            futures.append(
+                executor.submit(
+                    sync_one_with_status,
+                    engine,
+                    stock,
+                    index,
+                    total,
+                    start_date,
+                    end_date,
+                    skip_existing,
+                    insert_only,
+                    retry_conflicts,
+                    use_progress,
+                    completed_symbols,
+                    task_id,
+                )
+            )
+            if sleep_seconds > 0:
+                sleep(sleep_seconds)
+        for future in as_completed(futures):
+            symbol, error = future.result()
+            if error is not None:
+                failures.append((symbol, error))
+    return failures
 
 
 def main() -> None:
@@ -779,15 +1076,63 @@ def main() -> None:
     logger.info("Insert only: %s", args.insert_only)
     logger.info("Use progress: %s", args.use_progress)
     logger.info("Completed symbols loaded: %s", len(completed_symbols))
+    mark_task_running(engine, args.task_id, total)
 
-    failures: list[tuple[str, str]] = []
-    if args.workers <= 1:
-        for index, stock in enumerate(stocks, start=1):
-            symbol, error = sync_one_with_status(
+    failures = sync_stock_batch(
+        engine=engine,
+        stocks=stocks,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        skip_existing=args.skip_existing,
+        insert_only=args.insert_only,
+        retry_conflicts=args.retry_conflicts,
+        use_progress=args.use_progress,
+        completed_symbols=completed_symbols,
+        workers=args.workers,
+        sleep_seconds=args.sleep_seconds,
+        task_id=args.task_id,
+    )
+
+    if args.use_progress:
+        stale_round = 1
+        while True:
+            stale_stocks = merge_stocks_by_symbol(
+                list_stale_running_progress(engine, args.start_date, args.end_date)
+            )
+            if not stale_stocks:
+                break
+            logger.info(
+                "Stale running progress rescan round=%s count=%s stale_minutes=%s",
+                stale_round,
+                len(stale_stocks),
+                PROGRESS_RUNNING_STALE_MINUTES,
+            )
+            failures.extend(
+                sync_stock_batch(
+                    engine=engine,
+                    stocks=stale_stocks,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
+                    skip_existing=args.skip_existing,
+                    insert_only=args.insert_only,
+                    retry_conflicts=args.retry_conflicts,
+                    use_progress=args.use_progress,
+                    completed_symbols=completed_symbols,
+                    workers=args.workers,
+                    sleep_seconds=args.sleep_seconds,
+                    task_id=args.task_id,
+                )
+            )
+            stale_round += 1
+
+        failed_stocks = merge_stocks_by_symbol(
+            list_progress_by_status(engine, args.start_date, args.end_date, "failed")
+        )
+        if failed_stocks:
+            logger.info("Failed progress retry count=%s", len(failed_stocks))
+            sync_stock_batch(
                 engine=engine,
-                stock=stock,
-                index=index,
-                total=total,
+                stocks=failed_stocks,
                 start_date=args.start_date,
                 end_date=args.end_date,
                 skip_existing=args.skip_existing,
@@ -795,39 +1140,16 @@ def main() -> None:
                 retry_conflicts=args.retry_conflicts,
                 use_progress=args.use_progress,
                 completed_symbols=completed_symbols,
+                workers=args.workers,
+                sleep_seconds=args.sleep_seconds,
+                task_id=args.task_id,
             )
-            if error is not None:
-                failures.append((symbol, error))
-            if args.sleep_seconds > 0:
-                sleep(args.sleep_seconds)
-    else:
-        max_workers = max(1, args.workers)
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for index, stock in enumerate(stocks, start=1):
-                futures.append(
-                    executor.submit(
-                        sync_one_with_status,
-                        engine,
-                        stock,
-                        index,
-                        total,
-                        args.start_date,
-                        args.end_date,
-                        args.skip_existing,
-                        args.insert_only,
-                        args.retry_conflicts,
-                        args.use_progress,
-                        completed_symbols,
-                    )
-                )
-                if args.sleep_seconds > 0:
-                    sleep(args.sleep_seconds)
-            for future in as_completed(futures):
-                symbol, error = future.result()
-                if error is not None:
-                    failures.append((symbol, error))
+            failures = [
+                (stock.symbol, "failed_after_retry")
+                for stock in list_progress_by_status(engine, args.start_date, args.end_date, "failed")
+            ]
 
+    finish_task(engine, args.task_id, args.start_date, args.end_date)
     if failures:
         logger.error("Failures:")
         for symbol, error in failures:

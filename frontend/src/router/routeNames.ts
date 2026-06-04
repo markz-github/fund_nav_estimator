@@ -3,4 +3,5 @@ export const routeNames = {
   fundDetail: 'fund-detail',
   operations: 'operations',
   aStockHistory: 'a-stock-history',
+  aStockHistoryTask: 'a-stock-history-task',
 } as const

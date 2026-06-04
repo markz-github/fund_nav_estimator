@@ -42,6 +42,7 @@
 
 - A 股、港股、ETF 行情优先通过 `AkshareSource.get_market_quotes()` 统一获取。
 - ETF 行情可通过 `ak.fund_etf_spot_em()`。
+- 基金公开持仓中出现 6 位且以 `1` 或 `5` 开头的场内 ETF 代码时，持仓资产类型标记为 `etf`，市场标记为 `CN`；估算时使用 ETF 实时行情中的涨跌幅参与持仓加权计算。
 - 部分行情接口可能返回重复 quote_time，写入 `market_quotes` 时需要处理唯一键冲突。
 
 ### 美股 QDII 行情

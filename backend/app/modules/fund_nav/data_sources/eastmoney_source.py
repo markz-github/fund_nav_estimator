@@ -141,6 +141,7 @@ class EastmoneySource:
 
         asset_code = row[code_index].strip().zfill(5 if len(row[code_index].strip()) == 5 else 6)
         asset_name = row[code_index + 1].strip()
+        asset_type = self._infer_asset_type(asset_code)
         ratio_index = next(
             (idx for idx in range(len(row) - 1, code_index, -1) if row[idx].strip().endswith("%")),
             None,
@@ -153,8 +154,8 @@ class EastmoneySource:
             report_period=report_period,
             asset_code=asset_code,
             asset_name=asset_name,
-            asset_type="stock",
-            market=self._infer_stock_market(asset_code),
+            asset_type=asset_type,
+            market=self._infer_market(asset_code, asset_type),
             holding_ratio=self._percent(row[ratio_index]),
             holding_value=self._optional_decimal(row[ratio_index + 2] if ratio_index + 2 < len(row) else None),
         )
@@ -244,6 +245,18 @@ class EastmoneySource:
         if asset_code.startswith(("4", "8")):
             return "BJ"
         return None
+
+    @staticmethod
+    def _infer_asset_type(asset_code: str) -> str:
+        if len(asset_code) == 6 and asset_code.startswith(("5", "1")):
+            return "etf"
+        return "stock"
+
+    @staticmethod
+    def _infer_market(asset_code: str, asset_type: str) -> str | None:
+        if asset_type == "etf":
+            return "CN"
+        return EastmoneySource._infer_stock_market(asset_code)
 
     @classmethod
     def _latest_period_holdings(cls, holdings: list[ParsedHolding]) -> list[ParsedHolding]:

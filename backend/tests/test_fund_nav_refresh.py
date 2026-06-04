@@ -307,6 +307,47 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(cached.index.name, "_normalized_code")
         backup.assert_not_called()
 
+    def test_etf_holding_quote_uses_etf_realtime_source(self) -> None:
+        etf_df = pd.DataFrame(
+            [{"代码": "159915", "名称": "创业板ETF", "最新价": "1.234", "昨收": "1.200", "涨跌幅": "2.83"}]
+        )
+
+        with (
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df) as etf,
+            patch.object(AkshareSource, "_get_sina_quote", return_value=None),
+            patch.object(AkshareSource, "_get_latest_history_quote", return_value=None),
+        ):
+            snapshots = AkshareSource().get_market_quotes(["159915"])
+
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0].asset_code, "159915")
+        self.assertEqual(snapshots[0].asset_type, "etf")
+        self.assertEqual(snapshots[0].market, "CN")
+        self.assertEqual(snapshots[0].change_rate, Decimal("0.0283"))
+        etf.assert_called_once()
+
+    def test_akshare_holdings_mark_etf_assets(self) -> None:
+        holding_df = pd.DataFrame(
+            [
+                {
+                    "股票代码": "159915",
+                    "股票名称": "创业板ETF",
+                    "占净值比例": "85.00",
+                    "持仓市值": "1000",
+                    "季度": "2026年2季度股票投资明细",
+                }
+            ]
+        )
+
+        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_portfolio_hold_em", return_value=holding_df):
+            holdings = AkshareSource().get_fund_holdings("018172")
+
+        self.assertEqual(len(holdings), 1)
+        self.assertEqual(holdings[0]["asset_code"], "159915")
+        self.assertEqual(holdings[0]["asset_type"], "etf")
+        self.assertEqual(holdings[0]["market"], "CN")
+        self.assertEqual(holdings[0]["holding_ratio"], Decimal("0.85"))
+
     def test_holdings_are_deduplicated_by_unique_key_before_insert(self) -> None:
         snapshots = [
             {

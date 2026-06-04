@@ -27,6 +27,7 @@ class AStockHistorySyncRequest(BaseModel):
 
 
 class AStockHistorySyncStartOut(BaseModel):
+    task_id: int | None = None
     pid: int
     started: bool
     start_date: str
@@ -54,12 +55,47 @@ class AStockProgressItem(BaseModel):
 
 class AStockHistorySyncStatusOut(BaseModel):
     running: bool
+    task_id: int | None = None
     pid: int | None = None
     start_date: str
     end_date: str
     workers: int | None = None
     stdout_log: str | None = None
     stderr_log: str | None = None
+    counts: list[AStockProgressCount]
+    latest_done: list[AStockProgressItem]
+    running_items: list[AStockProgressItem]
+    failed_items: list[AStockProgressItem]
+
+
+class AStockHistoryTaskOut(BaseModel):
+    id: int
+    task_type: str
+    status: str
+    start_date: str
+    end_date: str
+    workers: int
+    total_count: int
+    success_count: int
+    failed_count: int
+    running_count: int
+    skipped_count: int
+    retry_count: int
+    pid: int | None = None
+    stdout_log: str | None = None
+    stderr_log: str | None = None
+    message: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_seconds: float | None = None
+    created_at: datetime
+
+
+class AStockHistoryTaskListOut(BaseModel):
+    tasks: list[AStockHistoryTaskOut]
+
+
+class AStockHistoryTaskDetailOut(AStockHistoryTaskOut):
     counts: list[AStockProgressCount]
     latest_done: list[AStockProgressItem]
     running_items: list[AStockProgressItem]

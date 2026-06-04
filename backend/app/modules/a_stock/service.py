@@ -20,6 +20,7 @@ PROJECT_ROOT = BACKEND_DIR.parent
 SCRIPT_PATH = BACKEND_DIR / "scripts" / "sync_a_stock_daily_bars.py"
 PID_FILE = PROJECT_ROOT / ".runtime" / "a_stock_history_sync.json"
 PROGRESS_TABLE = "stock_daily_bars_sync_progress"
+TASK_TABLE = "a_stock_history_sync_tasks"
 
 
 def ymd(value: date) -> str:
@@ -46,6 +47,7 @@ class AStockHistorySyncService:
         start_date, end_date = date_range_from_request(payload)
         if existing["running"]:
             return {
+                "task_id": existing.get("task_id"),
                 "pid": existing["pid"],
                 "started": False,
                 "start_date": existing.get("start_date") or start_date,
@@ -56,6 +58,7 @@ class AStockHistorySyncService:
                 "message": "A 股历史行情同步任务已在运行。",
             }
 
+        task_id = self._create_task(start_date, end_date, payload.workers)
         log_dir = resolve_log_dir(self.settings.log_dir)
         runtime_dir = PID_FILE.parent
         runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -76,19 +79,26 @@ class AStockHistorySyncService:
             start_date,
             "--end-date",
             end_date,
+            "--task-id",
+            str(task_id),
         ]
-        with stderr_log.open("ab") as stderr_file:
-            process = subprocess.Popen(
-                command,
-                cwd=PROJECT_ROOT,
-                stdout=subprocess.DEVNULL,
-                stderr=stderr_file,
-                stdin=subprocess.DEVNULL,
-                close_fds=os.name != "nt",
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
+        try:
+            with stderr_log.open("ab") as stderr_file:
+                process = subprocess.Popen(
+                    command,
+                    cwd=PROJECT_ROOT,
+                    stdout=subprocess.DEVNULL,
+                    stderr=stderr_file,
+                    stdin=subprocess.DEVNULL,
+                    close_fds=os.name != "nt",
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                )
+        except Exception as exc:
+            self._mark_task_failed_to_start(task_id, repr(exc))
+            raise
 
         record = {
+            "task_id": task_id,
             "pid": process.pid,
             "start_date": start_date,
             "end_date": end_date,
@@ -96,12 +106,51 @@ class AStockHistorySyncService:
             "stdout_log": self._display_path(stdout_log),
             "stderr_log": self._display_path(stderr_log),
         }
+        self._mark_task_started(task_id, process.pid, record["stdout_log"], record["stderr_log"])
         PID_FILE.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
         return {
             **record,
             "started": True,
             "message": "A 股历史行情同步任务已启动。",
         }
+
+    def rerun_failed(self, task_id: int) -> dict[str, object]:
+        existing = self.current_process()
+        task = self.get_task(task_id)
+        if task is None:
+            raise ValueError("任务不存在")
+        if existing["running"]:
+            return {
+                "task_id": existing.get("task_id"),
+                "pid": existing["pid"],
+                "started": False,
+                "start_date": existing.get("start_date") or task["start_date"],
+                "end_date": existing.get("end_date") or task["end_date"],
+                "workers": existing.get("workers") or task["workers"],
+                "stdout_log": existing.get("stdout_log") or "",
+                "stderr_log": existing.get("stderr_log") or "",
+                "message": "A 股历史行情同步任务已在运行。",
+            }
+        symbols = self.failed_symbols(task_id)
+        if not symbols:
+            return {
+                "task_id": task_id,
+                "pid": 0,
+                "started": False,
+                "start_date": task["start_date"],
+                "end_date": task["end_date"],
+                "workers": task["workers"],
+                "stdout_log": task.get("stdout_log") or "",
+                "stderr_log": task.get("stderr_log") or "",
+                "message": "该任务没有失败股票需要重跑。",
+            }
+        return self._start_symbols(
+            start_date=task["start_date"],
+            end_date=task["end_date"],
+            workers=int(task["workers"] or 1),
+            symbols=symbols,
+            retry_count=int(task["retry_count"] or 0) + 1,
+        )
 
     def status(self, start_date: str | None = None, end_date: str | None = None) -> dict[str, object]:
         process = self.current_process()
@@ -126,6 +175,7 @@ class AStockHistorySyncService:
         running = isinstance(pid, int) and self._is_pid_running(pid)
         return {
             "running": running,
+            "task_id": record.get("task_id") if isinstance(record.get("task_id"), int) else None,
             "pid": pid if isinstance(pid, int) else None,
             "workers": record.get("workers"),
             "stdout_log": record.get("stdout_log"),
@@ -134,7 +184,54 @@ class AStockHistorySyncService:
             "end_date": record.get("end_date"),
         }
 
-    def progress(self, start_date: str, end_date: str) -> dict[str, object]:
+    def list_tasks(self, limit: int = 20) -> list[dict[str, object]]:
+        try:
+            self._ensure_task_table()
+            with self.engine().connect() as connection:
+                rows = connection.execute(
+                    text(
+                        f"""
+                        SELECT id, task_type, status, start_date, end_date, workers,
+                               total_count, success_count, failed_count, running_count,
+                               skipped_count, retry_count, pid, stdout_log, stderr_log,
+                               message, started_at, finished_at, duration_seconds, created_at
+                        FROM {TASK_TABLE}
+                        ORDER BY id DESC
+                        LIMIT :limit
+                        """
+                    ),
+                    {"limit": limit},
+                ).mappings()
+                return [dict(row) for row in rows]
+        except Exception:
+            return []
+
+    def task_detail(self, task_id: int) -> dict[str, object] | None:
+        task = self.get_task(task_id)
+        if task is None:
+            return None
+        progress = self.progress(str(task["start_date"]), str(task["end_date"]), task_id=task_id)
+        return {**task, **progress}
+
+    def get_task(self, task_id: int) -> dict[str, object] | None:
+        self._ensure_task_table()
+        with self.engine().connect() as connection:
+            row = connection.execute(
+                text(
+                    f"""
+                    SELECT id, task_type, status, start_date, end_date, workers,
+                           total_count, success_count, failed_count, running_count,
+                           skipped_count, retry_count, pid, stdout_log, stderr_log,
+                           message, started_at, finished_at, duration_seconds, created_at
+                    FROM {TASK_TABLE}
+                    WHERE id = :task_id
+                    """
+                ),
+                {"task_id": task_id},
+            ).mappings().first()
+            return dict(row) if row else None
+
+    def progress(self, start_date: str, end_date: str, task_id: int | None = None) -> dict[str, object]:
         try:
             engine = self.engine()
             with engine.connect() as connection:
@@ -151,6 +248,8 @@ class AStockHistorySyncService:
                 ).scalar()
                 if not exists:
                     return self._empty_progress()
+                task_filter = "AND task_id = :task_id" if task_id is not None else ""
+                params = {"start_date": start_date, "end_date": end_date, "task_id": task_id}
                 counts = [
                     {"status": row["status"], "count": int(row["count"])}
                     for row in connection.execute(
@@ -159,22 +258,24 @@ class AStockHistorySyncService:
                             SELECT status, COUNT(*) AS count
                             FROM {PROGRESS_TABLE}
                             WHERE start_date = :start_date AND end_date = :end_date
+                              {task_filter}
                             GROUP BY status
                             """
                         ),
-                        {"start_date": start_date, "end_date": end_date},
+                        params,
                     ).mappings()
                 ]
                 return {
                     "counts": counts,
-                    "latest_done": self._items(connection, start_date, end_date, "done", "updated_at DESC", 8),
-                    "running_items": self._items(connection, start_date, end_date, "running", "symbol ASC", 12),
-                    "failed_items": self._items(connection, start_date, end_date, "failed", "updated_at DESC", 12),
+                    "latest_done": self._items(connection, start_date, end_date, "done", "updated_at DESC", 50, task_id),
+                    "running_items": self._items(connection, start_date, end_date, "running", "symbol ASC", 50, task_id),
+                    "failed_items": self._items(connection, start_date, end_date, "failed", "updated_at DESC", 100, task_id),
                 }
         except Exception:
             return self._empty_progress()
 
-    def _items(self, connection, start_date: str, end_date: str, status: str, order_by: str, limit: int):
+    def _items(self, connection, start_date: str, end_date: str, status: str, order_by: str, limit: int, task_id: int | None = None):
+        task_filter = "AND task_id = :task_id" if task_id is not None else ""
         rows = connection.execute(
             text(
                 f"""
@@ -184,13 +285,238 @@ class AStockHistorySyncService:
                 WHERE start_date = :start_date
                   AND end_date = :end_date
                   AND status = :status
+                  {task_filter}
                 ORDER BY {order_by}
                 LIMIT :limit
                 """
             ),
-            {"start_date": start_date, "end_date": end_date, "status": status, "limit": limit},
+            {"start_date": start_date, "end_date": end_date, "status": status, "limit": limit, "task_id": task_id},
         ).mappings()
         return [dict(row) for row in rows]
+
+    def failed_symbols(self, task_id: int) -> list[str]:
+        task = self.get_task(task_id)
+        if task is None:
+            return []
+        try:
+            with self.engine().connect() as connection:
+                rows = connection.execute(
+                    text(
+                        f"""
+                        SELECT symbol
+                        FROM {PROGRESS_TABLE}
+                        WHERE task_id = :task_id
+                          AND start_date = :start_date
+                          AND end_date = :end_date
+                          AND status = 'failed'
+                        ORDER BY symbol ASC
+                        """
+                    ),
+                    {"task_id": task_id, "start_date": task["start_date"], "end_date": task["end_date"]},
+                )
+                return [str(row.symbol) for row in rows]
+        except Exception:
+            return []
+
+    def _start_symbols(
+        self,
+        *,
+        start_date: str,
+        end_date: str,
+        workers: int,
+        symbols: list[str],
+        retry_count: int,
+    ) -> dict[str, object]:
+        task_id = self._create_task(start_date, end_date, workers, retry_count=retry_count, total_count=len(symbols))
+        log_dir = resolve_log_dir(self.settings.log_dir)
+        runtime_dir = PID_FILE.parent
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        stdout_log = log_dir / "a_stock_daily_sync.log"
+        stderr_log = log_dir / "a_stock_daily_sync.err.log"
+        command = [
+            sys.executable,
+            "-B",
+            str(SCRIPT_PATH),
+            "--use-progress",
+            "--insert-only",
+            "--retry-conflicts",
+            "--workers",
+            str(workers),
+            "--sleep-seconds",
+            "0",
+            "--start-date",
+            start_date,
+            "--end-date",
+            end_date,
+            "--task-id",
+            str(task_id),
+            "--symbols",
+            *symbols,
+        ]
+        try:
+            with stderr_log.open("ab") as stderr_file:
+                process = subprocess.Popen(
+                    command,
+                    cwd=PROJECT_ROOT,
+                    stdout=subprocess.DEVNULL,
+                    stderr=stderr_file,
+                    stdin=subprocess.DEVNULL,
+                    close_fds=os.name != "nt",
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                )
+        except Exception as exc:
+            self._mark_task_failed_to_start(task_id, repr(exc))
+            raise
+        record = {
+            "task_id": task_id,
+            "pid": process.pid,
+            "start_date": start_date,
+            "end_date": end_date,
+            "workers": workers,
+            "stdout_log": self._display_path(stdout_log),
+            "stderr_log": self._display_path(stderr_log),
+        }
+        self._mark_task_started(task_id, process.pid, record["stdout_log"], record["stderr_log"])
+        PID_FILE.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {**record, "started": True, "message": f"已提交失败股票重跑任务，共 {len(symbols)} 只。"}
+
+    def _create_task(
+        self,
+        start_date: str,
+        end_date: str,
+        workers: int,
+        *,
+        retry_count: int = 0,
+        total_count: int = 0,
+    ) -> int:
+        self._ensure_task_table()
+        with self.engine().begin() as connection:
+            result = connection.execute(
+                text(
+                    f"""
+                    INSERT INTO {TASK_TABLE} (
+                        task_type, status, start_date, end_date, workers, total_count,
+                        retry_count, message
+                    ) VALUES (
+                        'history_sync', 'pending', :start_date, :end_date, :workers, :total_count,
+                        :retry_count, '任务已提交'
+                    )
+                    """
+                ),
+                {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "workers": workers,
+                    "total_count": total_count,
+                    "retry_count": retry_count,
+                },
+            )
+            return int(result.lastrowid)
+
+    def _mark_task_started(self, task_id: int, pid: int, stdout_log: str, stderr_log: str) -> None:
+        with self.engine().begin() as connection:
+            connection.execute(
+                text(
+                    f"""
+                    UPDATE {TASK_TABLE}
+                    SET pid = :pid,
+                        stdout_log = :stdout_log,
+                        stderr_log = :stderr_log,
+                        message = '任务进程已启动'
+                    WHERE id = :task_id
+                    """
+                ),
+                {"task_id": task_id, "pid": pid, "stdout_log": stdout_log, "stderr_log": stderr_log},
+            )
+
+    def _mark_task_failed_to_start(self, task_id: int, message: str) -> None:
+        with self.engine().begin() as connection:
+            connection.execute(
+                text(
+                    f"""
+                    UPDATE {TASK_TABLE}
+                    SET status = 'failed',
+                        finished_at = NOW(),
+                        message = :message
+                    WHERE id = :task_id
+                    """
+                ),
+                {"task_id": task_id, "message": message[:2000]},
+            )
+
+    def _ensure_task_table(self) -> None:
+        with self.engine().begin() as connection:
+            connection.execute(
+                text(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {TASK_TABLE} (
+                        id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                        task_type VARCHAR(50) NOT NULL DEFAULT 'history_sync',
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        start_date CHAR(8) NOT NULL,
+                        end_date CHAR(8) NOT NULL,
+                        workers INT NOT NULL DEFAULT 1,
+                        total_count INT NOT NULL DEFAULT 0,
+                        success_count INT NOT NULL DEFAULT 0,
+                        failed_count INT NOT NULL DEFAULT 0,
+                        running_count INT NOT NULL DEFAULT 0,
+                        skipped_count INT NOT NULL DEFAULT 0,
+                        retry_count INT NOT NULL DEFAULT 0,
+                        pid INT NULL,
+                        stdout_log VARCHAR(500) NULL,
+                        stderr_log VARCHAR(500) NULL,
+                        message TEXT NULL,
+                        started_at DATETIME NULL,
+                        finished_at DATETIME NULL,
+                        duration_seconds DECIMAL(12, 3) NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_status_time (status, created_at),
+                        INDEX idx_range_time (start_date, end_date, created_at)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                    """
+                )
+            )
+            progress_exists = connection.execute(
+                text(
+                    """
+                    SELECT COUNT(*)
+                    FROM information_schema.tables
+                    WHERE table_schema = DATABASE()
+                      AND table_name = :table_name
+                    """
+                ),
+                {"table_name": PROGRESS_TABLE},
+            ).scalar()
+            if progress_exists:
+                task_column_exists = connection.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM information_schema.columns
+                        WHERE table_schema = DATABASE()
+                          AND table_name = :table_name
+                          AND column_name = 'task_id'
+                        """
+                    ),
+                    {"table_name": PROGRESS_TABLE},
+                ).scalar()
+                if not task_column_exists:
+                    connection.execute(text(f"ALTER TABLE {PROGRESS_TABLE} ADD COLUMN task_id BIGINT NULL AFTER id"))
+                task_index_exists = connection.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM information_schema.statistics
+                        WHERE table_schema = DATABASE()
+                          AND table_name = :table_name
+                          AND index_name = 'idx_task_status'
+                        """
+                    ),
+                    {"table_name": PROGRESS_TABLE},
+                ).scalar()
+                if not task_index_exists:
+                    connection.execute(text(f"ALTER TABLE {PROGRESS_TABLE} ADD INDEX idx_task_status (task_id, status)"))
 
     @staticmethod
     def _empty_progress() -> dict[str, list[object]]:
