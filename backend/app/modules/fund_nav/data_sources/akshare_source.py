@@ -239,7 +239,18 @@ class AkshareSource:
         try:
             etf_df = self._get_etf_spot_dataframe()
         except Exception:
-            return None
+            quote = self._get_eastmoney_etf_quote(normalized_code, datetime.now().replace(microsecond=0))
+            if quote is None or quote.latest_price is None:
+                return None
+            return EtfIopvSnapshot(
+                fund_code=normalized_code,
+                asset_name=quote.asset_name,
+                estimate_time=quote.quote_time,
+                estimated_nav=quote.latest_price,
+                latest_price=quote.latest_price,
+                change_rate=quote.change_rate,
+                source="eastmoney:etf_price_fallback",
+            )
 
         row = self._first_row_by_normalized_code(
             etf_df,

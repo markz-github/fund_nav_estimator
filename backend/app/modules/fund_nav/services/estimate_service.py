@@ -74,11 +74,27 @@ class EtfIopvEstimateStrategy(EstimateStrategy):
         self.service = service
 
     def estimate(self, fund: Fund, estimate_time: datetime) -> FundEstimate | str:
+        latest_nav = self.service._latest_nav(fund.fund_code)
+        quote = self.service._latest_quotes([fund.fund_code]).get(fund.fund_code)
+        if quote is not None and quote.latest_price is not None:
+            base_nav_date = latest_nav.nav_date if latest_nav is not None else quote.trade_date
+            base_unit_nav = latest_nav.unit_nav if latest_nav is not None else quote.latest_price
+            return FundEstimate(
+                fund_code=fund.fund_code,
+                estimate_date=estimate_time.date(),
+                estimate_time=estimate_time,
+                base_nav_date=base_nav_date,
+                base_unit_nav=base_unit_nav,
+                estimated_growth_rate=quote.change_rate,
+                estimated_nav=quote.latest_price,
+                coverage_ratio=Decimal("1"),
+                source_snapshot=f"strategy=etf_quote;quote={quote.quote_time.isoformat()}",
+            )
+
         snapshot = self.service.source.get_etf_iopv_snapshot(fund.fund_code)
         if snapshot is None:
-            return "missing_iopv"
+            return "missing_etf_quote"
 
-        latest_nav = self.service._latest_nav(fund.fund_code)
         base_nav_date = latest_nav.nav_date if latest_nav is not None else estimate_time.date()
         base_unit_nav = latest_nav.unit_nav if latest_nav is not None else snapshot.estimated_nav
         growth_rate = snapshot.change_rate

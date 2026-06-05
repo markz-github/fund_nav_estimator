@@ -23,6 +23,7 @@ from app.database import Base
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.services.fund_service import FundService
@@ -308,6 +309,60 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(result.estimated_growth_rate.quantize(Decimal("0.0001")), Decimal("-0.0181"))
         self.assertEqual(result.coverage_ratio, Decimal("1"))
         self.assertIn("strategy=etf_iopv", result.source_snapshot)
+
+    def test_etf_estimate_uses_local_quote_before_iopv(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source.get_etf_iopv_snapshot.return_value = EtfIopvSnapshot(
+            fund_code="561560",
+            asset_name="电力ETF华泰柏瑞",
+            estimate_time=datetime(2026, 6, 5, 12, 56),
+            estimated_nav=Decimal("1.4700"),
+            latest_price=Decimal("1.4690"),
+            change_rate=Decimal("-0.0140"),
+        )
+        db.add(Fund(id=1, fund_code="561560", fund_name="电力ETF华泰柏瑞", fund_type="指数型-股票"))
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="561560",
+                nav_date=date(2026, 6, 4),
+                unit_nav=Decimal("1.4908"),
+                accumulated_nav=Decimal("1.4908"),
+                daily_growth_rate=Decimal("-0.0144"),
+                source="akshare:eastmoney_fund_page",
+            )
+        )
+        db.add(
+            MarketQuote(
+                id=1,
+                asset_code="561560",
+                asset_name="电力ETF华泰柏瑞",
+                asset_type="etf",
+                market="CN",
+                trade_date=date(2026, 6, 5),
+                quote_time=datetime(2026, 6, 5, 11, 30),
+                latest_price=Decimal("1.4630"),
+                prev_close=Decimal("1.4900"),
+                change_rate=Decimal("-0.018121"),
+                source="akshare",
+            )
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "561560"))
+            result = EstimateService(db, source)._estimate_one(fund, datetime(2026, 6, 5, 12, 56))
+        finally:
+            db.close()
+
+        self.assertEqual(result.estimated_nav, Decimal("1.4630"))
+        self.assertEqual(result.estimated_growth_rate, Decimal("-0.018121"))
+        self.assertIn("strategy=etf_quote", result.source_snapshot)
+        source.get_etf_iopv_snapshot.assert_not_called()
 
     def test_target_fund_holdings_replace_stale_stock_holdings_from_newer_period(self) -> None:
         engine = create_engine("sqlite:///:memory:")
