@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 import sys
@@ -17,7 +17,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, FundNavSnapshot
+from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot
 from app.modules.fund_nav.data_sources.eastmoney_source import EastmoneySource
 from app.database import Base
 from app.modules.fund_nav.models.fund import Fund
@@ -27,6 +27,7 @@ from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.holding_service import HoldingService
+from app.modules.fund_nav.services.estimate_service import EstimateService
 
 
 class FundNavRefreshTests(unittest.TestCase):
@@ -228,6 +229,47 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(snapshot.source, "akshare:etf_spot_prev_close")
         self.assertEqual(snapshot.unit_nav, Decimal("1.098"))
         self.assertEqual(snapshot.nav_date, date(2026, 4, 27))
+
+    def test_etf_estimate_uses_iopv_strategy_without_holdings(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source.get_etf_iopv_snapshot.return_value = EtfIopvSnapshot(
+            fund_code="561560",
+            asset_name="电力ETF华泰柏瑞",
+            estimate_time=datetime(2026, 6, 5, 10, 30),
+            estimated_nav=Decimal("1.5012"),
+            latest_price=Decimal("1.5000"),
+            change_rate=Decimal("0.0010"),
+        )
+        db.add(Fund(id=1, fund_code="561560", fund_name="电力ETF华泰柏瑞", fund_type="指数型-股票"))
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="561560",
+                nav_date=date(2026, 6, 4),
+                unit_nav=Decimal("1.4908"),
+                accumulated_nav=Decimal("1.4908"),
+                daily_growth_rate=Decimal("-0.0144"),
+                source="akshare:eastmoney_fund_page",
+            )
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "561560"))
+            service = EstimateService(db, source)
+            result = service._estimate_one(fund, datetime(2026, 6, 5, 10, 30))
+        finally:
+            db.close()
+
+        self.assertTrue(EstimateService.is_exchange_traded_fund(fund))
+        self.assertEqual(result.estimated_nav, Decimal("1.5012"))
+        self.assertEqual(result.base_unit_nav, Decimal("1.4908"))
+        self.assertEqual(result.coverage_ratio, Decimal("1"))
+        self.assertIn("strategy=etf_iopv", result.source_snapshot)
 
     def test_target_fund_holdings_replace_stale_stock_holdings_from_newer_period(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -442,7 +484,7 @@ class FundNavRefreshTests(unittest.TestCase):
         response = Mock()
         response.status_code = 200
         response.apparent_encoding = "utf-8"
-        response.text = "<table><tr><td>06-03</td><td>2.5043</td><td>2.5043</td><td>-0.86%</td></tr></table>"
+        response.text = "单位净值 (2026-06-03) 2.5043-0.86% 累计净值 2.5043"
 
         with (
             patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df),

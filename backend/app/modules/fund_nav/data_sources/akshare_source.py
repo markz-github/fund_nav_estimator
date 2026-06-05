@@ -32,6 +32,17 @@ class FundNavSnapshot:
 
 
 @dataclass(frozen=True)
+class EtfIopvSnapshot:
+    fund_code: str
+    asset_name: str | None
+    estimate_time: datetime
+    estimated_nav: Decimal
+    latest_price: Decimal | None
+    change_rate: Decimal | None
+    source: str = "akshare:etf_iopv"
+
+
+@dataclass(frozen=True)
 class MarketQuoteSnapshot:
     asset_code: str
     asset_name: str | None
@@ -221,6 +232,37 @@ class AkshareSource:
             source=source,
         )
 
+    def get_etf_iopv_snapshot(self, fund_code: str) -> EtfIopvSnapshot | None:
+        normalized_code = self._normalize_asset_code(fund_code, "CN")
+        if not normalized_code.startswith(("5", "1")):
+            return None
+        try:
+            etf_df = self._get_etf_spot_dataframe()
+        except Exception:
+            return None
+
+        row = self._first_row_by_normalized_code(
+            etf_df,
+            normalized_code,
+            code_column="代码",
+            normalizer=lambda value: self._normalize_asset_code(value, "CN"),
+        )
+        if row is None:
+            return None
+
+        iopv = self._optional_decimal(row.get("IOPV实时估值"))
+        if iopv is None:
+            return None
+
+        return EtfIopvSnapshot(
+            fund_code=normalized_code,
+            asset_name=self._none_if_nan(row.get("名称")),
+            estimate_time=datetime.now().replace(microsecond=0),
+            estimated_nav=iopv,
+            latest_price=self._optional_decimal(row.get("最新价")),
+            change_rate=self._percent(row.get("涨跌幅")),
+        )
+
     def _get_latest_eastmoney_fund_nav_snapshot(self, fund_code: str) -> FundNavSnapshot | None:
         try:
             response = requests.get(
@@ -236,20 +278,31 @@ class AkshareSource:
 
         text = re.sub(r"<[^>]+>", " ", response.text)
         text = re.sub(r"\s+", " ", text)
-        match = re.search(
+        today = date.today()
+        full_date_match = re.search(
+            r"单位净值\s*\((?P<date>\d{4}-\d{2}-\d{2})\)\s+"
+            r"(?P<unit>\d+(?:\.\d+)?)(?P<growth>[-+]?\d+(?:\.\d+)?)%"
+            r".{0,200}?累计净值\s+(?P<accumulated>\d+(?:\.\d+)?)",
+            text,
+        )
+        short_date_match = re.search(
             r"(?P<month>\d{2})-(?P<day>\d{2})\s+"
             r"(?P<unit>\d+(?:\.\d+)?)\s+"
             r"(?P<accumulated>\d+(?:\.\d+)?)\s+"
             r"(?P<growth>[-+]?\d+(?:\.\d+)?)%",
             text,
         )
-        if not match:
+        if full_date_match:
+            nav_date = date.fromisoformat(full_date_match.group("date"))
+            match = full_date_match
+        elif short_date_match:
+            nav_date = date(today.year, int(short_date_match.group("month")), int(short_date_match.group("day")))
+            if nav_date > today:
+                nav_date = date(today.year - 1, nav_date.month, nav_date.day)
+            match = short_date_match
+        else:
             return None
 
-        today = date.today()
-        nav_date = date(today.year, int(match.group("month")), int(match.group("day")))
-        if nav_date > today:
-            nav_date = date(today.year - 1, nav_date.month, nav_date.day)
         return FundNavSnapshot(
             fund_code=fund_code,
             nav_date=nav_date,
