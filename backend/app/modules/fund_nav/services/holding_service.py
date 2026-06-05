@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 import re
 
@@ -15,6 +14,7 @@ from app.modules.fund_nav.data_sources.public_web_source import PublicWebFundSou
 from app.modules.fund_nav.data_sources.sina_source import SinaFundSource
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
+from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
 
@@ -272,6 +272,4 @@ class HoldingService:
 
     @staticmethod
     def _current_report_period() -> str:
-        today = date.today()
-        quarter = (today.month - 1) // 3 + 1
-        return f"{today.year}Q{quarter}"
+        return latest_completed_quarter_period()

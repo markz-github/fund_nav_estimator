@@ -7,6 +7,8 @@ import re
 
 import requests
 
+from app.modules.fund_nav.report_period import latest_completed_quarter_period
+
 
 class SinaFundSource:
     source_name = "sina_fund"
@@ -205,8 +207,4 @@ class SinaFundSource:
 
     @staticmethod
     def _current_report_period() -> str:
-        from datetime import date
-
-        today = date.today()
-        quarter = (today.month - 1) // 3 + 1
-        return f"{today.year}Q{quarter}"
+        return latest_completed_quarter_period()

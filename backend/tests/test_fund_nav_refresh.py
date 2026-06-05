@@ -23,6 +23,7 @@ from app.database import Base
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.holding_service import HoldingService
@@ -32,6 +33,10 @@ class FundNavRefreshTests(unittest.TestCase):
     def setUp(self) -> None:
         AkshareSource._dataframe_cache.clear()
         AkshareSource._cache_locks.clear()
+
+    def test_latest_completed_quarter_period_does_not_use_unfinished_quarter(self) -> None:
+        self.assertEqual(latest_completed_quarter_period(date(2026, 6, 5)), "2026Q1")
+        self.assertEqual(latest_completed_quarter_period(date(2026, 1, 5)), "2025Q4")
 
     def test_refresh_nav_returns_today_open_fund_local_nav_without_external_fetch(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -420,6 +425,63 @@ class FundNavRefreshTests(unittest.TestCase):
             source.get_latest_fund_nav("515450")
 
         self.assertEqual(etf.call_count, 1)
+
+    def test_qdii_nav_falls_back_to_eastmoney_page_when_daily_table_has_dash(self) -> None:
+        daily_df = pd.DataFrame(
+            [
+                {
+                    "基金代码": "017436",
+                    "2026-06-03-单位净值": "-",
+                    "2026-06-03-累计净值": "-",
+                    "2026-06-02-单位净值": "2.5259",
+                    "2026-06-02-累计净值": "2.5259",
+                    "日增长率": "2.15",
+                }
+            ]
+        )
+        response = Mock()
+        response.status_code = 200
+        response.apparent_encoding = "utf-8"
+        response.text = "<table><tr><td>06-03</td><td>2.5043</td><td>2.5043</td><td>-0.86%</td></tr></table>"
+
+        with (
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df),
+            patch("app.modules.fund_nav.data_sources.akshare_source.requests.get", return_value=response),
+            patch("app.modules.fund_nav.data_sources.akshare_source.date") as mocked_date,
+        ):
+            mocked_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            mocked_date.today.return_value = date(2026, 6, 5)
+            mocked_date.fromisoformat.side_effect = date.fromisoformat
+            snapshot = AkshareSource().get_latest_fund_nav("017436")
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.nav_date, date(2026, 6, 3))
+        self.assertEqual(snapshot.unit_nav, Decimal("2.5043"))
+        self.assertEqual(snapshot.source, "akshare:eastmoney_fund_page")
+
+    def test_five_prefix_etf_nav_falls_back_to_eastmoney_page_when_tables_miss(self) -> None:
+        etf_df = pd.DataFrame([{"代码": "515450", "昨收": "1.098"}])
+        daily_df = pd.DataFrame([{"基金代码": "000001", "2026-06-04-单位净值": "1.001"}])
+        response = Mock()
+        response.status_code = 200
+        response.apparent_encoding = "utf-8"
+        response.text = "<table><tr><td>06-04</td><td>1.3721</td><td>1.3721</td><td>2.14%</td></tr></table>"
+
+        with (
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df),
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df),
+            patch("app.modules.fund_nav.data_sources.akshare_source.requests.get", return_value=response),
+            patch("app.modules.fund_nav.data_sources.akshare_source.date") as mocked_date,
+        ):
+            mocked_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            mocked_date.today.return_value = date(2026, 6, 5)
+            mocked_date.fromisoformat.side_effect = date.fromisoformat
+            snapshot = AkshareSource().get_latest_fund_nav("561560")
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.nav_date, date(2026, 6, 4))
+        self.assertEqual(snapshot.unit_nav, Decimal("1.3721"))
+        self.assertEqual(snapshot.source, "akshare:eastmoney_fund_page")
 
     def test_two_cache_misses_only_fetch_akshare_once(self) -> None:
         etf_df = pd.DataFrame([{"代码": "515450", "昨收": "1.098", "涨跌幅": "0.25"}])

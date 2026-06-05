@@ -127,22 +127,33 @@ class AkshareSource:
             normalizer=self._normalize_fund_code,
         )
         if row is None:
-            return self._get_latest_etf_nav_snapshot(normalized_code)
+            return self._get_latest_eastmoney_fund_nav_snapshot(normalized_code) or self._get_latest_etf_nav_snapshot(normalized_code)
 
         nav_date = self._extract_latest_nav_date_for_row(row, list(daily_df.columns))
         if nav_date is None:
-            return None
+            return self._get_latest_eastmoney_fund_nav_snapshot(normalized_code)
+
+        latest_table_date = self._extract_latest_nav_date(list(daily_df.columns))
+        fallback_snapshot: FundNavSnapshot | None = None
+        if latest_table_date > nav_date:
+            fallback_snapshot = self._get_latest_eastmoney_fund_nav_snapshot(normalized_code)
+            if fallback_snapshot is not None and fallback_snapshot.nav_date > nav_date:
+                return fallback_snapshot
+
         unit_nav_column = f"{nav_date.isoformat()}-单位净值"
         accumulated_nav_column = f"{nav_date.isoformat()}-累计净值"
 
-        return FundNavSnapshot(
-            fund_code=normalized_code,
-            nav_date=nav_date,
-            unit_nav=self._decimal(row[unit_nav_column]),
-            accumulated_nav=self._optional_decimal(row.get(accumulated_nav_column)),
-            daily_growth_rate=self._percent(row.get("日增长率")),
-            source=self.source_name,
-        )
+        try:
+            return FundNavSnapshot(
+                fund_code=normalized_code,
+                nav_date=nav_date,
+                unit_nav=self._decimal(row[unit_nav_column]),
+                accumulated_nav=self._optional_decimal(row.get(accumulated_nav_column)),
+                daily_growth_rate=self._percent(row.get("日增长率")),
+                source=self.source_name,
+            )
+        except Exception:
+            return fallback_snapshot or self._get_latest_eastmoney_fund_nav_snapshot(normalized_code)
 
     @classmethod
     def get_fund_daily_dataframe(cls):
@@ -208,6 +219,44 @@ class AkshareSource:
             accumulated_nav=None,
             daily_growth_rate=self._percent(row.get("涨跌幅")),
             source=source,
+        )
+
+    def _get_latest_eastmoney_fund_nav_snapshot(self, fund_code: str) -> FundNavSnapshot | None:
+        try:
+            response = requests.get(
+                f"https://fund.eastmoney.com/{fund_code}.html",
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=30,
+            )
+            if response.status_code >= 400:
+                return None
+            response.encoding = response.apparent_encoding or "utf-8"
+        except requests.RequestException:
+            return None
+
+        text = re.sub(r"<[^>]+>", " ", response.text)
+        text = re.sub(r"\s+", " ", text)
+        match = re.search(
+            r"(?P<month>\d{2})-(?P<day>\d{2})\s+"
+            r"(?P<unit>\d+(?:\.\d+)?)\s+"
+            r"(?P<accumulated>\d+(?:\.\d+)?)\s+"
+            r"(?P<growth>[-+]?\d+(?:\.\d+)?)%",
+            text,
+        )
+        if not match:
+            return None
+
+        today = date.today()
+        nav_date = date(today.year, int(match.group("month")), int(match.group("day")))
+        if nav_date > today:
+            nav_date = date(today.year - 1, nav_date.month, nav_date.day)
+        return FundNavSnapshot(
+            fund_code=fund_code,
+            nav_date=nav_date,
+            unit_nav=Decimal(match.group("unit")),
+            accumulated_nav=Decimal(match.group("accumulated")),
+            daily_growth_rate=Decimal(match.group("growth")) / Decimal("100"),
+            source=f"{self.source_name}:eastmoney_fund_page",
         )
 
     @timed()
@@ -562,7 +611,7 @@ class AkshareSource:
         if value is None:
             return None
         text = str(value).strip()
-        if text == "" or text.lower() == "nan":
+        if text == "" or text in {"-", "--", "—"} or text.lower() == "nan":
             return None
         return text
 

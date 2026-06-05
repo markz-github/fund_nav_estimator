@@ -6,6 +6,8 @@ import re
 
 import requests
 
+from app.modules.fund_nav.report_period import latest_completed_quarter_period
+
 
 class PublicWebFundSource:
     """Conservative scraper for secondary public fund pages.
@@ -98,8 +100,4 @@ class PublicWebFundSource:
 
     @staticmethod
     def _current_report_period() -> str:
-        from datetime import date
-
-        today = date.today()
-        quarter = (today.month - 1) // 3 + 1
-        return f"{today.year}Q{quarter}"
+        return latest_completed_quarter_period()

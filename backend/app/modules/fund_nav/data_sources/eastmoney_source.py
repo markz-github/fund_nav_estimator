@@ -9,6 +9,8 @@ import re
 
 import requests
 
+from app.modules.fund_nav.report_period import latest_completed_quarter_period
+
 
 @dataclass(frozen=True)
 class ParsedHolding:
@@ -212,9 +214,7 @@ class EastmoneySource:
 
     @staticmethod
     def _current_report_period() -> str:
-        today = date.today()
-        quarter = (today.month - 1) // 3 + 1
-        return f"{today.year}Q{quarter}"
+        return latest_completed_quarter_period()
 
     @staticmethod
     def _optional_decimal(value) -> Decimal | None:
