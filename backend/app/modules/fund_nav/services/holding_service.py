@@ -201,24 +201,16 @@ class HoldingService:
     def _should_use_target_fund_holdings(
         self, fund_code: str, snapshots: list[dict]
     ) -> bool:
-        if not snapshots:
-            return True
-        total_ratio = sum(snapshot["holding_ratio"] for snapshot in snapshots)
-        if total_ratio == 0:
-            return True
+        local_fund = self.db.scalar(select(Fund).where(Fund.fund_code == fund_code))
+        fund_name = local_fund.fund_name if local_fund is not None else ""
 
         try:
             profile = FundProfileService(self.db, self.source).get_or_sync_profile(fund_code)
         except Exception:
             profile = None
-        if profile is None:
-            local_fund = self.db.scalar(select(Fund).where(Fund.fund_code == fund_code))
-            fund_name = local_fund.fund_name if local_fund is not None else ""
-            fund_type = local_fund.fund_type if local_fund is not None else ""
-        else:
+        if not fund_name and profile is not None:
             fund_name = profile.fund_name or ""
-            fund_type = profile.fund_type or ""
-        return "ETF联接" in fund_name or "联接" in fund_name or "QDII" in fund_type
+        return "ETF联接" in fund_name or "联接" in fund_name
 
     def _infer_target_fund_holding(self, fund_code: str) -> dict | None:
         profile = self.db.scalar(select(Fund).where(Fund.fund_code == fund_code))

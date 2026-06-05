@@ -5,6 +5,7 @@ import { apiErrorMessage } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
 import {
   getHistorySyncTask,
+  getHistorySyncStatus,
   rerunHistorySyncTask,
   type HistorySyncTaskDetail,
   type ProgressItem,
@@ -16,6 +17,7 @@ const loading = ref(false)
 const rerunning = ref(false)
 const message = ref('')
 const task = ref<HistorySyncTaskDetail | null>(null)
+const syncRunning = ref(false)
 let refreshTimer: number | undefined
 
 const taskId = computed(() => Number(route.params.taskId))
@@ -65,7 +67,9 @@ function itemName(item: ProgressItem) {
 async function refreshTask() {
   loading.value = true
   try {
-    task.value = await getHistorySyncTask(taskId.value)
+    const [nextTask, nextStatus] = await Promise.all([getHistorySyncTask(taskId.value), getHistorySyncStatus()])
+    task.value = nextTask
+    syncRunning.value = nextStatus.running
     updateAutoRefresh()
   } catch (error) {
     message.value = apiErrorMessage(error, '任务详情加载失败。')
@@ -79,7 +83,7 @@ function updateAutoRefresh() {
     window.clearInterval(refreshTimer)
     refreshTimer = undefined
   }
-  if (task.value?.status !== 'running') return
+  if (task.value?.status !== 'running' && !syncRunning.value) return
   refreshTimer = window.setInterval(() => {
     refreshTask()
   }, 10000)
@@ -87,6 +91,7 @@ function updateAutoRefresh() {
 
 async function rerunTask() {
   if (!task.value) return
+  if (syncRunning.value) return
   rerunning.value = true
   message.value = ''
   try {
@@ -125,8 +130,8 @@ onUnmounted(() => {
         <button class="ghost" :disabled="loading" type="button" @click="refreshTask">
           {{ loading ? '刷新中...' : '刷新' }}
         </button>
-        <button type="button" :disabled="rerunning" @click="rerunTask">
-          {{ rerunning ? '提交中...' : '重跑任务' }}
+        <button type="button" :disabled="rerunning || syncRunning" @click="rerunTask">
+          {{ rerunning ? '提交中...' : syncRunning ? '任务运行中' : '重跑任务' }}
         </button>
       </div>
     </section>

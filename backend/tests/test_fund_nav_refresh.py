@@ -315,6 +315,55 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual([holding.asset_code for holding in refreshed], ["513380"])
         self.assertEqual([holding.asset_code for holding in visible_holdings], ["513380"])
 
+    def test_plain_qdii_does_not_use_target_fund_hint(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        source.get_fund_holdings.return_value = []
+        target_source = Mock()
+        target_source.get_target_fund_holdings.return_value = [
+            {
+                "fund_code": "017436",
+                "report_period": "2026Q2",
+                "asset_code": "159981",
+                "asset_name": "工ETF建信1",
+                "asset_type": "etf",
+                "market": "CN",
+                "holding_ratio": Decimal("1"),
+                "holding_value": None,
+                "source": "public_web:target_hint",
+            }
+        ]
+        db.add(
+            Fund(
+                id=1,
+                fund_code="017436",
+                fund_name="华宝纳斯达克精选股票发起式(QDII)A",
+                fund_type="QDII",
+            )
+        )
+        db.commit()
+
+        try:
+            with patch(
+                "app.modules.fund_nav.services.holding_service.FundProfileService.get_or_sync_profile",
+                return_value=None,
+            ):
+                refreshed = HoldingService(
+                    db,
+                    source=source,
+                    holding_sources=[source],
+                    target_fund_sources=[target_source],
+                ).refresh_holdings("017436")
+        finally:
+            db.close()
+
+        self.assertEqual(refreshed, [])
+        target_source.get_target_fund_holdings.assert_not_called()
+
     def test_open_fund_daily_table_is_cached_for_repeated_refreshes(self) -> None:
         daily_df = pd.DataFrame(
             [

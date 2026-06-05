@@ -22,6 +22,7 @@ SCRIPT_PATH = BACKEND_DIR / "scripts" / "sync_a_stock_daily_bars.py"
 PID_FILE = PROJECT_ROOT / ".runtime" / "a_stock_history_sync.json"
 PROGRESS_TABLE = "stock_daily_bars_sync_progress"
 TASK_TABLE = "a_stock_history_sync_tasks"
+TERMINAL_TASK_STATUSES = {"success", "partial", "failed", "skipped"}
 
 
 def ymd(value: date) -> str:
@@ -114,10 +115,16 @@ class AStockHistorySyncService:
             except json.JSONDecodeError:
                 record = {}
         pid = record.get("pid")
+        task_id = record.get("task_id") if isinstance(record.get("task_id"), int) else None
         running = isinstance(pid, int) and self._is_pid_running(pid)
+        if running and task_id is not None:
+            task_status = self._task_status(task_id)
+            if task_status in TERMINAL_TASK_STATUSES:
+                running = False
+                self._clear_pid_file(record)
         return {
             "running": running,
-            "task_id": record.get("task_id") if isinstance(record.get("task_id"), int) else None,
+            "task_id": task_id,
             "pid": pid if isinstance(pid, int) else None,
             "workers": record.get("workers"),
             "stdout_log": record.get("stdout_log"),
@@ -147,6 +154,27 @@ class AStockHistorySyncService:
                 return [dict(row) for row in rows]
         except Exception:
             return []
+
+    def _task_status(self, task_id: int) -> str | None:
+        try:
+            with self.engine().connect() as connection:
+                value = connection.execute(
+                    text(f"SELECT status FROM {TASK_TABLE} WHERE id = :task_id"),
+                    {"task_id": task_id},
+                ).scalar()
+                return str(value) if value is not None else None
+        except Exception:
+            return None
+
+    def _clear_pid_file(self, expected_record: dict[str, object]) -> None:
+        try:
+            if not PID_FILE.exists():
+                return
+            current = json.loads(PID_FILE.read_text(encoding="utf-8-sig"))
+            if current.get("task_id") == expected_record.get("task_id") and current.get("pid") == expected_record.get("pid"):
+                PID_FILE.unlink()
+        except Exception:
+            return
 
     def task_detail(self, task_id: int) -> dict[str, object] | None:
         task = self.get_task(task_id)
