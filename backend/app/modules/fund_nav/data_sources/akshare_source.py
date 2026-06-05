@@ -251,8 +251,23 @@ class AkshareSource:
             return None
 
         iopv = self._optional_decimal(row.get("IOPV实时估值"))
+        source = "akshare:etf_iopv"
         if iopv is None:
-            return None
+            iopv = self._optional_decimal(row.get("最新价"))
+            source = "akshare:etf_price_fallback"
+        if iopv is None:
+            quote = self._get_eastmoney_etf_quote(normalized_code, datetime.now().replace(microsecond=0))
+            if quote is None or quote.latest_price is None:
+                return None
+            return EtfIopvSnapshot(
+                fund_code=normalized_code,
+                asset_name=quote.asset_name,
+                estimate_time=quote.quote_time,
+                estimated_nav=quote.latest_price,
+                latest_price=quote.latest_price,
+                change_rate=quote.change_rate,
+                source="eastmoney:etf_price_fallback",
+            )
 
         return EtfIopvSnapshot(
             fund_code=normalized_code,
@@ -261,6 +276,7 @@ class AkshareSource:
             estimated_nav=iopv,
             latest_price=self._optional_decimal(row.get("最新价")),
             change_rate=self._percent(row.get("涨跌幅")),
+            source=source,
         )
 
     def _get_latest_eastmoney_fund_nav_snapshot(self, fund_code: str) -> FundNavSnapshot | None:

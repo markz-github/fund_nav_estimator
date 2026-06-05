@@ -630,6 +630,19 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(snapshots[0].change_rate, Decimal("0.0283"))
         etf.assert_called_once()
 
+    def test_etf_iopv_snapshot_falls_back_to_latest_price_when_iopv_missing(self) -> None:
+        etf_df = pd.DataFrame(
+            [{"代码": "561560", "名称": "电力ETF华泰柏瑞", "最新价": "1.464", "涨跌幅": "-1.81"}]
+        )
+
+        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df):
+            snapshot = AkshareSource().get_etf_iopv_snapshot("561560")
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.estimated_nav, Decimal("1.464"))
+        self.assertEqual(snapshot.change_rate, Decimal("-0.0181"))
+        self.assertEqual(snapshot.source, "akshare:etf_price_fallback")
+
     def test_etf_quote_falls_back_to_eastmoney_single_quote_when_spot_table_fails(self) -> None:
         response = Mock()
         response.json.return_value = {
