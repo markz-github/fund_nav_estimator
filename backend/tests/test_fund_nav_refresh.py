@@ -132,6 +132,43 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(nav.unit_nav, Decimal("1.111"))
         source.get_latest_fund_nav.assert_called_once_with("515450")
 
+    def test_refresh_nav_replaces_etf_prev_close_with_official_page_nav(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        source.get_latest_fund_nav.return_value = FundNavSnapshot(
+            fund_code="561560",
+            nav_date=date(2026, 6, 4),
+            unit_nav=Decimal("1.4908"),
+            accumulated_nav=Decimal("1.4908"),
+            daily_growth_rate=Decimal("-0.0144"),
+            source="akshare:eastmoney_fund_page",
+        )
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="561560",
+                nav_date=date(2026, 6, 4),
+                unit_nav=Decimal("1.5130"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("-0.0152"),
+                source="akshare:etf_spot_prev_close",
+            )
+        )
+        db.commit()
+
+        try:
+            nav = FundService(db, source).refresh_nav("561560")
+        finally:
+            db.close()
+
+        self.assertIsNotNone(nav)
+        self.assertEqual(nav.unit_nav, Decimal("1.4908"))
+        self.assertEqual(nav.source, "akshare:eastmoney_fund_page")
+
     def test_refresh_nav_falls_back_to_local_nav_when_source_returns_none(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
@@ -240,9 +277,9 @@ class FundNavRefreshTests(unittest.TestCase):
             fund_code="561560",
             asset_name="电力ETF华泰柏瑞",
             estimate_time=datetime(2026, 6, 5, 10, 30),
-            estimated_nav=Decimal("1.5012"),
-            latest_price=Decimal("1.5000"),
-            change_rate=Decimal("0.0010"),
+            estimated_nav=Decimal("1.4638"),
+            latest_price=Decimal("1.4600"),
+            change_rate=Decimal("-0.0181"),
         )
         db.add(Fund(id=1, fund_code="561560", fund_name="电力ETF华泰柏瑞", fund_type="指数型-股票"))
         db.add(
@@ -266,8 +303,9 @@ class FundNavRefreshTests(unittest.TestCase):
             db.close()
 
         self.assertTrue(EstimateService.is_exchange_traded_fund(fund))
-        self.assertEqual(result.estimated_nav, Decimal("1.5012"))
+        self.assertEqual(result.estimated_nav, Decimal("1.4638"))
         self.assertEqual(result.base_unit_nav, Decimal("1.4908"))
+        self.assertEqual(result.estimated_growth_rate.quantize(Decimal("0.0001")), Decimal("-0.0181"))
         self.assertEqual(result.coverage_ratio, Decimal("1"))
         self.assertIn("strategy=etf_iopv", result.source_snapshot)
 

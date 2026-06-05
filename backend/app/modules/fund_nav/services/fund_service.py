@@ -230,7 +230,7 @@ class FundService:
             return False
         today = date.today()
         if nav.source == "akshare:etf_spot_prev_close":
-            return nav.nav_date >= FundService._previous_business_day(today)
+            return False
         if nav.source == "akshare:etf_spot":
             return False
         return nav.nav_date >= today
@@ -244,8 +244,8 @@ class FundService:
 
     @staticmethod
     def _should_replace_legacy_etf_nav(nav: FundNav | None, next_source: str) -> bool:
-        return (
-            nav is not None
-            and nav.source == "akshare:etf_spot"
-            and next_source == "akshare:etf_spot_prev_close"
-        )
+        if nav is None:
+            return False
+        if next_source == "akshare:eastmoney_fund_page":
+            return nav.source in {"akshare:etf_spot", "akshare:etf_spot_prev_close"}
+        return nav.source == "akshare:etf_spot" and next_source == "akshare:etf_spot_prev_close"
