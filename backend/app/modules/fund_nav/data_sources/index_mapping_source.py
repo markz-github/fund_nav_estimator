@@ -86,7 +86,7 @@ class FundIndexMappingSource:
     @staticmethod
     def _fetch_text(url: str) -> str:
         try:
-            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
             if response.status_code >= 400:
                 return ""
             response.encoding = response.apparent_encoding or "utf-8"

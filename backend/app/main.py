@@ -7,16 +7,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 
+from app.modules.a_stock import api as a_stock_api
 from app.modules.fund_nav.api import estimates, funds, market
 from app.modules.operations.api import errors, tasks
 from app.config import get_settings
 from app.logging_config import configure_logging
-from app.scheduler.jobs import create_scheduler
+from app.scheduler.scheduler import create_scheduler
 from app.modules.fund_nav.services.fund_task_queue_service import dispatcher
 
 
 settings = get_settings()
-configure_logging(settings.log_dir, settings.log_backup_days)
+configure_logging(settings.log_dir, settings.log_backup_days, settings.log_level)
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
 app.add_middleware(
@@ -30,9 +31,10 @@ app.add_middleware(
 app.include_router(funds.router, prefix="/api")
 app.include_router(estimates.router, prefix="/api")
 app.include_router(market.router, prefix="/api")
+app.include_router(a_stock_api.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(errors.router, prefix="/api")
-scheduler = create_scheduler() if settings.scheduler_enabled else None
+scheduler = create_scheduler() if settings.scheduler_fund_enabled else None
 
 
 @app.middleware("http")

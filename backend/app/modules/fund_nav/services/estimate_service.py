@@ -8,6 +8,7 @@ from time import perf_counter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
@@ -16,9 +17,107 @@ from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.utils.performance import timed
 
 
+class EstimateStrategy:
+    def estimate(self, fund: Fund, estimate_time: datetime) -> FundEstimate | str:
+        raise NotImplementedError
+
+
+class HoldingWeightedEstimateStrategy(EstimateStrategy):
+    def __init__(self, service: "EstimateService") -> None:
+        self.service = service
+
+    def estimate(self, fund: Fund, estimate_time: datetime) -> FundEstimate | str:
+        fund_code = fund.fund_code
+        latest_nav = self.service._latest_nav(fund_code)
+        if latest_nav is None:
+            return "missing_nav"
+
+        holdings = self.service._latest_holdings(fund_code)
+        if not holdings:
+            return "missing_holdings"
+
+        latest_quotes = self.service._latest_quotes([holding.asset_code for holding in holdings])
+        weighted_growth = Decimal("0")
+        covered_ratio = Decimal("0")
+        total_ratio = Decimal("0")
+
+        for holding in holdings:
+            total_ratio += holding.holding_ratio
+            quote = latest_quotes.get(holding.asset_code)
+            if quote is None or quote.change_rate is None:
+                continue
+            weighted_growth += holding.holding_ratio * quote.change_rate
+            covered_ratio += holding.holding_ratio
+
+        if total_ratio == 0:
+            return "zero_holding_ratio"
+        if covered_ratio == 0:
+            return "missing_quotes"
+
+        coverage_ratio = covered_ratio / total_ratio
+        estimated_nav = self.service.calculate_estimated_nav(latest_nav.unit_nav, weighted_growth)
+        return FundEstimate(
+            fund_code=fund_code,
+            estimate_date=estimate_time.date(),
+            estimate_time=estimate_time,
+            base_nav_date=latest_nav.nav_date,
+            base_unit_nav=latest_nav.unit_nav,
+            estimated_growth_rate=weighted_growth,
+            estimated_nav=estimated_nav,
+            coverage_ratio=coverage_ratio,
+            source_snapshot=f"strategy=holding_weighted;holdings={holdings[0].report_period};quotes={estimate_time.isoformat()}",
+        )
+
+
+class EtfIopvEstimateStrategy(EstimateStrategy):
+    def __init__(self, service: "EstimateService") -> None:
+        self.service = service
+
+    def estimate(self, fund: Fund, estimate_time: datetime) -> FundEstimate | str:
+        latest_nav = self.service._latest_nav(fund.fund_code)
+        quote = self.service._latest_quotes([fund.fund_code]).get(fund.fund_code)
+        if quote is not None and quote.latest_price is not None:
+            base_nav_date = latest_nav.nav_date if latest_nav is not None else quote.trade_date
+            base_unit_nav = latest_nav.unit_nav if latest_nav is not None else quote.latest_price
+            return FundEstimate(
+                fund_code=fund.fund_code,
+                estimate_date=estimate_time.date(),
+                estimate_time=estimate_time,
+                base_nav_date=base_nav_date,
+                base_unit_nav=base_unit_nav,
+                estimated_growth_rate=quote.change_rate,
+                estimated_nav=quote.latest_price,
+                coverage_ratio=Decimal("1"),
+                source_snapshot=f"strategy=etf_quote;quote={quote.quote_time.isoformat()}",
+            )
+
+        snapshot = self.service.source.get_etf_iopv_snapshot(fund.fund_code)
+        if snapshot is None:
+            return "missing_etf_quote"
+
+        base_nav_date = latest_nav.nav_date if latest_nav is not None else estimate_time.date()
+        base_unit_nav = latest_nav.unit_nav if latest_nav is not None else snapshot.estimated_nav
+        growth_rate = snapshot.change_rate
+        if latest_nav is not None and base_unit_nav != 0:
+            growth_rate = (snapshot.estimated_nav - base_unit_nav) / base_unit_nav
+
+        return FundEstimate(
+            fund_code=fund.fund_code,
+            estimate_date=estimate_time.date(),
+            estimate_time=estimate_time,
+            base_nav_date=base_nav_date,
+            base_unit_nav=base_unit_nav,
+            estimated_growth_rate=growth_rate,
+            estimated_nav=snapshot.estimated_nav,
+            coverage_ratio=Decimal("1"),
+            source_snapshot=f"strategy=etf_iopv;source={snapshot.source};quotes={snapshot.estimate_time.isoformat()}",
+        )
+
+
 class EstimateService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, source: AkshareSource | None = None) -> None:
         self.db = db
+        self.source = source or AkshareSource()
 
     @timed()
     def latest_all(self) -> list[FundEstimate]:
@@ -59,7 +158,7 @@ class EstimateService:
         estimate_time = datetime.now().replace(microsecond=0)
 
         for fund in funds:
-            result = self._estimate_one(fund.fund_code, estimate_time)
+            result = self._estimate_one(fund, estimate_time)
             if isinstance(result, FundEstimate):
                 estimates.append(result)
             else:
@@ -89,48 +188,23 @@ class EstimateService:
     def calculate_estimated_nav(base_nav: Decimal, weighted_growth: Decimal) -> Decimal:
         return base_nav * (Decimal("1") + weighted_growth)
 
-    def _estimate_one(self, fund_code: str, estimate_time: datetime) -> FundEstimate | str:
-        latest_nav = self._latest_nav(fund_code)
-        if latest_nav is None:
-            return "missing_nav"
+    def _estimate_one(self, fund: Fund, estimate_time: datetime) -> FundEstimate | str:
+        result = self._strategy_for_fund(fund).estimate(fund, estimate_time)
+        if isinstance(result, FundEstimate):
+            self.db.add(result)
+        return result
 
-        holdings = self._latest_holdings(fund_code)
-        if not holdings:
-            return "missing_holdings"
+    def _strategy_for_fund(self, fund: Fund) -> EstimateStrategy:
+        if self.is_exchange_traded_fund(fund):
+            return EtfIopvEstimateStrategy(self)
+        return HoldingWeightedEstimateStrategy(self)
 
-        latest_quotes = self._latest_quotes([holding.asset_code for holding in holdings])
-        weighted_growth = Decimal("0")
-        covered_ratio = Decimal("0")
-        total_ratio = Decimal("0")
-
-        for holding in holdings:
-            total_ratio += holding.holding_ratio
-            quote = latest_quotes.get(holding.asset_code)
-            if quote is None or quote.change_rate is None:
-                continue
-            weighted_growth += holding.holding_ratio * quote.change_rate
-            covered_ratio += holding.holding_ratio
-
-        if total_ratio == 0:
-            return "zero_holding_ratio"
-        if covered_ratio == 0:
-            return "missing_quotes"
-
-        coverage_ratio = covered_ratio / total_ratio
-        estimated_nav = self.calculate_estimated_nav(latest_nav.unit_nav, weighted_growth)
-        estimate = FundEstimate(
-            fund_code=fund_code,
-            estimate_date=estimate_time.date(),
-            estimate_time=estimate_time,
-            base_nav_date=latest_nav.nav_date,
-            base_unit_nav=latest_nav.unit_nav,
-            estimated_growth_rate=weighted_growth,
-            estimated_nav=estimated_nav,
-            coverage_ratio=coverage_ratio,
-            source_snapshot=f"holdings={holdings[0].report_period};quotes={estimate_time.isoformat()}",
-        )
-        self.db.add(estimate)
-        return estimate
+    @staticmethod
+    def is_exchange_traded_fund(fund: Fund) -> bool:
+        fund_code = str(fund.fund_code or "").strip()
+        fund_name = fund.fund_name or ""
+        fund_type = fund.fund_type or ""
+        return fund_code.startswith(("5", "1")) and ("ETF" in fund_name.upper() or "ETF" in fund_type.upper())
 
     def _latest_nav(self, fund_code: str) -> FundNav | None:
         return self.db.scalar(

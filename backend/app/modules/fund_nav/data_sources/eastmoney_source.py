@@ -9,6 +9,8 @@ import re
 
 import requests
 
+from app.modules.fund_nav.report_period import latest_completed_quarter_period
+
 
 @dataclass(frozen=True)
 class ParsedHolding:
@@ -74,22 +76,23 @@ class EastmoneySource:
         # Some ETF feeder pages mention the target ETF in prose rather than a table.
         # Treat these as low-confidence 100% target mappings only when a code/name is explicit.
         for pattern in (
-            r"目标ETF[^0-9]{0,40}(?P<code>[15]\d{5})[^，。；;\n]{0,40}(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)",
-            r"(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)\((?P<code>[15]\d{5})\)",
-            r"(?P<code>[15]\d{5})[^，。；;\n]{0,30}(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)",
+            r"目标ETF[^0-9]{0,40}(?P<code>(?<!\d)[15]\d{5}(?!\d))[^，。；;\n]{0,40}(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)",
+            r"(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)\((?P<code>(?<!\d)[15]\d{5}(?!\d))\)",
+            r"(?P<code>(?<!\d)[15]\d{5}(?!\d))[^，。；;\n]{0,30}(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)",
         ):
             match = re.search(pattern, text)
             if not match:
                 continue
             asset_code = match.group("code")
-            if asset_code == normalized_code:
+            asset_name = re.sub(r"\s+", "", match.group("name"))
+            if not self._is_valid_target_hint(normalized_code, asset_code, asset_name):
                 continue
             return [
                 {
                     "fund_code": normalized_code,
                     "report_period": self._current_report_period(),
                     "asset_code": asset_code,
-                    "asset_name": re.sub(r"\s+", "", match.group("name")),
+                    "asset_name": asset_name,
                     "asset_type": "etf",
                     "market": "CN",
                     "holding_ratio": Decimal("1"),
@@ -141,6 +144,7 @@ class EastmoneySource:
 
         asset_code = row[code_index].strip().zfill(5 if len(row[code_index].strip()) == 5 else 6)
         asset_name = row[code_index + 1].strip()
+        asset_type = self._infer_asset_type(asset_code)
         ratio_index = next(
             (idx for idx in range(len(row) - 1, code_index, -1) if row[idx].strip().endswith("%")),
             None,
@@ -153,8 +157,8 @@ class EastmoneySource:
             report_period=report_period,
             asset_code=asset_code,
             asset_name=asset_name,
-            asset_type="stock",
-            market=self._infer_stock_market(asset_code),
+            asset_type=asset_type,
+            market=self._infer_market(asset_code, asset_type),
             holding_ratio=self._percent(row[ratio_index]),
             holding_value=self._optional_decimal(row[ratio_index + 2] if ratio_index + 2 < len(row) else None),
         )
@@ -177,7 +181,7 @@ class EastmoneySource:
                     "User-Agent": "Mozilla/5.0",
                     **(headers or {}),
                 },
-                timeout=20,
+                timeout=60,
             )
             if response.status_code >= 400:
                 return ""
@@ -210,9 +214,7 @@ class EastmoneySource:
 
     @staticmethod
     def _current_report_period() -> str:
-        today = date.today()
-        quarter = (today.month - 1) // 3 + 1
-        return f"{today.year}Q{quarter}"
+        return latest_completed_quarter_period()
 
     @staticmethod
     def _optional_decimal(value) -> Decimal | None:
@@ -244,6 +246,35 @@ class EastmoneySource:
         if asset_code.startswith(("4", "8")):
             return "BJ"
         return None
+
+    @staticmethod
+    def _infer_asset_type(asset_code: str) -> str:
+        if len(asset_code) == 6 and asset_code.startswith(("5", "1")):
+            return "etf"
+        return "stock"
+
+    @staticmethod
+    def _infer_market(asset_code: str, asset_type: str) -> str | None:
+        if asset_type == "etf":
+            return "CN"
+        return EastmoneySource._infer_stock_market(asset_code)
+
+    @staticmethod
+    def _is_valid_target_hint(fund_code: str, asset_code: str, asset_name: str) -> bool:
+        if asset_code == fund_code:
+            return False
+        if fund_code in asset_name:
+            return False
+        return not any(
+            marker in asset_name
+            for marker in (
+                "基金资产配置",
+                "基金基本概况",
+                "基金档案",
+                "天天基金",
+                "网站备案号",
+            )
+        )
 
     @classmethod
     def _latest_period_holdings(cls, holdings: list[ParsedHolding]) -> list[ParsedHolding]:

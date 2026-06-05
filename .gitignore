@@ -1,5 +1,7 @@
+.vscode/
 backend/.venv/
 backend/.tmp/
+backend/logs/
 backend/.env
 .runtime/
 __pycache__/

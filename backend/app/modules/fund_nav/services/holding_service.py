@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import delete, select
+from decimal import Decimal
+import re
+
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
@@ -9,7 +12,9 @@ from app.modules.fund_nav.data_sources.etf88_source import Etf88Source
 from app.modules.fund_nav.data_sources.fund_company_source import FundCompanySource
 from app.modules.fund_nav.data_sources.public_web_source import PublicWebFundSource
 from app.modules.fund_nav.data_sources.sina_source import SinaFundSource
+from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
+from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
 
@@ -51,26 +56,39 @@ class HoldingService:
     def refresh_holdings(self, fund_code: str) -> list[FundHolding]:
         normalized_code = self.source._normalize_fund_code(fund_code)
         snapshots = self._collect_holdings(normalized_code)
-        if self._should_use_target_fund_holdings(normalized_code, snapshots):
+        replace_all_periods = False
+        use_target_fund_holdings = self._should_use_target_fund_holdings(normalized_code, snapshots)
+        if use_target_fund_holdings:
             target_fund_snapshots = self._collect_target_fund_holdings(normalized_code)
             if target_fund_snapshots:
                 snapshots = target_fund_snapshots
+                replace_all_periods = True
+            else:
+                inferred_target = self._infer_target_fund_holding(normalized_code)
+                if inferred_target is not None:
+                    snapshots = [inferred_target]
+                    replace_all_periods = True
+        else:
+            self._delete_target_hint_holdings(normalized_code)
         snapshots = self._deduplicate_snapshots(snapshots)
         refreshed: list[FundHolding] = []
-        self._delete_stale_holdings(normalized_code, snapshots)
+        self._delete_stale_holdings(normalized_code, snapshots, replace_all_periods)
 
         for snapshot in snapshots:
             holding = self.db.scalar(
-                select(FundHolding).where(
+                select(FundHolding)
+                .where(
                     FundHolding.fund_code == snapshot["fund_code"],
                     FundHolding.report_period == snapshot["report_period"],
                     FundHolding.asset_code == snapshot["asset_code"],
                 )
+                .execution_options(include_deleted=True)
             )
             if holding is None:
                 holding = FundHolding(**snapshot)
                 self.db.add(holding)
             else:
+                holding.is_deleted = 0
                 holding.asset_name = snapshot["asset_name"]
                 holding.asset_type = snapshot["asset_type"]
                 holding.market = snapshot["market"]
@@ -84,7 +102,21 @@ class HoldingService:
             self.db.refresh(holding)
         return refreshed
 
-    def _delete_stale_holdings(self, fund_code: str, snapshots: list[dict]) -> None:
+    def _delete_stale_holdings(self, fund_code: str, snapshots: list[dict], replace_all_periods: bool = False) -> None:
+        if replace_all_periods:
+            snapshot_keys = {
+                (snapshot["report_period"], snapshot["asset_code"])
+                for snapshot in snapshots
+            }
+            stale_rows = self.db.scalars(
+                select(FundHolding)
+                .where(FundHolding.fund_code == fund_code)
+                .execution_options(include_deleted=True)
+            ).all()
+            for holding in stale_rows:
+                holding.is_deleted = 0 if (holding.report_period, holding.asset_code) in snapshot_keys else 1
+            return
+
         by_period: dict[str, set[str]] = {}
         for snapshot in snapshots:
             by_period.setdefault(snapshot["report_period"], set()).add(snapshot["asset_code"])
@@ -93,12 +125,24 @@ class HoldingService:
             if not asset_codes:
                 continue
             self.db.execute(
-                delete(FundHolding).where(
+                update(FundHolding)
+                .where(
                     FundHolding.fund_code == fund_code,
                     FundHolding.report_period == report_period,
                     FundHolding.asset_code.not_in(asset_codes),
                 )
+                .values(is_deleted=1)
             )
+
+    def _delete_target_hint_holdings(self, fund_code: str) -> None:
+        self.db.execute(
+            update(FundHolding)
+            .where(
+                FundHolding.fund_code == fund_code,
+                FundHolding.source.like("%:target_hint"),
+            )
+            .values(is_deleted=1)
+        )
 
     @timed()
     def _collect_holdings(self, fund_code: str) -> list[dict]:
@@ -170,18 +214,62 @@ class HoldingService:
     def _should_use_target_fund_holdings(
         self, fund_code: str, snapshots: list[dict]
     ) -> bool:
-        if not snapshots:
-            return True
-        total_ratio = sum(snapshot["holding_ratio"] for snapshot in snapshots)
-        if total_ratio == 0:
-            return True
+        local_fund = self.db.scalar(select(Fund).where(Fund.fund_code == fund_code))
+        fund_name = local_fund.fund_name if local_fund is not None else ""
 
         try:
             profile = FundProfileService(self.db, self.source).get_or_sync_profile(fund_code)
         except Exception:
+            profile = None
+        if not fund_name and profile is not None:
+            fund_name = profile.fund_name or ""
+        return "ETF联接" in fund_name or "联接" in fund_name
+
+    def _infer_target_fund_holding(self, fund_code: str) -> dict | None:
+        profile = self.db.scalar(select(Fund).where(Fund.fund_code == fund_code))
+        if profile is None or not profile.fund_name:
+            return None
+        fund_name = profile.fund_name
+        if "联接" not in fund_name:
+            return None
+
+        candidates = self.db.scalars(
+            select(Fund)
+            .where(
+                Fund.enabled == 1,
+                Fund.fund_code != fund_code,
+                Fund.fund_code.regexp_match(r"^[15][0-9]{5}$"),
+                Fund.fund_name.like("%ETF%"),
+            )
+            .order_by(Fund.fund_code.asc())
+        ).all()
+        for candidate in candidates:
+            candidate_name = candidate.fund_name or ""
+            if self._is_target_fund_name_match(fund_name, candidate_name):
+                return {
+                    "fund_code": fund_code,
+                    "report_period": self._current_report_period(),
+                    "asset_code": candidate.fund_code,
+                    "asset_name": candidate_name,
+                    "asset_type": "etf",
+                    "market": "CN",
+                    "holding_ratio": Decimal("1"),
+                    "holding_value": None,
+                    "source": "local:fund_name_match",
+                }
+        return None
+
+    @staticmethod
+    def _is_target_fund_name_match(fund_name: str, candidate_name: str) -> bool:
+        chunks = [
+            chunk
+            for chunk in re.split(r"ETF|交易型开放式|指数|基金|联接|发起式|[（）()A-Za-z0-9\-]+", candidate_name)
+            if len(chunk) >= 2
+        ]
+        if not chunks:
             return False
-        if profile is None:
-            return False
-        fund_name = profile.fund_name or ""
-        fund_type = profile.fund_type or ""
-        return "ETF联接" in fund_name or "联接" in fund_name or "QDII" in fund_type
+        return all(chunk in fund_name for chunk in chunks)
+
+    @staticmethod
+    def _current_report_period() -> str:
+        return latest_completed_quarter_period()

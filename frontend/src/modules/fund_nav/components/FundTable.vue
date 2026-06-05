@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { routeNames } from '../../../router/routeNames'
 import type { Fund, FundSortBy, SortOrder } from '../api/funds'
+import { statusClass as commonStatusClass } from '../utils/status'
+import { formatDateTime } from '../../../utils/datetime'
 
 const props = defineProps<{
   funds: Fund[]
@@ -55,11 +57,6 @@ function growthClass(value?: string | null) {
   return Number(value) >= 0 ? 'up' : 'down'
 }
 
-function shortDateTime(value?: string | null) {
-  if (!value) return '-'
-  return value.replace('T', ' ').slice(0, 16)
-}
-
 function statusText(fund: Fund) {
   if (!fund.latest_unit_nav) return '缺官方净值'
   if (!fund.latest_estimated_nav) return '待估算'
@@ -68,7 +65,7 @@ function statusText(fund: Fund) {
 }
 
 function statusClass(fund: Fund) {
-  return statusText(fund) === '正常' ? 'status-ok' : 'status-warn'
+  return commonStatusClass(statusText(fund))
 }
 
 function sortIndicator(sortBy: FundSortBy) {
@@ -125,7 +122,7 @@ function sortIndicator(sortBy: FundSortBy) {
           </td>
           <td>
             <strong class="metric">{{ fund.latest_estimated_nav ?? '-' }}</strong>
-            <span class="muted">{{ shortDateTime(fund.latest_estimate_time) }}</span>
+            <span class="muted">{{ formatDateTime(fund.latest_estimate_time) }}</span>
           </td>
           <td>
             <strong class="metric change-rate" :class="growthClass(fund.latest_estimated_growth_rate)">

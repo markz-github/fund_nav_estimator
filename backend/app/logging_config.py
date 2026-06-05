@@ -14,6 +14,7 @@ LOG_FORMAT = (
     "%(name)s: %(message)s"
 )
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+DEFAULT_LOG_LEVEL = logging.INFO
 
 
 class ShanghaiFormatter(logging.Formatter):
@@ -24,19 +25,36 @@ class ShanghaiFormatter(logging.Formatter):
         return log_time.isoformat(timespec="seconds")
 
 
-def configure_logging(log_dir: str, backup_days: int) -> None:
+def _parse_log_level(log_level: str) -> int:
+    level_name = str(log_level).strip().upper()
+    level = logging.getLevelName(level_name)
+    if isinstance(level, int):
+        return level
+    return DEFAULT_LOG_LEVEL
+
+
+def resolve_log_dir(log_dir: str) -> Path:
     log_path = Path(log_dir)
     if not log_path.is_absolute():
         log_path = Path.cwd() / log_path
     log_path.mkdir(parents=True, exist_ok=True)
+    return log_path
 
+
+def configure_logging(
+    log_dir: str,
+    backup_days: int,
+    log_level: str = "INFO",
+    log_file_name: str = "backend.log",
+    console: bool = True,
+) -> None:
+    log_path = resolve_log_dir(log_dir)
+
+    level = _parse_log_level(log_level)
     formatter = ShanghaiFormatter(LOG_FORMAT, DATE_FORMAT)
 
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-
     file_handler = TimedRotatingFileHandler(
-        log_path / "backend.log",
+        log_path / log_file_name,
         when="midnight",
         interval=1,
         backupCount=backup_days,
@@ -49,6 +67,15 @@ def configure_logging(log_dir: str, backup_days: int) -> None:
 
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
-    root_logger.setLevel(logging.INFO)
-    root_logger.addHandler(console_handler)
+    root_logger.setLevel(level)
+    if console:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)
+
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logger = logging.getLogger(logger_name)
+        logger.handlers.clear()
+        logger.setLevel(level)
+        logger.propagate = True

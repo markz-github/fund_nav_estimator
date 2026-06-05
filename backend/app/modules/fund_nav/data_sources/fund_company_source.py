@@ -6,6 +6,8 @@ import re
 
 import requests
 
+from app.modules.fund_nav.report_period import latest_completed_quarter_period
+
 
 class FundCompanySource:
     """Best-effort parser for fund company public product pages.
@@ -28,7 +30,7 @@ class FundCompanySource:
             return []
 
         try:
-            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
             if response.status_code >= 400:
                 return []
             response.encoding = response.apparent_encoding or "utf-8"
@@ -68,8 +70,4 @@ class FundCompanySource:
 
     @staticmethod
     def _current_report_period() -> str:
-        from datetime import date
-
-        today = date.today()
-        quarter = (today.month - 1) // 3 + 1
-        return f"{today.year}Q{quarter}"
+        return latest_completed_quarter_period()

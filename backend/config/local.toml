@@ -1,1 +1,2 @@
 # Local development uses all defaults from default_config.toml.
+scheduler_fund_enabled = false

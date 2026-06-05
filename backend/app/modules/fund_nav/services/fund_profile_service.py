@@ -83,7 +83,9 @@ class FundProfileService:
 
         for profile in profiles:
             existing = self.db.scalar(
-                select(FundProfile).where(FundProfile.fund_code == profile.fund_code)
+                select(FundProfile)
+                .where(FundProfile.fund_code == profile.fund_code)
+                .execution_options(include_deleted=True)
             )
             if existing is None:
                 existing = FundProfile(
@@ -95,6 +97,7 @@ class FundProfileService:
                 )
                 self.db.add(existing)
             else:
+                existing.is_deleted = 0
                 existing.fund_name = profile.fund_name
                 existing.fund_type = profile.fund_type
                 existing.source = source_name

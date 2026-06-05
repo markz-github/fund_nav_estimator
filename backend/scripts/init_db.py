@@ -22,7 +22,6 @@ def ensure_database_exists() -> None:
     settings = get_settings()
     server_engine = create_engine(settings.mysql_server_url, pool_pre_ping=True)
     database_name = quote_identifier(settings.mysql_database)
-
     with server_engine.begin() as connection:
         connection.execute(
             text(
@@ -35,12 +34,9 @@ def ensure_database_exists() -> None:
 def main() -> None:
     ensure_database_exists()
     Base.metadata.create_all(bind=engine)
-
-    inspector = inspect(engine)
-    table_names = inspector.get_table_names()
     print("Database initialized.")
     print("Created or verified tables:")
-    for table_name in table_names:
+    for table_name in inspect(engine).get_table_names():
         print(f"- {table_name}")
 
 

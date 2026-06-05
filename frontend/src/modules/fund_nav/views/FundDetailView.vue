@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
+import { formatDateTime } from '../../../utils/datetime'
 import { routeNames } from '../../../router/routeNames'
 import {
   getFund,
@@ -12,6 +13,7 @@ import {
 } from '../api/funds'
 
 const route = useRoute()
+const router = useRouter()
 const fundCode = computed(() => String(route.params.fundCode || ''))
 const fund = ref<Fund | null>(null)
 const holdings = ref<FundHolding[]>([])
@@ -104,6 +106,14 @@ async function refreshHoldings() {
   }
 }
 
+function goBack() {
+  if (window.history.state?.back) {
+    router.back()
+    return
+  }
+  router.push({ name: 'fund-list' })
+}
+
 onMounted(loadDetail)
 </script>
 
@@ -117,7 +127,10 @@ onMounted(loadDetail)
         <h1>{{ fund?.fund_name ?? fundCode }}</h1>
         <p class="subtitle">查看基金基础信息、官方净值和当前已维护的持仓情况。</p>
       </div>
-      <div class="code-badge">{{ fundCode }}</div>
+      <div class="section-actions">
+        <span class="code-badge">{{ fundCode }}</span>
+        <button class="ghost" type="button" @click="goBack">返回</button>
+      </div>
     </section>
 
     <p v-if="message" class="message">{{ message }}</p>
@@ -155,7 +168,7 @@ onMounted(loadDetail)
       </article>
       <article class="info-card">
         <span>估算时间</span>
-        <strong>{{ fund.latest_estimate_time ?? '-' }}</strong>
+        <strong>{{ formatDateTime(fund.latest_estimate_time) }}</strong>
       </article>
       <article class="info-card" :class="{ 'warning-card': fund.latest_coverage_ratio && Number(fund.latest_coverage_ratio) < 0.6 }">
         <span>有效覆盖率</span>

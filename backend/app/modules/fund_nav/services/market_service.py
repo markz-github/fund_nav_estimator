@@ -31,10 +31,12 @@ class MarketService:
 
         for snapshot in snapshots:
             quote = self.db.scalar(
-                select(MarketQuote).where(
+                select(MarketQuote)
+                .where(
                     MarketQuote.asset_code == snapshot.asset_code,
                     MarketQuote.quote_time == snapshot.quote_time,
                 )
+                .execution_options(include_deleted=True)
             )
             if quote is None:
                 quote = MarketQuote(
@@ -51,6 +53,7 @@ class MarketService:
                 )
                 self.db.add(quote)
             else:
+                quote.is_deleted = 0
                 quote.asset_name = snapshot.asset_name or quote.asset_name or asset_names.get(snapshot.asset_code)
                 quote.asset_type = snapshot.asset_type
                 quote.market = snapshot.market

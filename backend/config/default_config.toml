@@ -1,8 +1,9 @@
 app_name = "基金当日净值预测"
 debug = true
 log_dir = "logs"
+log_level = "INFO"
 log_backup_days = 5
-scheduler_enabled = false
+scheduler_fund_enabled = false
 
 cors_allow_origins = [
   "http://localhost:5173",
@@ -13,4 +14,4 @@ scheduler_refresh_nav_cron = "0 20 * * *"
 scheduler_refresh_profiles_cron = "10 19 * * *"
 scheduler_refresh_holdings_cron = "30 20 * * mon-fri"
 scheduler_refresh_quotes_cron = "0,30 9-15 * * mon-fri"
-scheduler_estimate_nav_cron = "5,35 9-15 * * mon-fri"
+scheduler_estimate_nav_cron = "0,30 9-15 * * mon-fri"

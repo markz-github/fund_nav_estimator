@@ -1,8 +1,9 @@
 debug = false
-scheduler_enabled = true
+scheduler_fund_enabled = true
 
 log_dir = "/data/test/logs"
 log_backup_days = 7
+log_level = "INFO"
 
 cors_allow_origins = [
   "http://localhost:5174",

@@ -7,6 +7,8 @@ import re
 
 import requests
 
+from app.modules.fund_nav.report_period import latest_completed_quarter_period
+
 
 class SinaFundSource:
     source_name = "sina_fund"
@@ -26,18 +28,22 @@ class SinaFundSource:
 
         text = self._flatten_text(payload)
         match = re.search(
-            r"(?P<code>[15]\d{5})[^，。；;\n]{0,40}"
+            r"(?P<code>(?<!\d)[15]\d{5}(?!\d))[^，。；;\n]{0,40}"
             r"(?P<name>[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]+ETF[\u4e00-\u9fa5A-Za-z0-9（）()\-\s]*)",
             text,
         )
-        if not match or match.group("code") == normalized_code:
+        if not match:
+            return []
+        asset_code = match.group("code")
+        asset_name = re.sub(r"\s+", "", match.group("name"))
+        if not self._is_valid_target_hint(normalized_code, asset_code, asset_name):
             return []
         return [
             {
                 "fund_code": normalized_code,
                 "report_period": self._current_report_period(),
-                "asset_code": match.group("code"),
-                "asset_name": re.sub(r"\s+", "", match.group("name")),
+                "asset_code": asset_code,
+                "asset_name": asset_name,
                 "asset_type": "etf",
                 "market": "CN",
                 "holding_ratio": Decimal("1"),
@@ -57,7 +63,7 @@ class SinaFundSource:
                     endpoint,
                     params={"symbol": fund_code},
                     headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn"},
-                    timeout=20,
+                    timeout=60,
                 )
                 if response.status_code >= 400:
                     continue
@@ -81,14 +87,15 @@ class SinaFundSource:
             if not code or not name or ratio is None:
                 continue
             asset_code = str(code).strip().zfill(5 if len(str(code).strip()) == 5 else 6)
+            asset_type = self._infer_asset_type(asset_code)
             holdings.append(
                 {
                     "fund_code": fund_code,
                     "report_period": str(self._first_value(row, ("date", "rq", "reportdate", "bgrq")) or "latest"),
                     "asset_code": asset_code,
                     "asset_name": str(name).strip(),
-                    "asset_type": "stock",
-                    "market": self._infer_stock_market(asset_code),
+                    "asset_type": asset_type,
+                    "market": self._infer_market(asset_code, asset_type),
                     "holding_ratio": self._percent(ratio),
                     "holding_value": self._optional_decimal(value),
                     "source": self.source_name,
@@ -170,9 +177,34 @@ class SinaFundSource:
         return None
 
     @staticmethod
-    def _current_report_period() -> str:
-        from datetime import date
+    def _infer_asset_type(asset_code: str) -> str:
+        if len(asset_code) == 6 and asset_code.startswith(("5", "1")):
+            return "etf"
+        return "stock"
 
-        today = date.today()
-        quarter = (today.month - 1) // 3 + 1
-        return f"{today.year}Q{quarter}"
+    @staticmethod
+    def _infer_market(asset_code: str, asset_type: str) -> str | None:
+        if asset_type == "etf":
+            return "CN"
+        return SinaFundSource._infer_stock_market(asset_code)
+
+    @staticmethod
+    def _is_valid_target_hint(fund_code: str, asset_code: str, asset_name: str) -> bool:
+        if asset_code == fund_code:
+            return False
+        if fund_code in asset_name:
+            return False
+        return not any(
+            marker in asset_name
+            for marker in (
+                "基金资产配置",
+                "基金基本概况",
+                "基金档案",
+                "天天基金",
+                "网站备案号",
+            )
+        )
+
+    @staticmethod
+    def _current_report_period() -> str:
+        return latest_completed_quarter_period()

@@ -32,6 +32,17 @@ class FundNavSnapshot:
 
 
 @dataclass(frozen=True)
+class EtfIopvSnapshot:
+    fund_code: str
+    asset_name: str | None
+    estimate_time: datetime
+    estimated_nav: Decimal
+    latest_price: Decimal | None
+    change_rate: Decimal | None
+    source: str = "akshare:etf_iopv"
+
+
+@dataclass(frozen=True)
 class MarketQuoteSnapshot:
     asset_code: str
     asset_name: str | None
@@ -127,22 +138,33 @@ class AkshareSource:
             normalizer=self._normalize_fund_code,
         )
         if row is None:
-            return self._get_latest_etf_nav_snapshot(normalized_code)
+            return self._get_latest_eastmoney_fund_nav_snapshot(normalized_code) or self._get_latest_etf_nav_snapshot(normalized_code)
 
         nav_date = self._extract_latest_nav_date_for_row(row, list(daily_df.columns))
         if nav_date is None:
-            return None
+            return self._get_latest_eastmoney_fund_nav_snapshot(normalized_code)
+
+        latest_table_date = self._extract_latest_nav_date(list(daily_df.columns))
+        fallback_snapshot: FundNavSnapshot | None = None
+        if latest_table_date > nav_date:
+            fallback_snapshot = self._get_latest_eastmoney_fund_nav_snapshot(normalized_code)
+            if fallback_snapshot is not None and fallback_snapshot.nav_date > nav_date:
+                return fallback_snapshot
+
         unit_nav_column = f"{nav_date.isoformat()}-单位净值"
         accumulated_nav_column = f"{nav_date.isoformat()}-累计净值"
 
-        return FundNavSnapshot(
-            fund_code=normalized_code,
-            nav_date=nav_date,
-            unit_nav=self._decimal(row[unit_nav_column]),
-            accumulated_nav=self._optional_decimal(row.get(accumulated_nav_column)),
-            daily_growth_rate=self._percent(row.get("日增长率")),
-            source=self.source_name,
-        )
+        try:
+            return FundNavSnapshot(
+                fund_code=normalized_code,
+                nav_date=nav_date,
+                unit_nav=self._decimal(row[unit_nav_column]),
+                accumulated_nav=self._optional_decimal(row.get(accumulated_nav_column)),
+                daily_growth_rate=self._percent(row.get("日增长率")),
+                source=self.source_name,
+            )
+        except Exception:
+            return fallback_snapshot or self._get_latest_eastmoney_fund_nav_snapshot(normalized_code)
 
     @classmethod
     def get_fund_daily_dataframe(cls):
@@ -210,6 +232,113 @@ class AkshareSource:
             source=source,
         )
 
+    def get_etf_iopv_snapshot(self, fund_code: str) -> EtfIopvSnapshot | None:
+        normalized_code = self._normalize_asset_code(fund_code, "CN")
+        if not normalized_code.startswith(("5", "1")):
+            return None
+        try:
+            etf_df = self._get_etf_spot_dataframe()
+        except Exception:
+            quote = self._get_eastmoney_etf_quote(normalized_code, datetime.now().replace(microsecond=0))
+            if quote is None or quote.latest_price is None:
+                return None
+            return EtfIopvSnapshot(
+                fund_code=normalized_code,
+                asset_name=quote.asset_name,
+                estimate_time=quote.quote_time,
+                estimated_nav=quote.latest_price,
+                latest_price=quote.latest_price,
+                change_rate=quote.change_rate,
+                source="eastmoney:etf_price_fallback",
+            )
+
+        row = self._first_row_by_normalized_code(
+            etf_df,
+            normalized_code,
+            code_column="代码",
+            normalizer=lambda value: self._normalize_asset_code(value, "CN"),
+        )
+        if row is None:
+            return None
+
+        iopv = self._optional_decimal(row.get("IOPV实时估值"))
+        source = "akshare:etf_iopv"
+        if iopv is None:
+            iopv = self._optional_decimal(row.get("最新价"))
+            source = "akshare:etf_price_fallback"
+        if iopv is None:
+            quote = self._get_eastmoney_etf_quote(normalized_code, datetime.now().replace(microsecond=0))
+            if quote is None or quote.latest_price is None:
+                return None
+            return EtfIopvSnapshot(
+                fund_code=normalized_code,
+                asset_name=quote.asset_name,
+                estimate_time=quote.quote_time,
+                estimated_nav=quote.latest_price,
+                latest_price=quote.latest_price,
+                change_rate=quote.change_rate,
+                source="eastmoney:etf_price_fallback",
+            )
+
+        return EtfIopvSnapshot(
+            fund_code=normalized_code,
+            asset_name=self._none_if_nan(row.get("名称")),
+            estimate_time=datetime.now().replace(microsecond=0),
+            estimated_nav=iopv,
+            latest_price=self._optional_decimal(row.get("最新价")),
+            change_rate=self._percent(row.get("涨跌幅")),
+            source=source,
+        )
+
+    def _get_latest_eastmoney_fund_nav_snapshot(self, fund_code: str) -> FundNavSnapshot | None:
+        try:
+            response = requests.get(
+                f"https://fund.eastmoney.com/{fund_code}.html",
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=30,
+            )
+            if response.status_code >= 400:
+                return None
+            response.encoding = response.apparent_encoding or "utf-8"
+        except requests.RequestException:
+            return None
+
+        text = re.sub(r"<[^>]+>", " ", response.text)
+        text = re.sub(r"\s+", " ", text)
+        today = date.today()
+        full_date_match = re.search(
+            r"单位净值\s*\((?P<date>\d{4}-\d{2}-\d{2})\)\s+"
+            r"(?P<unit>\d+(?:\.\d+)?)(?P<growth>[-+]?\d+(?:\.\d+)?)%"
+            r".{0,200}?累计净值\s+(?P<accumulated>\d+(?:\.\d+)?)",
+            text,
+        )
+        short_date_match = re.search(
+            r"(?P<month>\d{2})-(?P<day>\d{2})\s+"
+            r"(?P<unit>\d+(?:\.\d+)?)\s+"
+            r"(?P<accumulated>\d+(?:\.\d+)?)\s+"
+            r"(?P<growth>[-+]?\d+(?:\.\d+)?)%",
+            text,
+        )
+        if full_date_match:
+            nav_date = date.fromisoformat(full_date_match.group("date"))
+            match = full_date_match
+        elif short_date_match:
+            nav_date = date(today.year, int(short_date_match.group("month")), int(short_date_match.group("day")))
+            if nav_date > today:
+                nav_date = date(today.year - 1, nav_date.month, nav_date.day)
+            match = short_date_match
+        else:
+            return None
+
+        return FundNavSnapshot(
+            fund_code=fund_code,
+            nav_date=nav_date,
+            unit_nav=Decimal(match.group("unit")),
+            accumulated_nav=Decimal(match.group("accumulated")),
+            daily_growth_rate=Decimal(match.group("growth")) / Decimal("100"),
+            source=f"{self.source_name}:eastmoney_fund_page",
+        )
+
     @timed()
     def get_fund_holdings(self, fund_code: str) -> list[dict]:
         normalized_code = self._normalize_fund_code(fund_code)
@@ -222,14 +351,15 @@ class AkshareSource:
             holdings = []
             for _, row in holding_df.iterrows():
                 asset_code = self._normalize_holding_asset_code(row["股票代码"])
+                asset_type = self._infer_holding_asset_type(asset_code)
                 holdings.append(
                     {
                         "fund_code": normalized_code,
                         "report_period": self._parse_report_period(str(row["季度"])),
                         "asset_code": asset_code,
                         "asset_name": str(row["股票名称"]).strip(),
-                        "asset_type": "stock",
-                        "market": self._infer_stock_market(asset_code),
+                        "asset_type": asset_type,
+                        "market": self._infer_holding_market(asset_code, asset_type),
                         "holding_ratio": self._percent(row["占净值比例"]),
                         "holding_value": self._optional_decimal(row.get("持仓市值")),
                         "source": self.source_name,
@@ -324,7 +454,9 @@ class AkshareSource:
 
         missing_codes = target_codes - set(snapshots.keys())
         for asset_code in missing_codes:
-            fallback = self._get_sina_quote(asset_code, quote_time)
+            fallback = self._get_eastmoney_etf_quote(asset_code, quote_time)
+            if fallback is None:
+                fallback = self._get_sina_quote(asset_code, quote_time)
             if fallback is None:
                 fallback = self._get_latest_history_quote(asset_code, quote_time)
             if fallback is not None:
@@ -559,7 +691,7 @@ class AkshareSource:
         if value is None:
             return None
         text = str(value).strip()
-        if text == "" or text.lower() == "nan":
+        if text == "" or text in {"-", "--", "—"} or text.lower() == "nan":
             return None
         return text
 
@@ -606,6 +738,18 @@ class AkshareSource:
         if asset_code.startswith(("4", "8")):
             return "BJ"
         return None
+
+    @staticmethod
+    def _infer_holding_asset_type(asset_code: str) -> str:
+        if len(asset_code) == 6 and asset_code.startswith(("5", "1")):
+            return "etf"
+        return "stock"
+
+    @staticmethod
+    def _infer_holding_market(asset_code: str, asset_type: str) -> str | None:
+        if asset_type == "etf":
+            return "CN"
+        return AkshareSource._infer_stock_market(asset_code)
 
     @staticmethod
     def _normalize_asset_code(asset_code: str, market: str | None = None) -> str:
@@ -744,7 +888,7 @@ class AkshareSource:
                     "Referer": "https://finance.sina.com.cn",
                     "User-Agent": "Mozilla/5.0",
                 },
-                timeout=15,
+                timeout=60,
             )
             response.encoding = "gbk"
         except requests.RequestException:
@@ -787,6 +931,88 @@ class AkshareSource:
             prev_close=prev_close,
             change_rate=change_rate,
         )
+
+    def _get_eastmoney_etf_quote(
+        self, asset_code: str, quote_time: datetime
+    ) -> MarketQuoteSnapshot | None:
+        if not (asset_code.isdigit() and len(asset_code) == 6 and asset_code.startswith(("5", "1"))):
+            return None
+        market_id = "1" if asset_code.startswith("5") else "0"
+        try:
+            response = requests.get(
+                "https://push2.eastmoney.com/api/qt/stock/get",
+                params={
+                    "secid": f"{market_id}.{asset_code}",
+                    "fields": "f43,f58,f60,f86,f170",
+                },
+                headers={
+                    "Referer": "https://quote.eastmoney.com/",
+                    "User-Agent": "Mozilla/5.0",
+                },
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception:
+            logging.getLogger("app.performance").exception(
+                "fallback_quote source=eastmoney_etf asset_code=%s status=failed",
+                asset_code,
+            )
+            return None
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            return None
+
+        latest_price = self._eastmoney_price(data.get("f43"))
+        prev_close = self._eastmoney_price(data.get("f60"))
+        change_rate = self._eastmoney_change_rate(data.get("f170"))
+        if latest_price is None and change_rate is None:
+            return None
+
+        quote_datetime = quote_time
+        raw_time = data.get("f86")
+        try:
+            if raw_time not in (None, "-", ""):
+                quote_datetime = datetime.fromtimestamp(int(raw_time))
+        except (ValueError, OSError, OverflowError):
+            pass
+
+        logging.getLogger("app.performance").info(
+            "fallback_quote source=eastmoney_etf asset_code=%s status=success",
+            asset_code,
+        )
+        return MarketQuoteSnapshot(
+            asset_code=asset_code,
+            asset_name=self._none_if_nan(data.get("f58")),
+            asset_type="etf",
+            market="CN",
+            trade_date=quote_datetime.date(),
+            quote_time=quote_datetime,
+            latest_price=latest_price,
+            prev_close=prev_close,
+            change_rate=change_rate,
+        )
+
+    @classmethod
+    def _eastmoney_price(cls, value) -> Decimal | None:
+        try:
+            decimal_value = cls._optional_decimal(value)
+        except ValueError:
+            return None
+        if decimal_value is None:
+            return None
+        return decimal_value / Decimal("1000")
+
+    @classmethod
+    def _eastmoney_change_rate(cls, value) -> Decimal | None:
+        try:
+            decimal_value = cls._optional_decimal(value)
+        except ValueError:
+            return None
+        if decimal_value is None:
+            return None
+        return decimal_value / Decimal("10000")
 
     @staticmethod
     def _sina_asset_code(asset_code: str) -> str | None:

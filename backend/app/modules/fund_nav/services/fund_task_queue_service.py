@@ -192,9 +192,14 @@ class FundTaskQueueService:
             result = EstimateService(self.db).run_estimates(fund_codes)
             return ("success" if not result["skipped_count"] else "partial"), self._estimate_message(result)
         if task.task_type == "refresh_quote_estimate":
+            nav_success = sum(FundService(self.db).refresh_nav(code) is not None for code in self._codes(fund_codes))
+            holding_total = sum(len(HoldingService(self.db).refresh_holdings(code)) for code in self._codes(fund_codes))
             quotes = MarketService(self.db).refresh_quotes_for_holdings(fund_codes)
             result = EstimateService(self.db).run_estimates(fund_codes)
-            return ("success" if quotes and not result["skipped_count"] else "partial"), f"quotes={len(quotes)};{self._estimate_message(result)}"
+            return (
+                "success" if nav_success and holding_total and quotes and not result["skipped_count"] else "partial",
+                f"nav={nav_success};holdings={holding_total};quotes={len(quotes)};{self._estimate_message(result)}",
+            )
         if task.task_type == "refresh_index_mapping":
             refreshed = FundIndexMappingService(self.db).refresh_mapping(payload["fund_code"])
             return ("success" if refreshed else "partial"), f"fund_code={payload['fund_code']};refreshed={refreshed is not None}"

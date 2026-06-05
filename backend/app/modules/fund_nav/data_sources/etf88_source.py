@@ -76,7 +76,7 @@ class Etf88Source:
                 response = requests.get(
                     url,
                     headers={"User-Agent": "Mozilla/5.0"},
-                    timeout=20,
+                    timeout=60,
                 )
                 if response.status_code >= 400:
                     continue
