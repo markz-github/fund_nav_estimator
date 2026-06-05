@@ -57,7 +57,8 @@ class HoldingService:
         normalized_code = self.source._normalize_fund_code(fund_code)
         snapshots = self._collect_holdings(normalized_code)
         replace_all_periods = False
-        if self._should_use_target_fund_holdings(normalized_code, snapshots):
+        use_target_fund_holdings = self._should_use_target_fund_holdings(normalized_code, snapshots)
+        if use_target_fund_holdings:
             target_fund_snapshots = self._collect_target_fund_holdings(normalized_code)
             if target_fund_snapshots:
                 snapshots = target_fund_snapshots
@@ -67,6 +68,8 @@ class HoldingService:
                 if inferred_target is not None:
                     snapshots = [inferred_target]
                     replace_all_periods = True
+        else:
+            self._delete_target_hint_holdings(normalized_code)
         snapshots = self._deduplicate_snapshots(snapshots)
         refreshed: list[FundHolding] = []
         self._delete_stale_holdings(normalized_code, snapshots, replace_all_periods)
@@ -130,6 +133,16 @@ class HoldingService:
                 )
                 .values(is_deleted=1)
             )
+
+    def _delete_target_hint_holdings(self, fund_code: str) -> None:
+        self.db.execute(
+            update(FundHolding)
+            .where(
+                FundHolding.fund_code == fund_code,
+                FundHolding.source.like("%:target_hint"),
+            )
+            .values(is_deleted=1)
+        )
 
     @timed()
     def _collect_holdings(self, fund_code: str) -> list[dict]:

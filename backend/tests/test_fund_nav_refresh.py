@@ -345,6 +345,20 @@ class FundNavRefreshTests(unittest.TestCase):
                 fund_type="QDII",
             )
         )
+        db.add(
+            FundHolding(
+                id=1,
+                fund_code="017436",
+                report_period="2026Q2",
+                asset_code="159981",
+                asset_name="工ETF建信1",
+                asset_type="etf",
+                market="CN",
+                holding_ratio=Decimal("1"),
+                holding_value=None,
+                source="public_web:target_hint",
+            )
+        )
         db.commit()
 
         try:
@@ -358,10 +372,16 @@ class FundNavRefreshTests(unittest.TestCase):
                     holding_sources=[source],
                     target_fund_sources=[target_source],
                 ).refresh_holdings("017436")
+                visible_holdings = db.scalars(
+                    select(FundHolding)
+                    .where(FundHolding.fund_code == "017436")
+                    .order_by(FundHolding.report_period.desc(), FundHolding.holding_ratio.desc())
+                ).all()
         finally:
             db.close()
 
         self.assertEqual(refreshed, [])
+        self.assertEqual(visible_holdings, [])
         target_source.get_target_fund_holdings.assert_not_called()
 
     def test_open_fund_daily_table_is_cached_for_repeated_refreshes(self) -> None:
