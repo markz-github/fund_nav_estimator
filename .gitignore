@@ -2,6 +2,7 @@
 backend/.venv/
 backend/.tmp/
 backend/logs/
+backend/.env
 .runtime/
 __pycache__/
 *.pyc
