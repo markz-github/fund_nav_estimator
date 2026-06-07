@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import logging
 
 from sqlalchemy import Select, asc, desc, func, select
 from sqlalchemy.orm import Session
@@ -13,6 +14,9 @@ from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
+
+
+logger = logging.getLogger("app.fund_nav")
 
 
 class FundService:
@@ -126,11 +130,45 @@ class FundService:
         normalized_code = self.source._normalize_fund_code(fund_code)
         latest_nav = self.db.scalar(self._latest_nav_query(normalized_code))
         if latest_nav is not None and self._is_fresh_local_nav(latest_nav):
+            logger.info(
+                "refresh_nav skipped_fresh fund_code=%s local_date=%s local_source=%s local_growth=%s",
+                normalized_code,
+                latest_nav.nav_date,
+                latest_nav.source,
+                latest_nav.daily_growth_rate,
+            )
             return latest_nav
 
         snapshot = self.source.get_latest_fund_nav(normalized_code)
         if snapshot is None:
+            logger.info(
+                "refresh_nav source_empty fund_code=%s local_date=%s local_source=%s",
+                normalized_code,
+                latest_nav.nav_date if latest_nav else None,
+                latest_nav.source if latest_nav else None,
+            )
             return latest_nav
+        logger.info(
+            "refresh_nav source_snapshot fund_code=%s snapshot_date=%s snapshot_source=%s snapshot_growth=%s local_date=%s local_source=%s",
+            normalized_code,
+            snapshot.nav_date,
+            snapshot.source,
+            snapshot.daily_growth_rate,
+            latest_nav.nav_date if latest_nav else None,
+            latest_nav.source if latest_nav else None,
+        )
+        daily_growth_rate = snapshot.daily_growth_rate
+        if daily_growth_rate is None:
+            previous_nav = self.db.scalar(self._previous_nav_query(normalized_code, snapshot.nav_date))
+            if previous_nav is not None and previous_nav.unit_nav:
+                daily_growth_rate = (snapshot.unit_nav - previous_nav.unit_nav) / previous_nav.unit_nav
+                logger.info(
+                    "refresh_nav calculated_growth fund_code=%s snapshot_date=%s previous_date=%s growth=%s",
+                    normalized_code,
+                    snapshot.nav_date,
+                    previous_nav.nav_date,
+                    daily_growth_rate,
+                )
 
         nav = self.db.scalar(
             select(FundNav)
@@ -165,11 +203,18 @@ class FundService:
         nav.is_deleted = 0
         nav.unit_nav = snapshot.unit_nav
         nav.accumulated_nav = snapshot.accumulated_nav
-        nav.daily_growth_rate = snapshot.daily_growth_rate
+        nav.daily_growth_rate = daily_growth_rate
         nav.source = snapshot.source
 
         self.db.commit()
         self.db.refresh(nav)
+        logger.info(
+            "refresh_nav saved fund_code=%s nav_date=%s source=%s growth=%s",
+            normalized_code,
+            nav.nav_date,
+            nav.source,
+            nav.daily_growth_rate,
+        )
         return nav
 
     def _fund_with_latest_data(self, fund: Fund) -> dict:
@@ -203,6 +248,15 @@ class FundService:
         return (
             select(FundNav)
             .where(FundNav.fund_code == fund_code)
+            .order_by(FundNav.nav_date.desc())
+            .limit(1)
+        )
+
+    @staticmethod
+    def _previous_nav_query(fund_code: str, nav_date: date) -> Select[tuple[FundNav]]:
+        return (
+            select(FundNav)
+            .where(FundNav.fund_code == fund_code, FundNav.nav_date < nav_date)
             .order_by(FundNav.nav_date.desc())
             .limit(1)
         )
