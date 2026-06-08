@@ -21,6 +21,7 @@ from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, EtfI
 from app.modules.fund_nav.data_sources.eastmoney_source import EastmoneySource
 from app.database import Base
 from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.market_quote import MarketQuote
@@ -93,6 +94,47 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(restored.id, created.id)
         self.assertEqual(restored.is_deleted, 0)
         self.assertEqual(restored.remark, "restored")
+
+    def test_list_funds_includes_latest_estimate_date(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+
+        db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="000001",
+                nav_date=date(2026, 6, 5),
+                unit_nav=Decimal("1.0000"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("0.0100"),
+                source="test",
+            )
+        )
+        db.add(
+            FundEstimate(
+                id=1,
+                fund_code="000001",
+                estimate_date=date(2026, 6, 8),
+                estimate_time=datetime(2026, 6, 8, 14, 30),
+                base_nav_date=date(2026, 6, 5),
+                base_unit_nav=Decimal("1.0000"),
+                estimated_growth_rate=Decimal("0.0123"),
+                estimated_nav=Decimal("1.0123"),
+                coverage_ratio=Decimal("0.9000"),
+                source_snapshot="test",
+            )
+        )
+        db.commit()
+
+        try:
+            funds = FundService(db).list_funds()
+        finally:
+            db.close()
+
+        self.assertEqual(funds[0]["latest_estimate_date"], date(2026, 6, 8))
 
     def test_refresh_nav_replaces_legacy_today_etf_spot_cache(self) -> None:
         engine = create_engine("sqlite:///:memory:")

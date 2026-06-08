@@ -239,6 +239,7 @@ class FundService:
             "latest_estimated_growth_rate": (
                 latest_estimate.estimated_growth_rate if latest_estimate else None
             ),
+            "latest_estimate_date": latest_estimate.estimate_date if latest_estimate else None,
             "latest_estimate_time": latest_estimate.estimate_time if latest_estimate else None,
             "latest_coverage_ratio": latest_estimate.coverage_ratio if latest_estimate else None,
         }

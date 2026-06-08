@@ -52,8 +52,17 @@ function growthPercent(value?: string | null) {
   return `${sign}${percentValue.toFixed(2)}%`
 }
 
-function growthClass(value?: string | null) {
+function isStaleEstimate(fund: Fund) {
+  return Boolean(
+    fund.latest_estimate_date
+    && fund.latest_nav_date
+    && fund.latest_estimate_date === fund.latest_nav_date,
+  )
+}
+
+function growthClass(value?: string | null, stale = false) {
   if (!value) return ''
+  if (stale) return 'stale'
   return Number(value) >= 0 ? 'up' : 'down'
 }
 
@@ -125,7 +134,7 @@ function sortIndicator(sortBy: FundSortBy) {
             <span class="muted">{{ formatDateTime(fund.latest_estimate_time) }}</span>
           </td>
           <td>
-            <strong class="metric change-rate" :class="growthClass(fund.latest_estimated_growth_rate)">
+            <strong class="metric change-rate" :class="growthClass(fund.latest_estimated_growth_rate, isStaleEstimate(fund))">
               {{ growthPercent(fund.latest_estimated_growth_rate) }}
             </strong>
           </td>
