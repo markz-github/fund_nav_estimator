@@ -930,9 +930,10 @@ tbody tr {
 .nav-chart-panel {
   display: grid;
   gap: 18px;
+  overflow: visible;
   border: 1px solid rgba(36, 63, 47, 0.16);
   border-radius: 8px;
-  padding: 18px;
+  padding: 18px 22px 18px 18px;
   margin-bottom: 34px;
   background: rgba(255, 255, 255, 0.82);
 }
@@ -964,6 +965,8 @@ tbody tr {
 .nav-chart {
   width: 100%;
   min-height: 320px;
+  box-sizing: border-box;
+  overflow: visible;
 }
 
 .empty-chart {
