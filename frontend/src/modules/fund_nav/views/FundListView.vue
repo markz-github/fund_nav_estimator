@@ -5,6 +5,7 @@ import FundTable from '../components/FundTable.vue'
 import { apiErrorMessage, isRequestTimeout } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
 import { refreshQuotesAndRunEstimates } from '../api/estimates'
+import { listTaskLogs, type TaskLog } from '../operations/api/operations'
 import {
   createFund,
   deleteFund,
@@ -128,6 +129,13 @@ async function refreshNav(code: string) {
   try {
     const result = await refreshFundNav(code)
     message.value = taskSubmitMessage(result)
+    const task = await waitForTaskLog(result.task_log_id)
+    if (task) {
+      message.value = task.status === 'success'
+        ? `任务 ${result.task_id} 已完成，列表已更新。`
+        : `任务 ${result.task_id} ${task.status_label}，列表已更新。`
+      await loadFunds({ keepMessage: true })
+    }
   } catch (error) {
     message.value = apiErrorMessage(error, '官方净值刷新失败，请查看运行状态。')
   }
@@ -143,6 +151,13 @@ async function refreshSelectedNavs() {
   try {
     const result = await refreshFundNavs(targetCodes)
     message.value = taskSubmitMessage(result)
+    const task = await waitForTaskLog(result.task_log_id, 90)
+    if (task) {
+      message.value = task.status === 'success'
+        ? `任务 ${result.task_id} 已完成，列表已更新。`
+        : `任务 ${result.task_id} ${task.status_label}，列表已更新。`
+      await loadFunds({ keepMessage: true })
+    }
   } catch (error) {
     message.value = apiErrorMessage(error, '批量更新官方净值失败，请查看运行状态。')
   } finally {
@@ -171,6 +186,20 @@ function taskSubmitMessage(result: { reused: boolean; task_id: number }) {
   return result.reused
     ? `相同任务已在等待执行，任务 ${result.task_id}。`
     : `任务 ${result.task_id} 已提交，可在运行状态查看进度。`
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function waitForTaskLog(taskLogId: number, maxAttempts = 30): Promise<TaskLog | null> {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const page = await listTaskLogs('fund_nav', { page: 1, pageSize: 20 })
+    const task = page.items.find((item) => item.id === taskLogId)
+    if (task && ['success', 'failed', 'partial'].includes(task.status)) return task
+    await sleep(2000)
+  }
+  return null
 }
 
 onMounted(loadFunds)

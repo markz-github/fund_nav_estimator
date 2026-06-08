@@ -155,7 +155,7 @@ class AkshareSource:
         accumulated_nav_column = f"{nav_date.isoformat()}-累计净值"
 
         try:
-            return FundNavSnapshot(
+            snapshot = FundNavSnapshot(
                 fund_code=normalized_code,
                 nav_date=nav_date,
                 unit_nav=self._decimal(row[unit_nav_column]),
@@ -163,6 +163,11 @@ class AkshareSource:
                 daily_growth_rate=self._percent(row.get("日增长率")),
                 source=self.source_name,
             )
+            if snapshot.daily_growth_rate is None:
+                fallback_snapshot = fallback_snapshot or self._get_latest_eastmoney_fund_nav_snapshot(normalized_code)
+                if fallback_snapshot is not None and fallback_snapshot.nav_date == snapshot.nav_date:
+                    return fallback_snapshot
+            return snapshot
         except Exception:
             return fallback_snapshot or self._get_latest_eastmoney_fund_nav_snapshot(normalized_code)
 

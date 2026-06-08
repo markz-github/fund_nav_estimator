@@ -202,6 +202,55 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(nav.unit_nav, Decimal("1.2345"))
         source.get_latest_fund_nav.assert_called_once_with("515450")
 
+    def test_refresh_nav_calculates_growth_rate_when_source_missing_growth(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        source.get_latest_fund_nav.return_value = FundNavSnapshot(
+            fund_code="017436",
+            nav_date=date(2026, 6, 4),
+            unit_nav=Decimal("2.5059"),
+            accumulated_nav=Decimal("2.5059"),
+            daily_growth_rate=None,
+            source="akshare",
+        )
+
+        db.add_all(
+            [
+                FundNav(
+                    id=1,
+                    fund_code="017436",
+                    nav_date=date(2026, 6, 3),
+                    unit_nav=Decimal("2.5043"),
+                    accumulated_nav=Decimal("2.5043"),
+                    daily_growth_rate=Decimal("-0.0086"),
+                    source="akshare:eastmoney_fund_page",
+                ),
+                FundNav(
+                    id=2,
+                    fund_code="017436",
+                    nav_date=date(2026, 6, 4),
+                    unit_nav=Decimal("2.5059"),
+                    accumulated_nav=Decimal("2.5059"),
+                    daily_growth_rate=None,
+                    source="akshare",
+                ),
+            ]
+        )
+        db.commit()
+
+        try:
+            nav = FundService(db, source).refresh_nav("017436")
+        finally:
+            db.close()
+
+        self.assertIsNotNone(nav)
+        self.assertEqual(nav.nav_date, date(2026, 6, 4))
+        self.assertEqual(nav.daily_growth_rate, Decimal("0.000639"))
+
     def test_refresh_nav_refetches_fresh_local_nav_without_growth_rate(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
@@ -592,6 +641,38 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIsNotNone(snapshot)
         self.assertEqual(snapshot.nav_date, date(2026, 6, 3))
         self.assertEqual(snapshot.unit_nav, Decimal("2.5043"))
+        self.assertEqual(snapshot.source, "akshare:eastmoney_fund_page")
+
+    def test_qdii_nav_fills_missing_growth_rate_from_eastmoney_page(self) -> None:
+        daily_df = pd.DataFrame(
+            [
+                {
+                    "基金代码": "017436",
+                    "2026-06-04-单位净值": "2.5059",
+                    "2026-06-04-累计净值": "2.5059",
+                    "日增长率": "-",
+                }
+            ]
+        )
+        response = Mock()
+        response.status_code = 200
+        response.apparent_encoding = "utf-8"
+        response.text = "单位净值 (2026-06-04) 2.5059+0.06% 累计净值 2.5059"
+
+        with (
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df),
+            patch("app.modules.fund_nav.data_sources.akshare_source.requests.get", return_value=response),
+            patch("app.modules.fund_nav.data_sources.akshare_source.date") as mocked_date,
+        ):
+            mocked_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            mocked_date.today.return_value = date(2026, 6, 7)
+            mocked_date.fromisoformat.side_effect = date.fromisoformat
+            snapshot = AkshareSource().get_latest_fund_nav("017436")
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.nav_date, date(2026, 6, 4))
+        self.assertEqual(snapshot.unit_nav, Decimal("2.5059"))
+        self.assertEqual(snapshot.daily_growth_rate, Decimal("0.0006"))
         self.assertEqual(snapshot.source, "akshare:eastmoney_fund_page")
 
     def test_five_prefix_etf_nav_falls_back_to_eastmoney_page_when_tables_miss(self) -> None:
