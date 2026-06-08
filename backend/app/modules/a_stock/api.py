@@ -31,6 +31,11 @@ def get_history_sync_status(
     return AStockHistorySyncService().status(start_date=start_date, end_date=end_date)
 
 
+@router.post("/history-sync/stop", status_code=status.HTTP_202_ACCEPTED)
+def stop_history_sync() -> dict[str, object]:
+    return AStockHistorySyncService().stop()
+
+
 @router.get("/history-sync/tasks", response_model=AStockHistoryTaskListOut)
 def list_history_sync_tasks() -> dict[str, object]:
     return {"tasks": AStockHistorySyncService().list_tasks()}

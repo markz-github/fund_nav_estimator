@@ -4,12 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
 import {
-  getHistorySyncTask,
-  getHistorySyncStatus,
-  rerunHistorySyncTask,
-  stopHistorySync,
-  type HistorySyncTaskDetail,
-  type ProgressItem,
+  getFundNavHistorySyncStatus,
+  getFundNavHistorySyncTask,
+  rerunFundNavHistorySyncTask,
+  stopFundNavHistorySync,
+  type FundNavHistoryProgressItem,
+  type FundNavHistoryTaskDetail,
 } from '../api/history'
 
 const route = useRoute()
@@ -18,7 +18,7 @@ const loading = ref(false)
 const rerunning = ref(false)
 const stopping = ref(false)
 const message = ref('')
-const task = ref<HistorySyncTaskDetail | null>(null)
+const task = ref<FundNavHistoryTaskDetail | null>(null)
 const syncRunning = ref(false)
 let refreshTimer: number | undefined
 
@@ -63,14 +63,14 @@ function statusText(value?: string | null) {
   return value ? map[value] ?? value : '-'
 }
 
-function itemName(item: ProgressItem) {
-  return item.stock_name ? `${item.symbol} ${item.stock_name}` : item.symbol
+function fundName(item: FundNavHistoryProgressItem) {
+  return item.fund_name ? `${item.fund_code} ${item.fund_name}` : item.fund_code
 }
 
 async function refreshTask() {
   loading.value = true
   try {
-    const [nextTask, nextStatus] = await Promise.all([getHistorySyncTask(taskId.value), getHistorySyncStatus()])
+    const [nextTask, nextStatus] = await Promise.all([getFundNavHistorySyncTask(taskId.value), getFundNavHistorySyncStatus()])
     task.value = nextTask
     syncRunning.value = nextStatus.running
     updateAutoRefresh()
@@ -93,15 +93,14 @@ function updateAutoRefresh() {
 }
 
 async function rerunTask() {
-  if (!task.value) return
-  if (syncRunning.value) return
+  if (!task.value || syncRunning.value) return
   rerunning.value = true
   message.value = ''
   try {
-    const result = await rerunHistorySyncTask(task.value.id)
+    const result = await rerunFundNavHistorySyncTask(task.value.id)
     message.value = result.message
     if (result.task_id) {
-      await router.push({ name: routeNames.aStockHistoryTask, params: { taskId: result.task_id } })
+      await router.push({ name: routeNames.fundNavHistoryTask, params: { taskId: result.task_id } })
     } else {
       await refreshTask()
     }
@@ -117,11 +116,11 @@ async function stopSync() {
   stopping.value = true
   message.value = ''
   try {
-    const result = await stopHistorySync()
+    const result = await stopFundNavHistorySync()
     message.value = result.message
     await refreshTask()
   } catch (error) {
-    message.value = apiErrorMessage(error, 'A 股历史行情同步任务停止失败。')
+    message.value = apiErrorMessage(error, '基金历史净值同步任务停止失败。')
   } finally {
     stopping.value = false
   }
@@ -139,12 +138,12 @@ onUnmounted(() => {
   <main class="page-shell">
     <section class="detail-hero">
       <div>
-        <p class="eyebrow">A-Share Task</p>
-        <h1>同步任务详情</h1>
-        <p class="subtitle">查看单次 A 股历史行情同步任务的处理明细。</p>
+        <p class="eyebrow">Fund NAV Task</p>
+        <h1>历史净值任务详情</h1>
+        <p class="subtitle">查看单次基金历史净值同步任务的处理明细。</p>
       </div>
       <div class="quick-actions">
-        <button class="ghost" type="button" @click="router.push({ name: routeNames.aStockHistory })">返回列表</button>
+        <button class="ghost" type="button" @click="router.push({ name: routeNames.fundNavHistory })">返回列表</button>
         <button class="ghost" :disabled="loading" type="button" @click="refreshTask">
           {{ loading ? '刷新中...' : '刷新' }}
         </button>
@@ -205,17 +204,17 @@ onUnmounted(() => {
       <table class="a-stock-table">
         <thead>
           <tr>
-            <th>股票</th>
+            <th>基金</th>
             <th>开始时间</th>
             <th>耗时</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!task?.running_items.length">
-            <td colspan="3">暂无正在处理的股票。</td>
+            <td colspan="3">暂无正在处理的基金。</td>
           </tr>
-          <tr v-for="item in task?.running_items" :key="item.symbol">
-            <td>{{ itemName(item) }}</td>
+          <tr v-for="item in task?.running_items" :key="item.fund_code">
+            <td>{{ fundName(item) }}</td>
             <td>{{ formatDateTime(item.started_at) }}</td>
             <td>{{ durationText(item.duration_seconds) }}</td>
           </tr>
@@ -234,7 +233,7 @@ onUnmounted(() => {
       <table class="a-stock-table">
         <thead>
           <tr>
-            <th>股票</th>
+            <th>基金</th>
             <th>完成时间</th>
             <th>耗时</th>
           </tr>
@@ -243,8 +242,8 @@ onUnmounted(() => {
           <tr v-if="!task?.latest_done.length">
             <td colspan="3">暂无完成记录。</td>
           </tr>
-          <tr v-for="item in task?.latest_done" :key="item.symbol">
-            <td>{{ itemName(item) }}</td>
+          <tr v-for="item in task?.latest_done" :key="item.fund_code">
+            <td>{{ fundName(item) }}</td>
             <td>{{ formatDateTime(item.finished_at) }}</td>
             <td>{{ durationText(item.duration_seconds) }}</td>
           </tr>
@@ -263,14 +262,14 @@ onUnmounted(() => {
       <table class="a-stock-table">
         <thead>
           <tr>
-            <th>股票</th>
+            <th>基金</th>
             <th>完成时间</th>
             <th>错误</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in task.failed_items" :key="item.symbol">
-            <td>{{ itemName(item) }}</td>
+          <tr v-for="item in task.failed_items" :key="item.fund_code">
+            <td>{{ fundName(item) }}</td>
             <td>{{ formatDateTime(item.finished_at) }}</td>
             <td class="log-text-preview">{{ item.error ?? '-' }}</td>
           </tr>

@@ -14,6 +14,10 @@ from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.market_quote import MarketQuote
+from app.modules.fund_nav.services.asset_valuation_config_service import (
+    AssetValuationConfigMap,
+    load_asset_valuation_config_map,
+)
 from app.utils.performance import timed
 
 
@@ -36,13 +40,21 @@ class HoldingWeightedEstimateStrategy(EstimateStrategy):
         if not holdings:
             return "missing_holdings"
 
-        latest_quotes = self.service._latest_quotes([holding.asset_code for holding in holdings])
+        valuation_configs = self.service._asset_valuation_configs()
+        valuable_holdings = [
+            holding
+            for holding in holdings
+            if valuation_configs.resolve(holding.asset_type, holding.market).realtime_valuable
+        ]
+        latest_quotes = self.service._latest_quotes([holding.asset_code for holding in valuable_holdings])
         weighted_growth = Decimal("0")
         covered_ratio = Decimal("0")
         total_ratio = Decimal("0")
 
         for holding in holdings:
             total_ratio += holding.holding_ratio
+            if not valuation_configs.resolve(holding.asset_type, holding.market).realtime_valuable:
+                continue
             quote = latest_quotes.get(holding.asset_code)
             if quote is None or quote.change_rate is None:
                 continue
@@ -118,6 +130,7 @@ class EstimateService:
     def __init__(self, db: Session, source: AkshareSource | None = None) -> None:
         self.db = db
         self.source = source or AkshareSource()
+        self._valuation_configs: AssetValuationConfigMap | None = None
 
     @timed()
     def latest_all(self) -> list[FundEstimate]:
@@ -198,6 +211,11 @@ class EstimateService:
         if self.is_exchange_traded_fund(fund):
             return EtfIopvEstimateStrategy(self)
         return HoldingWeightedEstimateStrategy(self)
+
+    def _asset_valuation_configs(self) -> AssetValuationConfigMap:
+        if self._valuation_configs is None:
+            self._valuation_configs = load_asset_valuation_config_map(self.db)
+        return self._valuation_configs
 
     @staticmethod
     def is_exchange_traded_fund(fund: Fund) -> bool:

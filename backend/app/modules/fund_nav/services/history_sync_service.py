@@ -13,15 +13,15 @@ from sqlalchemy.engine import Engine
 
 from app.config import get_settings
 from app.logging_config import resolve_log_dir
-from app.modules.a_stock.schemas import AStockHistorySyncRequest
+from app.modules.fund_nav.schemas.history import FundNavHistorySyncRequest
 
 
-BACKEND_DIR = Path(__file__).resolve().parents[3]
+BACKEND_DIR = Path(__file__).resolve().parents[4]
 PROJECT_ROOT = BACKEND_DIR.parent
-SCRIPT_PATH = BACKEND_DIR / "scripts" / "sync_a_stock_daily_bars.py"
-PID_FILE = PROJECT_ROOT / ".runtime" / "a_stock_history_sync.json"
-PROGRESS_TABLE = "stock_daily_bars_sync_progress"
-TASK_TABLE = "a_stock_history_sync_tasks"
+SCRIPT_PATH = BACKEND_DIR / "scripts" / "sync_fund_nav_history.py"
+PID_FILE = PROJECT_ROOT / ".runtime" / "fund_nav_history_sync.json"
+TASK_TABLE = "fund_nav_history_sync_tasks"
+PROGRESS_TABLE = "fund_nav_history_sync_progress"
 TERMINAL_TASK_STATUSES = {"success", "partial", "failed", "skipped", "stopped"}
 
 
@@ -29,7 +29,7 @@ def ymd(value: date) -> str:
     return value.strftime("%Y%m%d")
 
 
-def date_range_from_request(payload: AStockHistorySyncRequest) -> tuple[str, str]:
+def date_range_from_request(payload: FundNavHistorySyncRequest) -> tuple[str, str]:
     today = date.today()
     if payload.mode == "recent_days":
         days = payload.recent_days or 1
@@ -37,7 +37,7 @@ def date_range_from_request(payload: AStockHistorySyncRequest) -> tuple[str, str
     return ymd(payload.start_date or today), ymd(payload.end_date or today)
 
 
-class AStockHistorySyncService:
+class FundNavHistorySyncService:
     _start_lock = Lock()
 
     def __init__(self) -> None:
@@ -46,7 +46,18 @@ class AStockHistorySyncService:
     def engine(self) -> Engine:
         return create_engine(self.settings.a_stock_database_url, pool_pre_ping=True)
 
-    def start(self, payload: AStockHistorySyncRequest) -> dict[str, object]:
+    def ensure_database_exists(self) -> None:
+        server_engine = create_engine(self.settings.a_stock_mysql_server_url, pool_pre_ping=True)
+        database_name = f"`{self.settings.a_stock_mysql_database.replace('`', '``')}`"
+        with server_engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"CREATE DATABASE IF NOT EXISTS {database_name} "
+                    "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                )
+            )
+
+    def start(self, payload: FundNavHistorySyncRequest) -> dict[str, object]:
         with self._start_lock:
             existing = self.current_process()
             start_date, end_date = date_range_from_request(payload)
@@ -60,7 +71,7 @@ class AStockHistorySyncService:
                     "workers": existing.get("workers") or payload.workers,
                     "stdout_log": existing.get("stdout_log") or "",
                     "stderr_log": existing.get("stderr_log") or "",
-                    "message": "A 股历史行情同步任务已在运行。",
+                    "message": "基金历史净值同步任务已在运行。",
                 }
 
             task_id = self._create_task(start_date, end_date, payload.workers)
@@ -69,7 +80,7 @@ class AStockHistorySyncService:
                 start_date=start_date,
                 end_date=end_date,
                 workers=payload.workers,
-                message="A 股历史行情同步任务已启动。",
+                message="基金历史净值同步任务已启动。",
             )
 
     def rerun_task(self, task_id: int) -> dict[str, object]:
@@ -88,29 +99,26 @@ class AStockHistorySyncService:
                     "workers": existing.get("workers") or task["workers"],
                     "stdout_log": existing.get("stdout_log") or "",
                     "stderr_log": existing.get("stderr_log") or "",
-                    "message": "A 股历史行情同步任务已在运行。",
+                    "message": "基金历史净值同步任务已在运行。",
                 }
             return self._restart_task(task)
-
-    def rerun_failed(self, task_id: int) -> dict[str, object]:
-        return self.rerun_task(task_id)
 
     def stop(self) -> dict[str, object]:
         with self._start_lock:
             process = self.current_process()
             if not process["running"] or process.get("pid") is None:
-                return {"stopped": False, "message": "当前没有正在运行的 A 股历史行情同步任务。"}
+                return {"stopped": False, "message": "当前没有正在运行的基金历史净值同步任务。"}
             pid = int(process["pid"])
             task_id = process.get("task_id") if isinstance(process.get("task_id"), int) else None
             self._terminate_pid(pid)
             self._clear_pid_file({"task_id": task_id, "pid": pid})
             if task_id is not None:
                 self._mark_task_stopped(task_id)
-            return {"stopped": True, "task_id": task_id, "pid": pid, "message": "A 股历史行情同步任务已停止。"}
+            return {"stopped": True, "task_id": task_id, "pid": pid, "message": "基金历史净值同步任务已停止。"}
 
     def status(self, start_date: str | None = None, end_date: str | None = None) -> dict[str, object]:
         process = self.current_process()
-        effective_start = start_date or process.get("start_date") or ymd(date.today() - timedelta(days=9))
+        effective_start = start_date or process.get("start_date") or ymd(date.today() - timedelta(days=29))
         effective_end = end_date or process.get("end_date") or ymd(date.today())
         progress = self.progress(str(effective_start), str(effective_end))
         return {
@@ -168,27 +176,6 @@ class AStockHistorySyncService:
         except Exception:
             return []
 
-    def _task_status(self, task_id: int) -> str | None:
-        try:
-            with self.engine().connect() as connection:
-                value = connection.execute(
-                    text(f"SELECT status FROM {TASK_TABLE} WHERE id = :task_id"),
-                    {"task_id": task_id},
-                ).scalar()
-                return str(value) if value is not None else None
-        except Exception:
-            return None
-
-    def _clear_pid_file(self, expected_record: dict[str, object]) -> None:
-        try:
-            if not PID_FILE.exists():
-                return
-            current = json.loads(PID_FILE.read_text(encoding="utf-8-sig"))
-            if current.get("task_id") == expected_record.get("task_id") and current.get("pid") == expected_record.get("pid"):
-                PID_FILE.unlink()
-        except Exception:
-            return
-
     def task_detail(self, task_id: int) -> dict[str, object] | None:
         task = self.get_task(task_id)
         if task is None:
@@ -216,8 +203,7 @@ class AStockHistorySyncService:
 
     def progress(self, start_date: str, end_date: str, task_id: int | None = None) -> dict[str, object]:
         try:
-            engine = self.engine()
-            with engine.connect() as connection:
+            with self.engine().connect() as connection:
                 exists = connection.execute(
                     text(
                         """
@@ -251,7 +237,7 @@ class AStockHistorySyncService:
                 return {
                     "counts": counts,
                     "latest_done": self._items(connection, start_date, end_date, "done", "updated_at DESC", 50, task_id),
-                    "running_items": self._items(connection, start_date, end_date, "running", "symbol ASC", 50, task_id),
+                    "running_items": self._items(connection, start_date, end_date, "running", "fund_code ASC", 50, task_id),
                     "failed_items": self._items(connection, start_date, end_date, "failed", "updated_at DESC", 100, task_id),
                 }
         except Exception:
@@ -262,7 +248,7 @@ class AStockHistorySyncService:
         rows = connection.execute(
             text(
                 f"""
-                SELECT symbol, stock_name, status, started_at, finished_at,
+                SELECT fund_code, fund_name, status, started_at, finished_at,
                        duration_seconds, SUBSTRING(error FROM 1 FOR 500) AS error
                 FROM {PROGRESS_TABLE}
                 WHERE start_date = :start_date
@@ -288,34 +274,20 @@ class AStockHistorySyncService:
             start_date=start_date,
             end_date=end_date,
             workers=workers,
-            message="已重新启动该 A 股历史行情同步任务。",
+            message="已重新启动该基金历史净值同步任务。",
         )
 
-    def _start_task_process(
-        self,
-        *,
-        task_id: int,
-        start_date: str,
-        end_date: str,
-        workers: int,
-        message: str,
-    ) -> dict[str, object]:
+    def _start_task_process(self, *, task_id: int, start_date: str, end_date: str, workers: int, message: str) -> dict[str, object]:
         log_dir = resolve_log_dir(self.settings.log_dir)
-        runtime_dir = PID_FILE.parent
-        runtime_dir.mkdir(parents=True, exist_ok=True)
-        stdout_log = log_dir / "a_stock_daily_sync.log"
-        stderr_log = log_dir / "a_stock_daily_sync.err.log"
+        PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+        stdout_log = log_dir / "fund_nav_history_sync.log"
+        stderr_log = log_dir / "fund_nav_history_sync.err.log"
         command = [
             sys.executable,
             "-B",
             str(SCRIPT_PATH),
-            "--use-progress",
-            "--insert-only",
-            "--retry-conflicts",
             "--workers",
             str(workers),
-            "--sleep-seconds",
-            "0",
             "--start-date",
             start_date,
             "--end-date",
@@ -350,38 +322,33 @@ class AStockHistorySyncService:
         PID_FILE.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
         return {**record, "started": True, "message": message}
 
-    def _create_task(
-        self,
-        start_date: str,
-        end_date: str,
-        workers: int,
-        *,
-        retry_count: int = 0,
-        total_count: int = 0,
-    ) -> int:
+    def _create_task(self, start_date: str, end_date: str, workers: int) -> int:
         self._ensure_task_table()
         with self.engine().begin() as connection:
             result = connection.execute(
                 text(
                     f"""
                     INSERT INTO {TASK_TABLE} (
-                        task_type, status, start_date, end_date, workers, total_count,
-                        retry_count, message
+                        task_type, status, start_date, end_date, workers, message
                     ) VALUES (
-                        'history_sync', 'pending', :start_date, :end_date, :workers, :total_count,
-                        :retry_count, '任务已提交'
+                        'fund_nav_history_sync', 'pending', :start_date, :end_date, :workers, '任务已提交'
                     )
                     """
                 ),
-                {
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "workers": workers,
-                    "total_count": total_count,
-                    "retry_count": retry_count,
-                },
+                {"start_date": start_date, "end_date": end_date, "workers": workers},
             )
             return int(result.lastrowid)
+
+    def _task_status(self, task_id: int) -> str | None:
+        try:
+            with self.engine().connect() as connection:
+                value = connection.execute(
+                    text(f"SELECT status FROM {TASK_TABLE} WHERE id = :task_id"),
+                    {"task_id": task_id},
+                ).scalar()
+                return str(value) if value is not None else None
+        except Exception:
+            return None
 
     def _mark_task_started(self, task_id: int, pid: int, stdout_log: str, stderr_log: str) -> None:
         with self.engine().begin() as connection:
@@ -471,13 +438,14 @@ class AStockHistorySyncService:
             )
 
     def _ensure_task_table(self) -> None:
+        self.ensure_database_exists()
         with self.engine().begin() as connection:
             connection.execute(
                 text(
                     f"""
                     CREATE TABLE IF NOT EXISTS {TASK_TABLE} (
                         id BIGINT PRIMARY KEY AUTO_INCREMENT,
-                        task_type VARCHAR(50) NOT NULL DEFAULT 'history_sync',
+                        task_type VARCHAR(50) NOT NULL DEFAULT 'fund_nav_history_sync',
                         status VARCHAR(20) NOT NULL DEFAULT 'pending',
                         start_date CHAR(8) NOT NULL,
                         end_date CHAR(8) NOT NULL,
@@ -503,79 +471,16 @@ class AStockHistorySyncService:
                     """
                 )
             )
-            progress_exists = connection.execute(
-                text(
-                    """
-                    SELECT COUNT(*)
-                    FROM information_schema.tables
-                    WHERE table_schema = DATABASE()
-                      AND table_name = :table_name
-                    """
-                ),
-                {"table_name": PROGRESS_TABLE},
-            ).scalar()
-            if progress_exists:
-                task_column_exists = connection.execute(
-                    text(
-                        """
-                        SELECT COUNT(*)
-                        FROM information_schema.columns
-                        WHERE table_schema = DATABASE()
-                          AND table_name = :table_name
-                          AND column_name = 'task_id'
-                        """
-                    ),
-                    {"table_name": PROGRESS_TABLE},
-                ).scalar()
-                if not task_column_exists:
-                    connection.execute(text(f"ALTER TABLE {PROGRESS_TABLE} ADD COLUMN task_id BIGINT NULL AFTER id"))
-                task_index_exists = connection.execute(
-                    text(
-                        """
-                        SELECT COUNT(*)
-                        FROM information_schema.statistics
-                        WHERE table_schema = DATABASE()
-                          AND table_name = :table_name
-                          AND index_name = 'idx_task_status'
-                        """
-                    ),
-                    {"table_name": PROGRESS_TABLE},
-                ).scalar()
-                if not task_index_exists:
-                    connection.execute(text(f"ALTER TABLE {PROGRESS_TABLE} ADD INDEX idx_task_status (task_id, status)"))
-                old_unique_exists = connection.execute(
-                    text(
-                        """
-                        SELECT COUNT(*)
-                        FROM information_schema.statistics
-                        WHERE table_schema = DATABASE()
-                          AND table_name = :table_name
-                          AND index_name = 'uk_symbol_range'
-                        """
-                    ),
-                    {"table_name": PROGRESS_TABLE},
-                ).scalar()
-                if old_unique_exists:
-                    connection.execute(text(f"ALTER TABLE {PROGRESS_TABLE} DROP INDEX uk_symbol_range"))
-                task_unique_exists = connection.execute(
-                    text(
-                        """
-                        SELECT COUNT(*)
-                        FROM information_schema.statistics
-                        WHERE table_schema = DATABASE()
-                          AND table_name = :table_name
-                          AND index_name = 'uk_task_symbol_range'
-                        """
-                    ),
-                    {"table_name": PROGRESS_TABLE},
-                ).scalar()
-                if not task_unique_exists:
-                    connection.execute(
-                        text(
-                            f"ALTER TABLE {PROGRESS_TABLE} "
-                            "ADD UNIQUE KEY uk_task_symbol_range (task_id, symbol, start_date, end_date)"
-                        )
-                    )
+
+    def _clear_pid_file(self, expected_record: dict[str, object]) -> None:
+        try:
+            if not PID_FILE.exists():
+                return
+            current = json.loads(PID_FILE.read_text(encoding="utf-8-sig"))
+            if current.get("task_id") == expected_record.get("task_id") and current.get("pid") == expected_record.get("pid"):
+                PID_FILE.unlink()
+        except Exception:
+            return
 
     @staticmethod
     def _empty_progress() -> dict[str, list[object]]:

@@ -1,31 +1,32 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { apiErrorMessage } from '../../../api/client'
-import {
-  getHistorySyncStatus,
-  listHistorySyncTasks,
-  rerunHistorySyncTask,
-  startHistorySync,
-  stopHistorySync,
-  type HistorySyncTask,
-  type HistorySyncMode,
-  type HistorySyncStatus,
-} from '../api/history'
 import { routeNames } from '../../../router/routeNames'
+import {
+  getFundNavHistorySyncStatus,
+  listFundNavHistorySyncTasks,
+  rerunFundNavHistorySyncTask,
+  startFundNavHistorySync,
+  stopFundNavHistorySync,
+  type FundNavHistorySyncMode,
+  type FundNavHistorySyncStatus,
+  type FundNavHistoryTask,
+} from '../api/history'
 
-const mode = ref<HistorySyncMode>('recent_days')
-const recentDays = ref(10)
-const startDate = ref(dateInputValue(offsetDate(-9)))
+const mode = ref<FundNavHistorySyncMode>('recent_days')
+const recentDays = ref(30)
+const startDate = ref(dateInputValue(offsetDate(-29)))
 const endDate = ref(dateInputValue(new Date()))
-const workers = ref(8)
+const workers = ref(4)
 const loading = ref(false)
 const starting = ref(false)
 const stopping = ref(false)
 const message = ref('')
-const status = ref<HistorySyncStatus | null>(null)
-const tasks = ref<HistorySyncTask[]>([])
+const status = ref<FundNavHistorySyncStatus | null>(null)
+const tasks = ref<FundNavHistoryTask[]>([])
 const rerunningTaskId = ref<number | null>(null)
 let refreshTimer: number | undefined
+
 const doneCount = computed(() => countByStatus('done'))
 const runningCount = computed(() => countByStatus('running'))
 const failedCount = computed(() => countByStatus('failed'))
@@ -77,12 +78,12 @@ function durationText(value?: number | null) {
 async function refreshStatus() {
   loading.value = true
   try {
-    const [nextStatus, nextTasks] = await Promise.all([getHistorySyncStatus(), listHistorySyncTasks()])
+    const [nextStatus, nextTasks] = await Promise.all([getFundNavHistorySyncStatus(), listFundNavHistorySyncTasks()])
     status.value = nextStatus
     tasks.value = nextTasks
     updateAutoRefresh()
   } catch (error) {
-    message.value = apiErrorMessage(error, 'A 股行情同步状态加载失败，请确认后端服务。')
+    message.value = apiErrorMessage(error, '基金历史净值同步状态加载失败，请确认后端服务。')
   } finally {
     loading.value = false
   }
@@ -103,7 +104,7 @@ async function submitSync() {
   starting.value = true
   message.value = ''
   try {
-    const result = await startHistorySync({
+    const result = await startFundNavHistorySync({
       mode: mode.value,
       recent_days: mode.value === 'recent_days' ? recentDays.value : null,
       start_date: mode.value === 'date_range' ? startDate.value : null,
@@ -113,7 +114,7 @@ async function submitSync() {
     message.value = result.message
     await refreshStatus()
   } catch (error) {
-    message.value = apiErrorMessage(error, 'A 股历史行情同步任务启动失败。')
+    message.value = apiErrorMessage(error, '基金历史净值同步任务启动失败。')
   } finally {
     starting.value = false
   }
@@ -123,21 +124,21 @@ async function stopSync() {
   stopping.value = true
   message.value = ''
   try {
-    const result = await stopHistorySync()
+    const result = await stopFundNavHistorySync()
     message.value = result.message
     await refreshStatus()
   } catch (error) {
-    message.value = apiErrorMessage(error, 'A 股历史行情同步任务停止失败。')
+    message.value = apiErrorMessage(error, '基金历史净值同步任务停止失败。')
   } finally {
     stopping.value = false
   }
 }
 
-async function rerunTask(task: HistorySyncTask) {
+async function rerunTask(task: FundNavHistoryTask) {
   rerunningTaskId.value = task.id
   message.value = ''
   try {
-    const result = await rerunHistorySyncTask(task.id)
+    const result = await rerunFundNavHistorySyncTask(task.id)
     message.value = result.message
     await refreshStatus()
   } catch (error) {
@@ -174,9 +175,9 @@ onUnmounted(() => {
   <main class="page-shell">
     <section class="detail-hero">
       <div>
-        <p class="eyebrow">A-Share Market Data</p>
-        <h1>A 股历史行情同步</h1>
-        <p class="subtitle">在服务器上启动和观察 A 股日 K 历史行情更新任务。</p>
+        <p class="eyebrow">Fund NAV History</p>
+        <h1>基金历史净值同步</h1>
+        <p class="subtitle">同步自选基金历史单位净值到历史行情库，和最新净值数据分开存储。</p>
       </div>
       <button class="ghost" :disabled="loading" @click="refreshStatus">
         {{ loading ? '刷新中...' : '刷新状态' }}
@@ -296,17 +297,10 @@ onUnmounted(() => {
             <td>{{ durationText(task.duration_seconds) }}</td>
             <td>
               <div class="quick-actions">
-                <RouterLink
-                  class="link-button"
-                  :to="{ name: routeNames.aStockHistoryTask, params: { taskId: task.id } }"
-                >
+                <RouterLink class="link-button" :to="{ name: routeNames.fundNavHistoryTask, params: { taskId: task.id } }">
                   详情
                 </RouterLink>
-                <button
-                  type="button"
-                  :disabled="status?.running || rerunningTaskId === task.id"
-                  @click="rerunTask(task)"
-                >
+                <button type="button" :disabled="status?.running || rerunningTaskId === task.id" @click="rerunTask(task)">
                   {{ rerunningTaskId === task.id ? '提交中...' : '重跑任务' }}
                 </button>
               </div>

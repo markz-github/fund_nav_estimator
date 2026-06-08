@@ -1,4 +1,5 @@
 from app.modules.operations.models.data_fetch_error import DataFetchError
+from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
@@ -11,6 +12,7 @@ from app.modules.operations.models.task_log import TaskLog
 
 __all__ = [
     "DataFetchError",
+    "AssetValuationConfig",
     "Fund",
     "FundEstimate",
     "FundHolding",

@@ -349,29 +349,65 @@ class AkshareSource:
         normalized_code = self._normalize_fund_code(fund_code)
         current_year = date.today().year
         for year in range(current_year, current_year - 4, -1):
-            holding_df = ak.fund_portfolio_hold_em(symbol=normalized_code, date=str(year))
-            if holding_df.empty:
-                continue
-
             holdings = []
-            for _, row in holding_df.iterrows():
-                asset_code = self._normalize_holding_asset_code(row["股票代码"])
-                asset_type = self._infer_holding_asset_type(asset_code)
-                holdings.append(
-                    {
-                        "fund_code": normalized_code,
-                        "report_period": self._parse_report_period(str(row["季度"])),
-                        "asset_code": asset_code,
-                        "asset_name": str(row["股票名称"]).strip(),
-                        "asset_type": asset_type,
-                        "market": self._infer_holding_market(asset_code, asset_type),
-                        "holding_ratio": self._percent(row["占净值比例"]),
-                        "holding_value": self._optional_decimal(row.get("持仓市值")),
-                        "source": self.source_name,
-                    }
-                )
-            return holdings
+            holdings.extend(self._stock_holdings(normalized_code, year))
+            holdings.extend(self._bond_holdings(normalized_code, year))
+            if holdings:
+                return holdings
         return []
+
+    def _stock_holdings(self, fund_code: str, year: int) -> list[dict]:
+        try:
+            holding_df = ak.fund_portfolio_hold_em(symbol=fund_code, date=str(year))
+        except Exception:
+            return []
+        if holding_df.empty:
+            return []
+
+        holdings = []
+        for _, row in holding_df.iterrows():
+            asset_code = self._normalize_holding_asset_code(row["股票代码"])
+            asset_type = self._infer_holding_asset_type(asset_code)
+            holdings.append(
+                {
+                    "fund_code": fund_code,
+                    "report_period": self._parse_report_period(str(row["季度"])),
+                    "asset_code": asset_code,
+                    "asset_name": str(row["股票名称"]).strip(),
+                    "asset_type": asset_type,
+                    "market": self._infer_holding_market(asset_code, asset_type),
+                    "holding_ratio": self._percent(row["占净值比例"]),
+                    "holding_value": self._optional_decimal(row.get("持仓市值")),
+                    "source": self.source_name,
+                }
+            )
+        return holdings
+
+    def _bond_holdings(self, fund_code: str, year: int) -> list[dict]:
+        try:
+            holding_df = ak.fund_portfolio_bond_hold_em(symbol=fund_code, date=str(year))
+        except Exception:
+            return []
+        if holding_df.empty:
+            return []
+
+        holdings = []
+        for _, row in holding_df.iterrows():
+            asset_code = self._normalize_holding_asset_code(row["债券代码"])
+            holdings.append(
+                {
+                    "fund_code": fund_code,
+                    "report_period": self._parse_report_period(str(row["季度"])),
+                    "asset_code": asset_code,
+                    "asset_name": str(row["债券名称"]).strip(),
+                    "asset_type": "bond",
+                    "market": "CN",
+                    "holding_ratio": self._percent(row["占净值比例"]),
+                    "holding_value": self._optional_decimal(row.get("持仓市值")),
+                    "source": self.source_name,
+                }
+            )
+        return holdings
 
     @timed()
     def get_market_quotes(self, asset_codes: list[str]) -> list[MarketQuoteSnapshot]:

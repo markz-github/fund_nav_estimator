@@ -11,6 +11,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.config import get_settings
 from app.database import Base, engine
+from app.database import SessionLocal
+from app.modules.fund_nav.services.asset_valuation_config_service import seed_default_asset_valuation_configs
 from app import models  # noqa: F401
 
 
@@ -34,6 +36,8 @@ def ensure_database_exists() -> None:
 def main() -> None:
     ensure_database_exists()
     Base.metadata.create_all(bind=engine)
+    with SessionLocal() as db:
+        seed_default_asset_valuation_configs(db)
     print("Database initialized.")
     print("Created or verified tables:")
     for table_name in inspect(engine).get_table_names():
