@@ -171,6 +171,34 @@ class AkshareSource:
         except Exception:
             return fallback_snapshot or self._get_latest_eastmoney_fund_nav_snapshot(normalized_code)
 
+    @timed()
+    def get_fund_nav_history(self, fund_code: str) -> list[FundNavSnapshot]:
+        normalized_code = self._normalize_fund_code(fund_code)
+        dataframe = ak.fund_open_fund_info_em(symbol=normalized_code, indicator="单位净值走势", period="成立来")
+        snapshots: list[FundNavSnapshot] = []
+        for _, row in dataframe.iterrows():
+            raw_nav_date = row.get("净值日期")
+            if raw_nav_date is None:
+                continue
+            if hasattr(raw_nav_date, "date"):
+                nav_date = raw_nav_date.date()
+            else:
+                nav_date = date.fromisoformat(str(raw_nav_date).split(" ")[0])
+            unit_nav = self._optional_decimal(row.get("单位净值"))
+            if unit_nav is None:
+                continue
+            snapshots.append(
+                FundNavSnapshot(
+                    fund_code=normalized_code,
+                    nav_date=nav_date,
+                    unit_nav=unit_nav,
+                    accumulated_nav=self._optional_decimal(row.get("累计净值")),
+                    daily_growth_rate=self._percent(row.get("日增长率")),
+                    source=f"{self.source_name}:fund_open_fund_info_em",
+                )
+            )
+        return sorted(snapshots, key=lambda item: item.nav_date)
+
     @classmethod
     def get_fund_daily_dataframe(cls):
         return cls._load_dataframe(

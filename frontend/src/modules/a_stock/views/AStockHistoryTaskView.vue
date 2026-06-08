@@ -148,12 +148,6 @@ onUnmounted(() => {
         <button class="ghost" :disabled="loading" type="button" @click="refreshTask">
           {{ loading ? '刷新中...' : '刷新' }}
         </button>
-        <button class="danger" type="button" :disabled="stopping || !syncRunning" @click="stopSync">
-          {{ stopping ? '停止中...' : '停止任务' }}
-        </button>
-        <button type="button" :disabled="rerunning || syncRunning" @click="rerunTask">
-          {{ rerunning ? '提交中...' : syncRunning ? '任务运行中' : '重跑任务' }}
-        </button>
       </div>
     </section>
 
@@ -190,6 +184,17 @@ onUnmounted(() => {
           <dd>{{ durationText(task?.duration_seconds) }}</dd>
         </div>
       </dl>
+      <div class="status-action-bar">
+        <span>{{ syncRunning ? '当前有同步任务正在运行' : '当前没有运行中的同步任务' }}</span>
+        <div class="quick-actions">
+          <button class="danger" type="button" :disabled="stopping || !syncRunning" @click="stopSync">
+            {{ stopping ? '停止中...' : '停止任务' }}
+          </button>
+          <button type="button" :disabled="rerunning || syncRunning" @click="rerunTask">
+            {{ rerunning ? '提交中...' : syncRunning ? '任务运行中' : '重跑任务' }}
+          </button>
+        </div>
+      </div>
       <p class="muted">日志：{{ task?.stdout_log ?? '-' }}</p>
       <p class="muted">摘要：{{ task?.message ?? '-' }}</p>
     </section>

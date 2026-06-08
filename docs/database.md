@@ -155,7 +155,7 @@ CREATE TABLE market_quotes (
 
 ## fund_nav_history
 
-基金历史净值表，存放在 A 股历史行情同一个 MySQL 库中，与主业务库的 `fund_navs` 最新/参考净值分开。
+遗留基金历史净值批量同步表。当前主流程已改为把基金历史官方净值直接维护在主业务库 `fund_navs`，基金详情页走势也从 `fund_navs` 读取。该表仅保留给旧批量同步流程参考，后续可清理。
 
 ```sql
 CREATE TABLE fund_nav_history (

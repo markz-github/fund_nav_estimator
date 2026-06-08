@@ -36,6 +36,15 @@ export interface FundHolding {
   source: string
 }
 
+export interface FundNav {
+  fund_code: string
+  nav_date: string
+  unit_nav: string
+  accumulated_nav?: string | null
+  daily_growth_rate?: string | null
+  source: string
+}
+
 export async function listFunds(options?: { sortBy?: FundSortBy | null; sortOrder?: SortOrder }): Promise<Fund[]> {
   const { data } = await apiClient.get<Fund[]>('/funds', {
     params: options?.sortBy
@@ -63,6 +72,20 @@ export async function getFund(fundCode: string): Promise<Fund> {
 
 export async function listFundHoldings(fundCode: string): Promise<FundHolding[]> {
   const { data } = await apiClient.get<FundHolding[]>(`/funds/${fundCode}/holdings`)
+  return data
+}
+
+export async function listFundNavHistory(fundCode: string, limit = 500): Promise<FundNav[]> {
+  const { data } = await apiClient.get<FundNav[]>(`/funds/${fundCode}/navs`, {
+    params: { limit },
+  })
+  return data
+}
+
+export async function refreshFundNavHistory(fundCode: string): Promise<FundNav[]> {
+  const { data } = await apiClient.post<FundNav[]>(`/funds/${fundCode}/refresh-nav-history`, undefined, {
+    timeout: 60000,
+  })
   return data
 }
 

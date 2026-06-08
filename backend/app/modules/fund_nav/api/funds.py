@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.modules.fund_nav.models.fund import Fund
-from app.modules.fund_nav.schemas.fund import FundCreate, FundOut, RefreshFundNavsRequest
+from app.modules.fund_nav.schemas.fund import FundCreate, FundNavOut, FundOut, RefreshFundNavsRequest
 from app.modules.fund_nav.schemas.holding import FundHoldingOut
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
@@ -94,6 +94,20 @@ def refresh_nav(fund_code: str, db: Session = Depends(get_db)) -> dict:
     return FundTaskQueueService(db).submit(
         "refresh_nav", "手动刷新基金官方净值", origin="manual", fund_codes=[fund_code]
     )
+
+
+@router.get("/{fund_code}/navs", response_model=list[FundNavOut])
+def list_nav_history(
+    fund_code: str,
+    limit: int = Query(default=500, ge=1, le=5000),
+    db: Session = Depends(get_db),
+):
+    return FundService(db).list_nav_history(fund_code, limit=limit)
+
+
+@router.post("/{fund_code}/refresh-nav-history", response_model=list[FundNavOut])
+def refresh_nav_history(fund_code: str, db: Session = Depends(get_db)):
+    return FundService(db).refresh_nav_history(fund_code)
 
 
 @router.post("/{fund_code}/refresh-holdings", response_model=FundTaskSubmitOut, status_code=status.HTTP_202_ACCEPTED)

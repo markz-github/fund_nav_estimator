@@ -181,9 +181,6 @@ onUnmounted(() => {
       <button class="ghost" :disabled="loading" @click="refreshStatus">
         {{ loading ? '刷新中...' : '刷新状态' }}
       </button>
-      <button class="danger" :disabled="stopping || !status?.running" @click="stopSync">
-        {{ stopping ? '停止中...' : '停止任务' }}
-      </button>
     </section>
 
     <p v-if="message" class="message">{{ message }}</p>
@@ -255,6 +252,12 @@ onUnmounted(() => {
             <dd>{{ totalTracked }}</dd>
           </div>
         </dl>
+        <div class="status-action-bar">
+          <span>{{ status?.running ? '当前同步任务正在运行' : '当前没有运行中的同步任务' }}</span>
+          <button class="danger" type="button" :disabled="stopping || !status?.running" @click="stopSync">
+            {{ stopping ? '停止中...' : '停止任务' }}
+          </button>
+        </div>
         <p class="muted">日志：{{ status?.stdout_log ?? '-' }}</p>
       </section>
     </section>

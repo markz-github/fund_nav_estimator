@@ -6,7 +6,7 @@ import logging
 from sqlalchemy import Select, asc, desc, func, select
 from sqlalchemy.orm import Session
 
-from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
+from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, FundNavSnapshot
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
@@ -139,6 +139,9 @@ class FundService:
             )
             return latest_nav
 
+        self.refresh_nav_history(normalized_code)
+        latest_nav = self.db.scalar(self._latest_nav_query(normalized_code))
+
         snapshot = self.source.get_latest_fund_nav(normalized_code)
         if snapshot is None:
             logger.info(
@@ -215,6 +218,56 @@ class FundService:
             nav.source,
             nav.daily_growth_rate,
         )
+        return nav
+
+    @timed()
+    def refresh_nav_history(self, fund_code: str) -> list[FundNav]:
+        normalized_code = self.source._normalize_fund_code(fund_code)
+        try:
+            snapshots = self.source.get_fund_nav_history(normalized_code)
+        except Exception:
+            logger.exception("refresh_nav_history source_failed fund_code=%s", normalized_code)
+            return []
+        if not isinstance(snapshots, list):
+            return []
+
+        navs = [self._upsert_nav_snapshot(snapshot) for snapshot in snapshots]
+        self.db.commit()
+        logger.info("refresh_nav_history saved fund_code=%s rows=%s", normalized_code, len(navs))
+        return navs
+
+    def list_nav_history(self, fund_code: str, limit: int = 500) -> list[FundNav]:
+        normalized_code = self.source._normalize_fund_code(fund_code)
+        safe_limit = min(5000, max(1, limit))
+        rows = self.db.scalars(
+            select(FundNav)
+            .where(FundNav.fund_code == normalized_code)
+            .order_by(FundNav.nav_date.desc())
+            .limit(safe_limit)
+        ).all()
+        return list(reversed(rows))
+
+    def _upsert_nav_snapshot(self, snapshot: FundNavSnapshot) -> FundNav:
+        nav = self.db.scalar(
+            select(FundNav)
+            .where(FundNav.fund_code == snapshot.fund_code, FundNav.nav_date == snapshot.nav_date)
+            .execution_options(include_deleted=True)
+        )
+        if nav is None:
+            nav = FundNav(
+                fund_code=snapshot.fund_code,
+                nav_date=snapshot.nav_date,
+                unit_nav=snapshot.unit_nav,
+                accumulated_nav=snapshot.accumulated_nav,
+                daily_growth_rate=snapshot.daily_growth_rate,
+                source=snapshot.source,
+            )
+            self.db.add(nav)
+        nav.is_deleted = 0
+        nav.unit_nav = snapshot.unit_nav
+        nav.accumulated_nav = snapshot.accumulated_nav
+        nav.daily_growth_rate = snapshot.daily_growth_rate
+        nav.source = snapshot.source
         return nav
 
     def _fund_with_latest_data(self, fund: Fund) -> dict:

@@ -296,6 +296,59 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(nav.nav_date, date(2026, 6, 4))
         self.assertEqual(nav.daily_growth_rate, Decimal("0.000639"))
 
+    def test_get_fund_nav_history_parses_open_fund_info_rows(self) -> None:
+        dataframe = pd.DataFrame(
+            [
+                {"净值日期": "2026-06-04", "单位净值": "1.2345", "累计净值": "1.4567", "日增长率": "1.23"},
+                {"净值日期": "2026-06-03", "单位净值": "1.2195", "累计净值": "1.4417", "日增长率": "-0.10"},
+            ]
+        )
+
+        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_info_em", return_value=dataframe) as fetcher:
+            snapshots = AkshareSource().get_fund_nav_history("18125")
+
+        fetcher.assert_called_once_with(symbol="018125", indicator="单位净值走势", period="成立来")
+        self.assertEqual([snapshot.nav_date for snapshot in snapshots], [date(2026, 6, 3), date(2026, 6, 4)])
+        self.assertEqual(snapshots[-1].unit_nav, Decimal("1.2345"))
+        self.assertEqual(snapshots[-1].daily_growth_rate, Decimal("0.0123"))
+        self.assertEqual(snapshots[-1].source, "akshare:fund_open_fund_info_em")
+
+    def test_refresh_nav_history_upserts_rows_into_fund_navs(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        source.get_fund_nav_history.return_value = [
+            FundNavSnapshot(
+                fund_code="018125",
+                nav_date=date(2026, 6, 3),
+                unit_nav=Decimal("1.0000"),
+                accumulated_nav=Decimal("1.1000"),
+                daily_growth_rate=Decimal("0.0010"),
+                source="akshare:fund_open_fund_info_em",
+            ),
+            FundNavSnapshot(
+                fund_code="018125",
+                nav_date=date(2026, 6, 4),
+                unit_nav=Decimal("1.0100"),
+                accumulated_nav=Decimal("1.1100"),
+                daily_growth_rate=Decimal("0.0100"),
+                source="akshare:fund_open_fund_info_em",
+            ),
+        ]
+
+        try:
+            navs = FundService(db, source).refresh_nav_history("18125")
+            history = FundService(db, source).list_nav_history("018125")
+        finally:
+            db.close()
+
+        self.assertEqual(len(navs), 2)
+        self.assertEqual([item.nav_date for item in history], [date(2026, 6, 3), date(2026, 6, 4)])
+        self.assertEqual(history[-1].unit_nav, Decimal("1.010000"))
+
     def test_refresh_nav_refetches_fresh_local_nav_without_growth_rate(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
