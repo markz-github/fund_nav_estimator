@@ -1,6 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import {
+  AreaSeries,
+  ColorType,
+  CrosshairMode,
+  createChart,
+  type IChartApi,
+  type ISeriesApi,
+  type Time,
+} from 'lightweight-charts'
 import { apiErrorMessage } from '../../../api/client'
 import { formatDateTime } from '../../../utils/datetime'
 import { routeNames } from '../../../router/routeNames'
@@ -26,6 +35,10 @@ const loading = ref(false)
 const refreshingHoldings = ref(false)
 const refreshingNavHistory = ref(false)
 const message = ref('')
+const navChartEl = ref<HTMLElement | null>(null)
+let navChart: IChartApi | null = null
+let navSeries: ISeriesApi<'Area'> | null = null
+let navChartResizeObserver: ResizeObserver | null = null
 
 const reportPeriods = computed(() =>
   Array.from(new Set(holdings.value.map((holding) => holding.report_period))).sort((a, b) =>
@@ -58,27 +71,18 @@ const holdingCompletenessWarning = computed(() => {
 
 const chartNavs = computed(() => navHistory.value.filter((item) => Number.isFinite(Number(item.unit_nav))))
 const latestHistoryNav = computed(() => chartNavs.value[chartNavs.value.length - 1] ?? null)
-const chartPoints = computed(() => {
-  const items = chartNavs.value
-  if (items.length === 0) return ''
-  const values = items.map((item) => Number(item.unit_nav))
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const range = max - min || 1
-  return items
-    .map((item, index) => {
-      const x = items.length === 1 ? 50 : (index / (items.length - 1)) * 100
-      const y = 92 - ((Number(item.unit_nav) - min) / range) * 76
-      return `${x.toFixed(2)},${y.toFixed(2)}`
-    })
-    .join(' ')
-})
-
 const chartRangeText = computed(() => {
   const items = chartNavs.value
   if (items.length === 0) return '-'
   return `${items[0].nav_date} - ${items[items.length - 1].nav_date}`
 })
+
+const navChartData = computed(() =>
+  chartNavs.value.map((item) => ({
+    time: item.nav_date as Time,
+    value: Number(item.unit_nav),
+  })),
+)
 
 function latestReportPeriod(items: FundHolding[]) {
   return Array.from(new Set(items.map((holding) => holding.report_period)))
@@ -136,6 +140,78 @@ async function refreshNavHistory() {
   }
 }
 
+function ensureNavChart() {
+  if (!navChartEl.value || navChart) return
+  navChart = createChart(navChartEl.value, {
+    width: navChartEl.value.clientWidth,
+    height: 320,
+    autoSize: true,
+    layout: {
+      background: { type: ColorType.Solid, color: '#ffffff' },
+      textColor: '#52645a',
+      fontFamily: 'Inter, "Microsoft YaHei", Arial, sans-serif',
+      attributionLogo: false,
+    },
+    grid: {
+      vertLines: { color: 'rgba(36, 63, 47, 0.08)' },
+      horzLines: { color: 'rgba(36, 63, 47, 0.10)' },
+    },
+    crosshair: {
+      mode: CrosshairMode.Normal,
+    },
+    rightPriceScale: {
+      borderColor: 'rgba(36, 63, 47, 0.16)',
+      scaleMargins: {
+        top: 0.12,
+        bottom: 0.12,
+      },
+    },
+    timeScale: {
+      borderColor: 'rgba(36, 63, 47, 0.16)',
+      timeVisible: false,
+      secondsVisible: false,
+    },
+    localization: {
+      locale: 'zh-CN',
+      priceFormatter: (price: number) => price.toFixed(4),
+    },
+  })
+  navSeries = navChart.addSeries(AreaSeries, {
+    lineColor: '#287356',
+    topColor: 'rgba(40, 115, 86, 0.28)',
+    bottomColor: 'rgba(40, 115, 86, 0.02)',
+    lineWidth: 2,
+    priceLineVisible: true,
+    lastValueVisible: true,
+  })
+  navChartResizeObserver = new ResizeObserver((entries) => {
+    const width = entries[0]?.contentRect.width
+    if (width && navChart) {
+      navChart.applyOptions({ width })
+    }
+  })
+  navChartResizeObserver.observe(navChartEl.value)
+}
+
+function disposeNavChart() {
+  navChartResizeObserver?.disconnect()
+  navChartResizeObserver = null
+  navChart?.remove()
+  navChart = null
+  navSeries = null
+}
+
+async function renderNavChart() {
+  await nextTick()
+  if (navChartData.value.length === 0) {
+    disposeNavChart()
+    return
+  }
+  ensureNavChart()
+  navSeries?.setData(navChartData.value)
+  navChart?.timeScale().fitContent()
+}
+
 async function refreshHoldings() {
   refreshingHoldings.value = true
   message.value = ''
@@ -159,7 +235,14 @@ function goBack() {
   router.push({ name: 'fund-list' })
 }
 
-onMounted(loadDetail)
+watch(navChartData, renderNavChart)
+
+onMounted(async () => {
+  await loadDetail()
+  await renderNavChart()
+})
+
+onBeforeUnmount(disposeNavChart)
 </script>
 
 <template>
@@ -255,13 +338,11 @@ onMounted(loadDetail)
           <strong>{{ latestHistoryNav?.nav_date ?? '-' }}</strong>
         </div>
       </div>
-      <svg v-if="chartPoints" class="nav-chart" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="历史净值走势">
-        <polyline class="nav-chart-grid" points="0,92 100,92" />
-        <polyline class="nav-chart-grid" points="0,54 100,54" />
-        <polyline class="nav-chart-grid" points="0,16 100,16" />
-        <polyline class="nav-chart-line" :points="chartPoints" />
-      </svg>
+      <div v-if="navChartData.length" ref="navChartEl" class="nav-chart" aria-label="历史净值走势"></div>
       <p v-else class="empty-chart">暂无历史净值数据，点击“更新历史净值”从 akshare 同步。</p>
+      <a v-if="navChartData.length" class="nav-chart-attribution" href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
+        Charts by TradingView
+      </a>
     </section>
 
     <section class="section-title">
