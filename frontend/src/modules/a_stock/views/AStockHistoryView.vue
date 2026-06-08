@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { apiErrorMessage } from '../../../api/client'
 import {
   getHistorySyncStatus,
   listHistorySyncTasks,
   rerunHistorySyncTask,
   startHistorySync,
+  stopHistorySync,
   type HistorySyncTask,
   type HistorySyncMode,
   type HistorySyncStatus,
@@ -19,6 +20,7 @@ const endDate = ref(dateInputValue(new Date()))
 const workers = ref(8)
 const loading = ref(false)
 const starting = ref(false)
+const stopping = ref(false)
 const message = ref('')
 const status = ref<HistorySyncStatus | null>(null)
 const tasks = ref<HistorySyncTask[]>([])
@@ -37,6 +39,16 @@ function offsetDate(days: number) {
 
 function dateInputValue(value: Date) {
   return value.toISOString().slice(0, 10)
+}
+
+function syncRecentDateRange() {
+  if (mode.value !== 'recent_days') return
+  const days = Math.min(3650, Math.max(1, Math.floor(Number(recentDays.value) || 1)))
+  if (recentDays.value !== days) {
+    recentDays.value = days
+  }
+  startDate.value = dateInputValue(offsetDate(-(days - 1)))
+  endDate.value = dateInputValue(new Date())
 }
 
 function countByStatus(targetStatus: string) {
@@ -107,6 +119,20 @@ async function submitSync() {
   }
 }
 
+async function stopSync() {
+  stopping.value = true
+  message.value = ''
+  try {
+    const result = await stopHistorySync()
+    message.value = result.message
+    await refreshStatus()
+  } catch (error) {
+    message.value = apiErrorMessage(error, 'A 股历史行情同步任务停止失败。')
+  } finally {
+    stopping.value = false
+  }
+}
+
 async function rerunTask(task: HistorySyncTask) {
   rerunningTaskId.value = task.id
   message.value = ''
@@ -129,9 +155,12 @@ function statusText(value: string) {
     partial: '部分完成',
     failed: '失败',
     skipped: '已跳过',
+    stopped: '已停止',
   }
   return map[value] ?? value
 }
+
+watch([mode, recentDays], syncRecentDateRange, { immediate: true })
 
 onMounted(refreshStatus)
 onUnmounted(() => {
@@ -151,6 +180,9 @@ onUnmounted(() => {
       </div>
       <button class="ghost" :disabled="loading" @click="refreshStatus">
         {{ loading ? '刷新中...' : '刷新状态' }}
+      </button>
+      <button class="danger" :disabled="stopping || !status?.running" @click="stopSync">
+        {{ stopping ? '停止中...' : '停止任务' }}
       </button>
     </section>
 
@@ -173,14 +205,14 @@ onUnmounted(() => {
           最近天数
           <input v-model.number="recentDays" type="number" min="1" max="3650" />
         </label>
-        <div v-else class="a-stock-date-grid">
+        <div class="a-stock-date-grid">
           <label>
-            开始日期
-            <input v-model="startDate" type="date" />
+            {{ mode === 'recent_days' ? '开始日期（自动）' : '开始日期' }}
+            <input v-model="startDate" type="date" :disabled="mode === 'recent_days'" />
           </label>
           <label>
-            结束日期
-            <input v-model="endDate" type="date" />
+            {{ mode === 'recent_days' ? '结束日期（自动）' : '结束日期' }}
+            <input v-model="endDate" type="date" :disabled="mode === 'recent_days'" />
           </label>
         </div>
         <label>

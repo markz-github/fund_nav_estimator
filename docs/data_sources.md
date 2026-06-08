@@ -28,6 +28,7 @@
 - `ak.fund_open_fund_daily_em()` 用于开放式基金官方净值。
 - 该接口返回的是宽表，不同基金在最新日期列可能为空。
 - 解析时应按“目标基金这一行中最近一个非空单位净值日期”取值，而不是直接使用全表最大日期。
+- 基金历史净值使用 `ak.fund_open_fund_info_em(symbol, indicator="单位净值走势", period="成立来")`，同步到历史行情库 `fund_nav_history`，与主业务库 `fund_navs` 分开。
 
 ### 场内 ETF 净值 / 基准
 
@@ -43,6 +44,13 @@
 - A 股、港股、ETF 行情优先通过 `AkshareSource.get_market_quotes()` 统一获取。
 - ETF 行情可通过 `ak.fund_etf_spot_em()`。
 - 部分行情接口可能返回重复 quote_time，写入 `market_quotes` 时需要处理唯一键冲突。
+
+### 债券持仓
+
+- 债券持仓通过 `ak.fund_portfolio_bond_hold_em(symbol, date)` 获取。
+- 债券入库为 `asset_type = bond`、`market = CN`。
+- 当前债券默认不可实时估值，不拉取行情，不参与当日估算涨跌幅；但会进入持仓展示和估算覆盖率分母。
+- 是否可实时估值由 `asset_valuation_configs` 控制，刷新行情和运行估值前加载为内存 Map。
 
 ### 美股 QDII 行情
 

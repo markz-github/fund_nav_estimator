@@ -89,6 +89,13 @@ export async function startHistorySync(payload: HistorySyncRequest): Promise<His
   return data
 }
 
+export async function stopHistorySync(): Promise<{ stopped: boolean; message: string; task_id?: number | null; pid?: number | null }> {
+  const { data } = await apiClient.post<{ stopped: boolean; message: string; task_id?: number | null; pid?: number | null }>(
+    '/a-stocks/history-sync/stop',
+  )
+  return data
+}
+
 export async function getHistorySyncStatus(filters?: { startDate?: string; endDate?: string }): Promise<HistorySyncStatus> {
   const { data } = await apiClient.get<HistorySyncStatus>('/a-stocks/history-sync/status', {
     params: {

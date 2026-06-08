@@ -3,6 +3,7 @@ import { routeNames } from './router/routeNames'
 
 const navItems = [
   { routeName: routeNames.fundList, label: '基金估值' },
+  { routeName: routeNames.fundNavHistory, label: '历史净值' },
   { routeName: routeNames.operations, label: '运行状态' },
 ]
 

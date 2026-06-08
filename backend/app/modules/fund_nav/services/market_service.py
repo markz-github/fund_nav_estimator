@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.market_quote import MarketQuote
+from app.modules.fund_nav.services.asset_valuation_config_service import load_asset_valuation_config_map
 from app.utils.performance import timed
 
 
@@ -24,12 +25,19 @@ class MarketService:
     @timed()
     def refresh_quotes_for_holdings(self, fund_codes: list[str] | None = None) -> list[MarketQuote]:
         started = perf_counter()
-        asset_names = self._asset_names_from_latest_holdings(fund_codes)
-        asset_codes = list(asset_names.keys())
+        valuation_configs = load_asset_valuation_config_map(self.db)
+        assets = self._assets_from_latest_holdings(fund_codes)
+        valuable_assets = {
+            asset_code: asset
+            for asset_code, asset in assets.items()
+            if valuation_configs.resolve(asset["asset_type"], asset["market"]).realtime_valuable
+        }
+        asset_codes = list(valuable_assets.keys())
         snapshots = self.source.get_market_quotes(asset_codes)
         quotes: list[MarketQuote] = []
 
         for snapshot in snapshots:
+            asset = valuable_assets.get(snapshot.asset_code, {})
             quote = self.db.scalar(
                 select(MarketQuote)
                 .where(
@@ -41,7 +49,7 @@ class MarketService:
             if quote is None:
                 quote = MarketQuote(
                     asset_code=snapshot.asset_code,
-                    asset_name=snapshot.asset_name or asset_names.get(snapshot.asset_code),
+                    asset_name=snapshot.asset_name or asset.get("asset_name"),
                     asset_type=snapshot.asset_type,
                     market=snapshot.market,
                     trade_date=snapshot.trade_date,
@@ -54,7 +62,7 @@ class MarketService:
                 self.db.add(quote)
             else:
                 quote.is_deleted = 0
-                quote.asset_name = snapshot.asset_name or quote.asset_name or asset_names.get(snapshot.asset_code)
+                quote.asset_name = snapshot.asset_name or quote.asset_name or asset.get("asset_name")
                 quote.asset_type = snapshot.asset_type
                 quote.market = snapshot.market
                 quote.trade_date = snapshot.trade_date
@@ -91,7 +99,7 @@ class MarketService:
             )
         ).all()
 
-    def _asset_names_from_latest_holdings(self, fund_codes: list[str] | None = None) -> dict[str, str]:
+    def _assets_from_latest_holdings(self, fund_codes: list[str] | None = None) -> dict[str, dict[str, str | None]]:
         latest_period_statement = select(
             FundHolding.fund_code,
             func.max(FundHolding.report_period).label("report_period"),
@@ -101,7 +109,7 @@ class MarketService:
         latest_periods = latest_period_statement.group_by(FundHolding.fund_code).subquery()
 
         statement = (
-            select(FundHolding.asset_code, FundHolding.asset_name)
+            select(FundHolding.asset_code, FundHolding.asset_name, FundHolding.asset_type, FundHolding.market)
             .join(
                 latest_periods,
                 (FundHolding.fund_code == latest_periods.c.fund_code)
@@ -110,4 +118,11 @@ class MarketService:
             .distinct()
         )
         rows = self.db.execute(statement).all()
-        return {asset_code: asset_name for asset_code, asset_name in rows}
+        return {
+            asset_code: {
+                "asset_name": asset_name,
+                "asset_type": asset_type,
+                "market": market,
+            }
+            for asset_code, asset_name, asset_type, market in rows
+        }

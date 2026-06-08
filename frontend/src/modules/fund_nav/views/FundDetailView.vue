@@ -46,7 +46,7 @@ const holdingCompletenessWarning = computed(() => {
     return '该基金可能是联接基金或 QDII，公开持仓可能只覆盖部分底层资产，估算结果需结合覆盖率判断。'
   }
   if (selectedHoldingRatio.value > 0 && selectedHoldingRatio.value < 0.6) {
-    return '当前报告期持仓覆盖比例偏低，可能存在持仓或行情缺失。'
+    return '当前报告期持仓覆盖比例偏低，可能存在持仓缺失；债券等部分持仓会展示但暂不参与实时估算。'
   }
   return ''
 })
@@ -179,7 +179,7 @@ onMounted(loadDetail)
     <p v-if="fund && !fund.latest_unit_nav" class="message">缺少官方净值，请先刷新净值。</p>
     <p v-else-if="fund && !fund.latest_estimated_nav" class="message">当前还没有估算结果，可在运行状态页查看估算任务日志。</p>
     <p v-else-if="fund?.latest_coverage_ratio && Number(fund.latest_coverage_ratio) < 0.6" class="message">
-      当前估算覆盖率偏低，可能存在持仓或行情缺失。
+      当前估算覆盖率偏低，可能存在持仓、行情缺失，或债券等不可实时估值资产未参与估算。
     </p>
 
     <section class="section-title">

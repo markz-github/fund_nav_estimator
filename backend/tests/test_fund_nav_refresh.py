@@ -20,6 +20,7 @@ if str(BACKEND_DIR) not in sys.path:
 from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot
 from app.modules.fund_nav.data_sources.eastmoney_source import EastmoneySource
 from app.database import Base
+from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
@@ -30,6 +31,8 @@ from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.estimate_service import EstimateService
+from app.modules.fund_nav.services.market_service import MarketService
+from app.modules.fund_nav.services.asset_valuation_config_service import load_asset_valuation_config_map
 
 
 class FundNavRefreshTests(unittest.TestCase):
@@ -455,6 +458,160 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIn("strategy=etf_quote", result.source_snapshot)
         source.get_etf_iopv_snapshot.assert_not_called()
 
+    def test_asset_valuation_config_map_uses_exact_and_default_rules(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add_all(
+            [
+                AssetValuationConfig(
+                    id=1,
+                    asset_type="stock",
+                    market="SZ",
+                    realtime_valuable=1,
+                    valuation_mode="quote",
+                    enabled=1,
+                ),
+                AssetValuationConfig(
+                    id=2,
+                    asset_type="bond",
+                    market="*",
+                    realtime_valuable=0,
+                    valuation_mode="none",
+                    enabled=1,
+                ),
+            ]
+        )
+        db.commit()
+
+        try:
+            config_map = load_asset_valuation_config_map(db)
+        finally:
+            db.close()
+
+        self.assertTrue(config_map.resolve("stock", "SZ").realtime_valuable)
+        self.assertEqual(config_map.resolve("stock", "SZ").valuation_mode, "quote")
+        self.assertFalse(config_map.resolve("bond", "CN").realtime_valuable)
+        self.assertEqual(config_map.resolve("bond", "CN").valuation_mode, "none")
+        self.assertFalse(config_map.resolve("cash", "CN").realtime_valuable)
+
+    def test_refresh_quotes_for_holdings_skips_non_realtime_bonds(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add_all(
+            [
+                FundHolding(
+                    id=1,
+                    fund_code="018125",
+                    report_period="2026Q1",
+                    asset_code="000001",
+                    asset_name="平安银行",
+                    asset_type="stock",
+                    market="SZ",
+                    holding_ratio=Decimal("0.500000"),
+                    holding_value=None,
+                    source="test",
+                ),
+                FundHolding(
+                    id=2,
+                    fund_code="018125",
+                    report_period="2026Q1",
+                    asset_code="019785",
+                    asset_name="25国债13",
+                    asset_type="bond",
+                    market="CN",
+                    holding_ratio=Decimal("0.500000"),
+                    holding_value=None,
+                    source="test",
+                ),
+            ]
+        )
+        db.commit()
+        source = Mock()
+        source.get_market_quotes.return_value = []
+
+        try:
+            MarketService(db, source).refresh_quotes_for_holdings(["018125"])
+        finally:
+            db.close()
+
+        source.get_market_quotes.assert_called_once_with(["000001"])
+
+    def test_bond_holdings_do_not_participate_in_estimate_but_reduce_coverage(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(Fund(id=1, fund_code="018125", fund_name="永赢先进制造智选混合发起C"))
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="018125",
+                nav_date=date(2026, 6, 5),
+                unit_nav=Decimal("1.0000"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("0"),
+                source="test",
+            )
+        )
+        db.add_all(
+            [
+                FundHolding(
+                    id=1,
+                    fund_code="018125",
+                    report_period="2026Q1",
+                    asset_code="000001",
+                    asset_name="平安银行",
+                    asset_type="stock",
+                    market="SZ",
+                    holding_ratio=Decimal("0.500000"),
+                    holding_value=None,
+                    source="test",
+                ),
+                FundHolding(
+                    id=2,
+                    fund_code="018125",
+                    report_period="2026Q1",
+                    asset_code="019785",
+                    asset_name="25国债13",
+                    asset_type="bond",
+                    market="CN",
+                    holding_ratio=Decimal("0.500000"),
+                    holding_value=None,
+                    source="test",
+                ),
+            ]
+        )
+        db.add(
+            MarketQuote(
+                id=1,
+                asset_code="000001",
+                asset_name="平安银行",
+                asset_type="stock",
+                market="SZ",
+                trade_date=date(2026, 6, 8),
+                quote_time=datetime(2026, 6, 8, 10, 30),
+                latest_price=Decimal("10"),
+                prev_close=Decimal("9.8"),
+                change_rate=Decimal("0.020000"),
+                source="test",
+            )
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "018125"))
+            result = EstimateService(db, Mock())._estimate_one(fund, datetime(2026, 6, 8, 10, 35))
+        finally:
+            db.close()
+
+        self.assertEqual(result.estimated_growth_rate, Decimal("0.010000000000"))
+        self.assertEqual(result.estimated_nav, Decimal("1.0100000000000000"))
+        self.assertEqual(result.coverage_ratio, Decimal("0.5"))
+
     def test_target_fund_holdings_replace_stale_stock_holdings_from_newer_period(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
@@ -866,7 +1023,13 @@ class FundNavRefreshTests(unittest.TestCase):
             ]
         )
 
-        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_portfolio_hold_em", return_value=holding_df):
+        with (
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_portfolio_hold_em", return_value=holding_df),
+            patch(
+                "app.modules.fund_nav.data_sources.akshare_source.ak.fund_portfolio_bond_hold_em",
+                return_value=pd.DataFrame(),
+            ),
+        ):
             holdings = AkshareSource().get_fund_holdings("018172")
 
         self.assertEqual(len(holdings), 1)
@@ -874,6 +1037,43 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(holdings[0]["asset_type"], "etf")
         self.assertEqual(holdings[0]["market"], "CN")
         self.assertEqual(holdings[0]["holding_ratio"], Decimal("0.85"))
+
+    def test_akshare_holdings_include_bonds(self) -> None:
+        stock_df = pd.DataFrame(
+            [
+                {
+                    "股票代码": "603179",
+                    "股票名称": "新泉股份",
+                    "占净值比例": "9.37",
+                    "持仓市值": "147056.42",
+                    "季度": "2026年1季度股票投资明细",
+                }
+            ]
+        )
+        bond_df = pd.DataFrame(
+            [
+                {
+                    "债券代码": "019785",
+                    "债券名称": "25国债13",
+                    "占净值比例": "0.45",
+                    "持仓市值": "7096.85",
+                    "季度": "2026年1季度债券投资明细",
+                }
+            ]
+        )
+
+        with (
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_portfolio_hold_em", return_value=stock_df),
+            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_portfolio_bond_hold_em", return_value=bond_df),
+        ):
+            holdings = AkshareSource().get_fund_holdings("018125")
+
+        self.assertEqual([holding["asset_type"] for holding in holdings], ["stock", "bond"])
+        bond = holdings[1]
+        self.assertEqual(bond["asset_code"], "019785")
+        self.assertEqual(bond["asset_name"], "25国债13")
+        self.assertEqual(bond["market"], "CN")
+        self.assertEqual(bond["holding_ratio"], Decimal("0.0045"))
 
     def test_eastmoney_target_hint_ignores_footer_code_and_page_title(self) -> None:
         html_text = (

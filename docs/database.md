@@ -104,6 +104,32 @@ CREATE TABLE fund_holdings (
 );
 ```
 
+## asset_valuation_configs
+
+资产估值能力配置表。该表数据量很小，刷新行情和运行估值前一次性加载到内存 Map 使用。`market = '*'` 表示资产类型默认规则。
+
+```sql
+CREATE TABLE asset_valuation_configs (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    asset_type VARCHAR(30) NOT NULL COMMENT '资产类型，如 stock、bond、etf',
+    market VARCHAR(20) NOT NULL DEFAULT '*' COMMENT '市场，如 SH、SZ、HK、US、CN，* 表示默认规则',
+    realtime_valuable TINYINT NOT NULL DEFAULT 0 COMMENT '是否可参与实时估值',
+    valuation_mode VARCHAR(30) NOT NULL DEFAULT 'none' COMMENT '估值方式，如 quote、none',
+    enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_asset_valuation_config (asset_type, market),
+    INDEX idx_asset_valuation_config_type_market (asset_type, market)
+);
+```
+
+默认配置：
+
+- `stock + SH/SZ/BJ/HK/US`：可实时估值，使用 `quote` 行情涨跌幅。
+- `etf + CN`：可实时估值，使用 `quote` 行情涨跌幅。
+- `bond + *`：不可实时估值，使用 `none`，只进入持仓展示和覆盖率分母。
+
 ## market_quotes
 
 行情快照表。
@@ -124,6 +150,28 @@ CREATE TABLE market_quotes (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_market_quote (asset_code, quote_time),
     INDEX idx_market_quote_asset_date (asset_code, trade_date)
+);
+```
+
+## fund_nav_history
+
+基金历史净值表，存放在 A 股历史行情同一个 MySQL 库中，与主业务库的 `fund_navs` 最新/参考净值分开。
+
+```sql
+CREATE TABLE fund_nav_history (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    fund_code VARCHAR(20) NOT NULL COMMENT '基金代码',
+    fund_name VARCHAR(100) NULL COMMENT '基金名称',
+    nav_date DATE NOT NULL COMMENT '净值日期',
+    unit_nav DECIMAL(12, 6) NULL COMMENT '单位净值',
+    daily_growth_rate DECIMAL(10, 6) NULL COMMENT '日涨跌幅',
+    source VARCHAR(50) NOT NULL DEFAULT 'akshare:fund_open_fund_info_em',
+    synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_fund_nav_history (fund_code, nav_date),
+    INDEX idx_fund_nav_history_date (nav_date),
+    INDEX idx_fund_nav_history_code_date (fund_code, nav_date)
 );
 ```
 

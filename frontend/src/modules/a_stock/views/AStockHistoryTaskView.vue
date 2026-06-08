@@ -7,6 +7,7 @@ import {
   getHistorySyncTask,
   getHistorySyncStatus,
   rerunHistorySyncTask,
+  stopHistorySync,
   type HistorySyncTaskDetail,
   type ProgressItem,
 } from '../api/history'
@@ -15,6 +16,7 @@ const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const rerunning = ref(false)
+const stopping = ref(false)
 const message = ref('')
 const task = ref<HistorySyncTaskDetail | null>(null)
 const syncRunning = ref(false)
@@ -56,6 +58,7 @@ function statusText(value?: string | null) {
     partial: '部分完成',
     failed: '失败',
     skipped: '已跳过',
+    stopped: '已停止',
   }
   return value ? map[value] ?? value : '-'
 }
@@ -109,6 +112,21 @@ async function rerunTask() {
   }
 }
 
+async function stopSync() {
+  if (!syncRunning.value) return
+  stopping.value = true
+  message.value = ''
+  try {
+    const result = await stopHistorySync()
+    message.value = result.message
+    await refreshTask()
+  } catch (error) {
+    message.value = apiErrorMessage(error, 'A 股历史行情同步任务停止失败。')
+  } finally {
+    stopping.value = false
+  }
+}
+
 onMounted(refreshTask)
 onUnmounted(() => {
   if (refreshTimer !== undefined) {
@@ -129,6 +147,9 @@ onUnmounted(() => {
         <button class="ghost" type="button" @click="router.push({ name: routeNames.aStockHistory })">返回列表</button>
         <button class="ghost" :disabled="loading" type="button" @click="refreshTask">
           {{ loading ? '刷新中...' : '刷新' }}
+        </button>
+        <button class="danger" type="button" :disabled="stopping || !syncRunning" @click="stopSync">
+          {{ stopping ? '停止中...' : '停止任务' }}
         </button>
         <button type="button" :disabled="rerunning || syncRunning" @click="rerunTask">
           {{ rerunning ? '提交中...' : syncRunning ? '任务运行中' : '重跑任务' }}

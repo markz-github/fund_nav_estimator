@@ -22,7 +22,7 @@ SCRIPT_PATH = BACKEND_DIR / "scripts" / "sync_a_stock_daily_bars.py"
 PID_FILE = PROJECT_ROOT / ".runtime" / "a_stock_history_sync.json"
 PROGRESS_TABLE = "stock_daily_bars_sync_progress"
 TASK_TABLE = "a_stock_history_sync_tasks"
-TERMINAL_TASK_STATUSES = {"success", "partial", "failed", "skipped"}
+TERMINAL_TASK_STATUSES = {"success", "partial", "failed", "skipped", "stopped"}
 
 
 def ymd(value: date) -> str:
@@ -94,6 +94,19 @@ class AStockHistorySyncService:
 
     def rerun_failed(self, task_id: int) -> dict[str, object]:
         return self.rerun_task(task_id)
+
+    def stop(self) -> dict[str, object]:
+        with self._start_lock:
+            process = self.current_process()
+            if not process["running"] or process.get("pid") is None:
+                return {"stopped": False, "message": "当前没有正在运行的 A 股历史行情同步任务。"}
+            pid = int(process["pid"])
+            task_id = process.get("task_id") if isinstance(process.get("task_id"), int) else None
+            self._terminate_pid(pid)
+            self._clear_pid_file({"task_id": task_id, "pid": pid})
+            if task_id is not None:
+                self._mark_task_stopped(task_id)
+            return {"stopped": True, "task_id": task_id, "pid": pid, "message": "A 股历史行情同步任务已停止。"}
 
     def status(self, start_date: str | None = None, end_date: str | None = None) -> dict[str, object]:
         process = self.current_process()
@@ -418,6 +431,45 @@ class AStockHistorySyncService:
                 {"task_id": task_id, "message": message[:2000]},
             )
 
+    def _mark_task_stopped(self, task_id: int) -> None:
+        task = self.get_task(task_id)
+        start_date = str(task["start_date"]) if task else ""
+        end_date = str(task["end_date"]) if task else ""
+        with self.engine().begin() as connection:
+            if start_date and end_date:
+                connection.execute(
+                    text(
+                        f"""
+                        UPDATE {PROGRESS_TABLE}
+                        SET status = 'failed',
+                            finished_at = NOW(),
+                            error = '任务已手动停止'
+                        WHERE task_id = :task_id
+                          AND start_date = :start_date
+                          AND end_date = :end_date
+                          AND status = 'running'
+                        """
+                    ),
+                    {"task_id": task_id, "start_date": start_date, "end_date": end_date},
+                )
+            connection.execute(
+                text(
+                    f"""
+                    UPDATE {TASK_TABLE}
+                    SET status = 'stopped',
+                        running_count = 0,
+                        finished_at = NOW(),
+                        duration_seconds = CASE
+                            WHEN started_at IS NULL THEN duration_seconds
+                            ELSE TIMESTAMPDIFF(SECOND, started_at, NOW())
+                        END,
+                        message = '任务已手动停止'
+                    WHERE id = :task_id
+                    """
+                ),
+                {"task_id": task_id},
+            )
+
     def _ensure_task_table(self) -> None:
         with self.engine().begin() as connection:
             connection.execute(
@@ -551,3 +603,13 @@ class AStockHistorySyncService:
             return True
         except OSError:
             return False
+
+    @staticmethod
+    def _terminate_pid(pid: int) -> None:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True, check=False)
+            return
+        try:
+            os.kill(pid, 15)
+        except OSError:
+            return
