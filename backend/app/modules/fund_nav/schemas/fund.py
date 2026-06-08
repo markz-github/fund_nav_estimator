@@ -37,6 +37,7 @@ class FundOut(BaseModel):
     latest_daily_growth_rate: Decimal | None = None
     latest_estimated_nav: Decimal | None = None
     latest_estimated_growth_rate: Decimal | None = None
+    latest_estimate_date: date | None = None
     latest_estimate_time: datetime | None = None
     latest_coverage_ratio: Decimal | None = None
 

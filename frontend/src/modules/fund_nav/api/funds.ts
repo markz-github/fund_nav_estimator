@@ -16,6 +16,7 @@ export interface Fund {
   latest_daily_growth_rate?: string | null
   latest_estimated_nav?: string | null
   latest_estimated_growth_rate?: string | null
+  latest_estimate_date?: string | null
   latest_estimate_time?: string | null
   latest_coverage_ratio?: string | null
 }

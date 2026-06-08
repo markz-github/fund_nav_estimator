@@ -1627,6 +1627,10 @@ tbody tr {
   color: #009a44;
 }
 
+.stale {
+  color: #7a837e;
+}
+
 .change-rate {
   font-size: 1.46rem;
   font-weight: 800;
