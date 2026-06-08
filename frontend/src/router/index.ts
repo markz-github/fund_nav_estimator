@@ -2,8 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import FundListView from '../modules/fund_nav/views/FundListView.vue'
 import FundDetailView from '../modules/fund_nav/views/FundDetailView.vue'
 import OperationsView from '../modules/fund_nav/operations/views/OperationsView.vue'
-import FundNavHistoryView from '../modules/fund_nav/views/FundNavHistoryView.vue'
-import FundNavHistoryTaskView from '../modules/fund_nav/views/FundNavHistoryTaskView.vue'
 import AStockHistoryView from '../modules/a_stock/views/AStockHistoryView.vue'
 import AStockHistoryTaskView from '../modules/a_stock/views/AStockHistoryTaskView.vue'
 import { routeNames } from './routeNames'
@@ -37,12 +35,12 @@ const router = createRouter({
     {
       path: '/fund-nav/history',
       name: routeNames.fundNavHistory,
-      component: FundNavHistoryView,
+      redirect: { name: routeNames.fundList },
     },
     {
       path: '/fund-nav/history/tasks/:taskId',
       name: routeNames.fundNavHistoryTask,
-      component: FundNavHistoryTaskView,
+      redirect: { name: routeNames.fundList },
     },
     {
       path: '/a-stocks/history',

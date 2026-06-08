@@ -28,7 +28,7 @@
 - `ak.fund_open_fund_daily_em()` 用于开放式基金官方净值。
 - 该接口返回的是宽表，不同基金在最新日期列可能为空。
 - 解析时应按“目标基金这一行中最近一个非空单位净值日期”取值，而不是直接使用全表最大日期。
-- 基金历史净值使用 `ak.fund_open_fund_info_em(symbol, indicator="单位净值走势", period="成立来")`，同步到历史行情库 `fund_nav_history`，与主业务库 `fund_navs` 分开。
+- 基金历史净值使用 `ak.fund_open_fund_info_em(symbol, indicator="单位净值走势", period="成立来")` 按单只基金获取，写入主业务库 `fund_navs`，用于基金详情页历史净值走势。
 
 ### 场内 ETF 净值 / 基准
 

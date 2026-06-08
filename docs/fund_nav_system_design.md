@@ -83,7 +83,7 @@ backend/app/modules/operations/
 
 开放式基金优先读取 `ak.fund_open_fund_daily_em()`。该接口返回宽表，不同基金最新日期列可能为空，因此解析时必须读取目标基金行中最近一个非空净值日期。
 
-历史净值与最新净值分开存储。基金历史净值同步任务把自选基金的历史单位净值写入历史行情库 `fund_nav_history`，用于长期回看，不参与当前最新净值刷新流程。A 股历史行情和基金历史净值同步页面都支持手动停止当前运行任务；停止后会终止后台进程、清理运行 PID，并把任务状态标记为 `stopped`。
+历史净值和最新官方净值统一存储在 `fund_navs`。新增基金、刷新官方净值或在详情页手动更新历史净值时，会调用 `ak.fund_open_fund_info_em(symbol, indicator="单位净值走势", period="成立来")` 获取单只基金历史单位净值，并按 `fund_code + nav_date` 写入或更新 `fund_navs`。基金详情页基于 `fund_navs` 展示历史净值走势。
 
 场内 ETF 不一定出现在开放式基金净值表中。对于 ETF：
 

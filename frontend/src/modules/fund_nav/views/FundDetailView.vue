@@ -6,10 +6,13 @@ import { formatDateTime } from '../../../utils/datetime'
 import { routeNames } from '../../../router/routeNames'
 import {
   getFund,
+  listFundNavHistory,
   listFundHoldings,
+  refreshFundNavHistory,
   refreshFundHoldings,
   type Fund,
   type FundHolding,
+  type FundNav,
 } from '../api/funds'
 
 const route = useRoute()
@@ -17,9 +20,11 @@ const router = useRouter()
 const fundCode = computed(() => String(route.params.fundCode || ''))
 const fund = ref<Fund | null>(null)
 const holdings = ref<FundHolding[]>([])
+const navHistory = ref<FundNav[]>([])
 const selectedReportPeriod = ref('')
 const loading = ref(false)
 const refreshingHoldings = ref(false)
+const refreshingNavHistory = ref(false)
 const message = ref('')
 
 const reportPeriods = computed(() =>
@@ -51,6 +56,30 @@ const holdingCompletenessWarning = computed(() => {
   return ''
 })
 
+const chartNavs = computed(() => navHistory.value.filter((item) => Number.isFinite(Number(item.unit_nav))))
+const latestHistoryNav = computed(() => chartNavs.value[chartNavs.value.length - 1] ?? null)
+const chartPoints = computed(() => {
+  const items = chartNavs.value
+  if (items.length === 0) return ''
+  const values = items.map((item) => Number(item.unit_nav))
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  return items
+    .map((item, index) => {
+      const x = items.length === 1 ? 50 : (index / (items.length - 1)) * 100
+      const y = 92 - ((Number(item.unit_nav) - min) / range) * 76
+      return `${x.toFixed(2)},${y.toFixed(2)}`
+    })
+    .join(' ')
+})
+
+const chartRangeText = computed(() => {
+  const items = chartNavs.value
+  if (items.length === 0) return '-'
+  return `${items[0].nav_date} - ${items[items.length - 1].nav_date}`
+})
+
 function latestReportPeriod(items: FundHolding[]) {
   return Array.from(new Set(items.map((holding) => holding.report_period)))
     .sort((a, b) => b.localeCompare(a))[0] ?? ''
@@ -77,17 +106,33 @@ async function loadDetail() {
   loading.value = true
   message.value = ''
   try {
-    const [fundResult, holdingsResult] = await Promise.all([
+    const [fundResult, holdingsResult, navHistoryResult] = await Promise.all([
       getFund(fundCode.value),
       listFundHoldings(fundCode.value),
+      listFundNavHistory(fundCode.value),
     ])
     fund.value = fundResult
     holdings.value = holdingsResult
+    navHistory.value = navHistoryResult
     selectedReportPeriod.value = latestReportPeriod(holdingsResult)
   } catch (error) {
     message.value = apiErrorMessage(error, '基金详情加载失败，请稍后重试。')
   } finally {
     loading.value = false
+  }
+}
+
+async function refreshNavHistory() {
+  refreshingNavHistory.value = true
+  message.value = ''
+  try {
+    navHistory.value = await refreshFundNavHistory(fundCode.value)
+    fund.value = await getFund(fundCode.value)
+    message.value = `历史净值已更新，共 ${navHistory.value.length} 条。`
+  } catch (error) {
+    message.value = apiErrorMessage(error, '历史净值更新失败，请稍后重试。')
+  } finally {
+    refreshingNavHistory.value = false
   }
 }
 
@@ -181,6 +226,43 @@ onMounted(loadDetail)
     <p v-else-if="fund?.latest_coverage_ratio && Number(fund.latest_coverage_ratio) < 0.6" class="message">
       当前估算覆盖率偏低，可能存在持仓、行情缺失，或债券等不可实时估值资产未参与估算。
     </p>
+
+    <section class="section-title">
+      <div>
+        <p class="eyebrow">Official NAV</p>
+        <h2>历史净值走势</h2>
+      </div>
+      <div class="section-actions">
+        <span>{{ navHistory.length }} 条记录</span>
+        <button class="ghost" :disabled="refreshingNavHistory" @click="refreshNavHistory">
+          {{ refreshingNavHistory ? '更新中...' : '更新历史净值' }}
+        </button>
+      </div>
+    </section>
+
+    <section class="nav-chart-panel">
+      <div class="nav-chart-meta">
+        <div>
+          <span>日期范围</span>
+          <strong>{{ chartRangeText }}</strong>
+        </div>
+        <div>
+          <span>最新净值</span>
+          <strong>{{ latestHistoryNav?.unit_nav ?? '-' }}</strong>
+        </div>
+        <div>
+          <span>最新日期</span>
+          <strong>{{ latestHistoryNav?.nav_date ?? '-' }}</strong>
+        </div>
+      </div>
+      <svg v-if="chartPoints" class="nav-chart" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="历史净值走势">
+        <polyline class="nav-chart-grid" points="0,92 100,92" />
+        <polyline class="nav-chart-grid" points="0,54 100,54" />
+        <polyline class="nav-chart-grid" points="0,16 100,16" />
+        <polyline class="nav-chart-line" :points="chartPoints" />
+      </svg>
+      <p v-else class="empty-chart">暂无历史净值数据，点击“更新历史净值”从 akshare 同步。</p>
+    </section>
 
     <section class="section-title">
       <div>

@@ -21,6 +21,17 @@ class RefreshFundNavsRequest(BaseModel):
     fund_ids: list[int] | None = None
 
 
+class FundNavOut(BaseModel):
+    fund_code: str
+    nav_date: date
+    unit_nav: Decimal
+    accumulated_nav: Decimal | None = None
+    daily_growth_rate: Decimal | None = None
+    source: str
+
+    model_config = {"from_attributes": True}
+
+
 class FundOut(BaseModel):
     id: int
     fund_code: str
