@@ -84,6 +84,16 @@ const navChartData = computed(() =>
   })),
 )
 
+function chartDateLabel(time: Time) {
+  if (typeof time === 'string') return time
+  if (typeof time === 'number') {
+    return new Date(time * 1000).toISOString().slice(0, 10)
+  }
+  const month = String(time.month).padStart(2, '0')
+  const day = String(time.day).padStart(2, '0')
+  return `${time.year}-${month}-${day}`
+}
+
 function latestReportPeriod(items: FundHolding[]) {
   return Array.from(new Set(items.map((holding) => holding.report_period)))
     .sort((a, b) => b.localeCompare(a))[0] ?? ''
@@ -143,9 +153,9 @@ async function refreshNavHistory() {
 function ensureNavChart() {
   if (!navChartEl.value || navChart) return
   navChart = createChart(navChartEl.value, {
-    width: navChartEl.value.clientWidth,
+    width: Math.max(0, navChartEl.value.clientWidth - 10),
     height: 320,
-    autoSize: true,
+    autoSize: false,
     layout: {
       background: { type: ColorType.Solid, color: '#ffffff' },
       textColor: '#52645a',
@@ -161,6 +171,8 @@ function ensureNavChart() {
     },
     rightPriceScale: {
       borderColor: 'rgba(36, 63, 47, 0.16)',
+      minimumWidth: 104,
+      entireTextOnly: true,
       scaleMargins: {
         top: 0.12,
         bottom: 0.12,
@@ -170,10 +182,17 @@ function ensureNavChart() {
       borderColor: 'rgba(36, 63, 47, 0.16)',
       timeVisible: false,
       secondsVisible: false,
+      rightOffset: 0,
+      minBarSpacing: 2,
+      fixLeftEdge: true,
+      fixRightEdge: true,
+      tickMarkFormatter: (time: Time) => chartDateLabel(time),
     },
     localization: {
       locale: 'zh-CN',
+      dateFormat: 'yyyy-MM-dd',
       priceFormatter: (price: number) => price.toFixed(4),
+      timeFormatter: (time: Time) => chartDateLabel(time),
     },
   })
   navSeries = navChart.addSeries(AreaSeries, {
@@ -187,7 +206,7 @@ function ensureNavChart() {
   navChartResizeObserver = new ResizeObserver((entries) => {
     const width = entries[0]?.contentRect.width
     if (width && navChart) {
-      navChart.applyOptions({ width })
+      navChart.applyOptions({ width: Math.max(0, width - 10) })
     }
   })
   navChartResizeObserver.observe(navChartEl.value)
