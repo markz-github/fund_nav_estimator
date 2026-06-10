@@ -10,6 +10,7 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type LogicalRange,
   type MouseEventParams,
   type Time,
 } from 'lightweight-charts'
@@ -45,6 +46,7 @@ let navChart: IChartApi | null = null
 let navSeries: ISeriesApi<'Area'> | null = null
 let selectedNavPriceLine: IPriceLine | null = null
 let navChartResizeObserver: ResizeObserver | null = null
+let adjustingNavChartRange = false
 
 const reportPeriods = computed(() =>
   Array.from(new Set(holdings.value.map((holding) => holding.report_period))).sort((a, b) =>
@@ -160,7 +162,7 @@ async function refreshNavHistory() {
 function ensureNavChart() {
   if (!navChartEl.value || navChart) return
   navChart = createChart(navChartEl.value, {
-    width: Math.max(0, navChartEl.value.clientWidth - 10),
+    width: navChartEl.value.clientWidth,
     height: 320,
     autoSize: false,
     layout: {
@@ -182,7 +184,7 @@ function ensureNavChart() {
     },
     rightPriceScale: {
       borderColor: 'rgba(36, 63, 47, 0.16)',
-      minimumWidth: 104,
+      minimumWidth: 112,
       entireTextOnly: true,
       scaleMargins: {
         top: 0.12,
@@ -217,12 +219,43 @@ function ensureNavChart() {
   navChartResizeObserver = new ResizeObserver((entries) => {
     const width = entries[0]?.contentRect.width
     if (width && navChart) {
-      navChart.applyOptions({ width: Math.max(0, width - 10) })
+      navChart.applyOptions({ width })
+      requestAnimationFrame(fitNavChartToDataEdges)
     }
   })
   navChartResizeObserver.observe(navChartEl.value)
   navChart.subscribeCrosshairMove(handleNavCrosshairMove)
+  navChart.timeScale().subscribeVisibleLogicalRangeChange(keepNavChartRangeInsideData)
   applyPriceLineMode()
+}
+
+function keepNavChartRangeInsideData(range: LogicalRange | null = navChart?.timeScale().getVisibleLogicalRange() ?? null) {
+  if (!navChart || adjustingNavChartRange || !range || navChartData.value.length <= 1) return
+  const firstIndex = 0
+  const lastIndex = navChartData.value.length - 1
+  const span = range.to - range.from
+  const maxSpan = lastIndex - firstIndex
+  const nextRange =
+    span >= maxSpan
+      ? { from: firstIndex, to: lastIndex }
+      : { from: range.from, to: range.to }
+
+  if (span < maxSpan && nextRange.to > lastIndex) {
+    nextRange.from -= nextRange.to - lastIndex
+    nextRange.to = lastIndex
+  }
+  if (span < maxSpan && nextRange.from < firstIndex) {
+    nextRange.to += firstIndex - nextRange.from
+    nextRange.from = firstIndex
+  }
+  if (nextRange.from === range.from && nextRange.to === range.to) return
+
+  adjustingNavChartRange = true
+  try {
+    navChart.timeScale().setVisibleLogicalRange(nextRange)
+  } finally {
+    adjustingNavChartRange = false
+  }
 }
 
 function handleNavCrosshairMove(param: MouseEventParams<Time>) {
@@ -286,6 +319,7 @@ function disposeNavChart() {
   navChart = null
   navSeries = null
   selectedHistoryNav.value = null
+  adjustingNavChartRange = false
 }
 
 function applyPriceLineMode() {
@@ -300,6 +334,14 @@ function applyPriceLineMode() {
   updateSelectedNavPriceLine()
 }
 
+function fitNavChartToDataEdges() {
+  if (!navChart || navChartData.value.length <= 1) return
+  navChart.timeScale().setVisibleLogicalRange({
+    from: 0,
+    to: navChartData.value.length - 1,
+  })
+}
+
 async function renderNavChart() {
   await nextTick()
   if (navChartData.value.length === 0) {
@@ -309,6 +351,8 @@ async function renderNavChart() {
   ensureNavChart()
   navSeries?.setData(navChartData.value)
   navChart?.timeScale().fitContent()
+  fitNavChartToDataEdges()
+  keepNavChartRangeInsideData()
 }
 
 async function refreshHoldings() {

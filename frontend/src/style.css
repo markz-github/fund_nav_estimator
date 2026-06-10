@@ -965,7 +965,7 @@ tbody tr {
   overflow: visible;
   border: 1px solid rgba(36, 63, 47, 0.16);
   border-radius: 8px;
-  padding: 18px 22px 18px 18px;
+  padding: 0;
   margin-bottom: 34px;
   background: rgba(255, 255, 255, 0.82);
 }
@@ -974,6 +974,7 @@ tbody tr {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+  padding: 18px 22px 0 18px;
 }
 
 .nav-chart-meta > div {
@@ -1005,13 +1006,13 @@ tbody tr {
   display: grid;
   min-height: 180px;
   place-items: center;
-  margin: 0;
+  margin: 0 18px 18px;
   color: #657368;
 }
 
 .nav-chart-attribution {
   justify-self: end;
-  margin-top: -8px;
+  margin: -8px 22px 14px 0;
   color: #8b978f;
   font-size: 0.76rem;
   text-decoration: none;
