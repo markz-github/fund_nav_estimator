@@ -1,5 +1,6 @@
 debug = false
 scheduler_fund_enabled = true
+scheduler_a_stock_enabled=true
 
 log_dir = "/data/test/logs"
 log_backup_days = 7
