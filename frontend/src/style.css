@@ -927,6 +927,38 @@ tbody tr {
   gap: 12px;
 }
 
+.segmented-control {
+  display: inline-grid;
+  grid-auto-flow: column;
+  border: 1px solid rgba(36, 63, 47, 0.16);
+  border-radius: 8px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.segmented-control button {
+  min-height: 30px;
+  border-radius: 6px;
+  padding: 0.35rem 0.62rem;
+  color: #52645a;
+  background: transparent;
+  font-size: 0.88rem;
+}
+
+.segmented-control button.active {
+  color: #ffffff;
+  background: #287356;
+}
+
+.nav-chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: #5c6a4f;
+  font-size: 0.9rem;
+}
+
 .nav-chart-panel {
   display: grid;
   gap: 18px;
@@ -940,11 +972,11 @@ tbody tr {
 
 .nav-chart-meta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
-.nav-chart-meta div {
+.nav-chart-meta > div {
   display: grid;
   gap: 6px;
   min-width: 0;
@@ -1809,6 +1841,12 @@ tbody tr:hover {
 
   .nav-chart-meta {
     grid-template-columns: 1fr;
+  }
+
+  .nav-chart-toolbar {
+    align-items: flex-start;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .section-title,

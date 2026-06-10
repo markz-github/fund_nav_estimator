@@ -5,7 +5,6 @@
     "version": "0.2.0",
     "configurations": [
         
-        
         {
             "name": "Python Debugger: FastAPI",
             "type": "debugpy",
@@ -28,7 +27,12 @@
             "request": "launch",
             "name": "Frontend Dev",
             "command": "npm run dev",
-            "cwd": "${workspaceFolder}/frontend"
+            "cwd": "${workspaceFolder}/frontend",
+            "serverReadyAction": {
+                "pattern": "Local:\\s+(https?://\\S+)",
+                "uriFormat": "%s",
+                "action": "openExternally"
+            }
         }
     ]
 }

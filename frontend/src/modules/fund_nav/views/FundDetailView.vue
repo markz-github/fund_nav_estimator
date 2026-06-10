@@ -5,9 +5,12 @@ import {
   AreaSeries,
   ColorType,
   CrosshairMode,
+  LineStyle,
   createChart,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
+  type MouseEventParams,
   type Time,
 } from 'lightweight-charts'
 import { apiErrorMessage } from '../../../api/client'
@@ -36,8 +39,11 @@ const refreshingHoldings = ref(false)
 const refreshingNavHistory = ref(false)
 const message = ref('')
 const navChartEl = ref<HTMLElement | null>(null)
+const selectedHistoryNav = ref<FundNav | null>(null)
+const priceLineMode = ref<'point' | 'mouse'>('point')
 let navChart: IChartApi | null = null
 let navSeries: ISeriesApi<'Area'> | null = null
+let selectedNavPriceLine: IPriceLine | null = null
 let navChartResizeObserver: ResizeObserver | null = null
 
 const reportPeriods = computed(() =>
@@ -71,6 +77,7 @@ const holdingCompletenessWarning = computed(() => {
 
 const chartNavs = computed(() => navHistory.value.filter((item) => Number.isFinite(Number(item.unit_nav))))
 const latestHistoryNav = computed(() => chartNavs.value[chartNavs.value.length - 1] ?? null)
+const displayedHistoryNav = computed(() => selectedHistoryNav.value ?? latestHistoryNav.value)
 const chartRangeText = computed(() => {
   const items = chartNavs.value
   if (items.length === 0) return '-'
@@ -168,6 +175,10 @@ function ensureNavChart() {
     },
     crosshair: {
       mode: CrosshairMode.Normal,
+      horzLine: {
+        visible: false,
+        labelVisible: false,
+      },
     },
     rightPriceScale: {
       borderColor: 'rgba(36, 63, 47, 0.16)',
@@ -210,14 +221,83 @@ function ensureNavChart() {
     }
   })
   navChartResizeObserver.observe(navChartEl.value)
+  navChart.subscribeCrosshairMove(handleNavCrosshairMove)
+  applyPriceLineMode()
+}
+
+function handleNavCrosshairMove(param: MouseEventParams<Time>) {
+  if (!param.time) {
+    selectedHistoryNav.value = null
+    updateSelectedNavPriceLine()
+    return
+  }
+  const navDate = chartDateLabel(param.time)
+  selectedHistoryNav.value = chartNavs.value.find((item) => item.nav_date === navDate) ?? null
+  updateSelectedNavPriceLine()
+}
+
+function updateSelectedNavPriceLine() {
+  if (!navSeries) return
+  if (priceLineMode.value !== 'point') {
+    if (selectedNavPriceLine) {
+      navSeries.removePriceLine(selectedNavPriceLine)
+      selectedNavPriceLine = null
+    }
+    return
+  }
+  if (!selectedHistoryNav.value) {
+    if (selectedNavPriceLine) {
+      navSeries.removePriceLine(selectedNavPriceLine)
+      selectedNavPriceLine = null
+    }
+    return
+  }
+  const selectedValue = Number(selectedHistoryNav.value.unit_nav)
+  if (!Number.isFinite(selectedValue)) {
+    if (selectedNavPriceLine) {
+      navSeries.removePriceLine(selectedNavPriceLine)
+      selectedNavPriceLine = null
+    }
+    return
+  }
+  const priceLineOptions = {
+    price: selectedValue,
+    color: '#287356',
+    lineWidth: 1 as const,
+    lineStyle: LineStyle.Dashed,
+    lineVisible: true,
+    axisLabelVisible: true,
+    axisLabelColor: '#17271f',
+    axisLabelTextColor: '#ffffff',
+    title: '',
+  }
+  if (selectedNavPriceLine) {
+    selectedNavPriceLine.applyOptions(priceLineOptions)
+  } else {
+    selectedNavPriceLine = navSeries.createPriceLine(priceLineOptions)
+  }
 }
 
 function disposeNavChart() {
   navChartResizeObserver?.disconnect()
   navChartResizeObserver = null
+  selectedNavPriceLine = null
   navChart?.remove()
   navChart = null
   navSeries = null
+  selectedHistoryNav.value = null
+}
+
+function applyPriceLineMode() {
+  navChart?.applyOptions({
+    crosshair: {
+      horzLine: {
+        visible: priceLineMode.value === 'mouse',
+        labelVisible: priceLineMode.value === 'mouse',
+      },
+    },
+  })
+  updateSelectedNavPriceLine()
 }
 
 async function renderNavChart() {
@@ -255,6 +335,7 @@ function goBack() {
 }
 
 watch(navChartData, renderNavChart)
+watch(priceLineMode, applyPriceLineMode)
 
 onMounted(async () => {
   await loadDetail()
@@ -349,12 +430,31 @@ onBeforeUnmount(disposeNavChart)
           <strong>{{ chartRangeText }}</strong>
         </div>
         <div>
-          <span>最新净值</span>
-          <strong>{{ latestHistoryNav?.unit_nav ?? '-' }}</strong>
+          <span>{{ selectedHistoryNav ? '当前净值' : '最新净值' }}</span>
+          <strong>{{ displayedHistoryNav?.unit_nav ?? '-' }}</strong>
         </div>
         <div>
-          <span>最新日期</span>
-          <strong>{{ latestHistoryNav?.nav_date ?? '-' }}</strong>
+          <span>{{ selectedHistoryNav ? '当前日期' : '最新日期' }}</span>
+          <strong>{{ displayedHistoryNav?.nav_date ?? '-' }}</strong>
+        </div>
+        <div class="nav-chart-toolbar">
+          <span>价格线</span>
+          <div class="segmented-control" aria-label="价格线模式">
+            <button
+              type="button"
+              :class="{ active: priceLineMode === 'point' }"
+              @click="priceLineMode = 'point'"
+            >
+              点位
+            </button>
+            <button
+              type="button"
+              :class="{ active: priceLineMode === 'mouse' }"
+              @click="priceLineMode = 'mouse'"
+            >
+              鼠标
+            </button>
+          </div>
         </div>
       </div>
       <div v-if="navChartData.length" ref="navChartEl" class="nav-chart" aria-label="历史净值走势"></div>
