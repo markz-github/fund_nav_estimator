@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
+from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.fund_nav.services.asset_valuation_config_service import load_asset_valuation_config_map
@@ -27,6 +28,7 @@ class MarketService:
         started = perf_counter()
         valuation_configs = load_asset_valuation_config_map(self.db)
         assets = self._assets_from_latest_holdings(fund_codes)
+        assets.update(self._etf_fund_assets(fund_codes))
         valuable_assets = {
             asset_code: asset
             for asset_code, asset in assets.items()
@@ -126,3 +128,24 @@ class MarketService:
             }
             for asset_code, asset_name, asset_type, market in rows
         }
+
+    def _etf_fund_assets(self, fund_codes: list[str] | None = None) -> dict[str, dict[str, str | None]]:
+        statement = select(Fund).where(Fund.enabled == 1)
+        if fund_codes:
+            statement = statement.where(Fund.fund_code.in_(fund_codes))
+        funds = self.db.scalars(statement).all()
+        assets: dict[str, dict[str, str | None]] = {}
+        for fund in funds:
+            fund_code = str(fund.fund_code or "").strip()
+            fund_name = fund.fund_name or ""
+            fund_type = fund.fund_type or ""
+            if not fund_code.startswith(("5", "1")):
+                continue
+            if "ETF" not in fund_name.upper() and "ETF" not in fund_type.upper():
+                continue
+            assets[fund_code] = {
+                "asset_name": fund_name,
+                "asset_type": "etf",
+                "market": "CN",
+            }
+        return assets

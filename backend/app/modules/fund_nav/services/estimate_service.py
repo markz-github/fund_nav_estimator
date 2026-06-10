@@ -208,7 +208,7 @@ class EstimateService:
         return result
 
     def _strategy_for_fund(self, fund: Fund) -> EstimateStrategy:
-        if self.is_exchange_traded_fund(fund):
+        if self.is_exchange_traded_fund(fund) or self._has_etf_nav_source(fund.fund_code):
             return EtfIopvEstimateStrategy(self)
         return HoldingWeightedEstimateStrategy(self)
 
@@ -223,6 +223,13 @@ class EstimateService:
         fund_name = fund.fund_name or ""
         fund_type = fund.fund_type or ""
         return fund_code.startswith(("5", "1")) and ("ETF" in fund_name.upper() or "ETF" in fund_type.upper())
+
+    def _has_etf_nav_source(self, fund_code: str) -> bool:
+        fund_code = str(fund_code or "").strip()
+        if not fund_code.startswith(("5", "1")):
+            return False
+        latest_nav = self._latest_nav(fund_code)
+        return latest_nav is not None and latest_nav.source in {"akshare:etf_spot", "akshare:etf_spot_prev_close"}
 
     def _latest_nav(self, fund_code: str) -> FundNav | None:
         return self.db.scalar(
