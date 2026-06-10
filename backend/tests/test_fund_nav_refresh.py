@@ -17,7 +17,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot
+from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot, MarketQuoteSnapshot
 from app.modules.fund_nav.data_sources.eastmoney_source import EastmoneySource
 from app.database import Base
 from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
@@ -511,6 +511,44 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIn("strategy=etf_quote", result.source_snapshot)
         source.get_etf_iopv_snapshot.assert_not_called()
 
+    def test_etf_estimate_uses_etf_strategy_when_nav_source_is_etf_spot(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source.get_etf_iopv_snapshot.return_value = EtfIopvSnapshot(
+            fund_code="515450",
+            asset_name="红利低波",
+            estimate_time=datetime(2026, 6, 5, 10, 30),
+            estimated_nav=Decimal("1.4638"),
+            latest_price=Decimal("1.4638"),
+            change_rate=Decimal("-0.0181"),
+            source="akshare:etf_spot",
+        )
+        fund = Fund(id=1, fund_code="515450", fund_name="515450", fund_type=None)
+        db.add(fund)
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="515450",
+                nav_date=date(2026, 6, 4),
+                unit_nav=Decimal("1.4908"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("-0.0144"),
+                source="akshare:etf_spot_prev_close",
+            )
+        )
+        db.commit()
+
+        try:
+            result = EstimateService(db, source)._estimate_one(fund, datetime(2026, 6, 5, 10, 30))
+        finally:
+            db.close()
+
+        self.assertIsInstance(result, FundEstimate)
+        self.assertIn("strategy=etf_iopv", result.source_snapshot)
+
     def test_asset_valuation_config_map_uses_exact_and_default_rules(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
@@ -592,6 +630,48 @@ class FundNavRefreshTests(unittest.TestCase):
             db.close()
 
         source.get_market_quotes.assert_called_once_with(["000001"])
+
+    def test_refresh_quotes_for_holdings_includes_etf_fund_itself(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(Fund(id=1, fund_code="515450", fund_name="红利低波ETF", fund_type="指数型-股票"))
+        db.add(
+            AssetValuationConfig(
+                id=1,
+                asset_type="etf",
+                market="CN",
+                realtime_valuable=1,
+                valuation_mode="quote",
+                enabled=1,
+            )
+        )
+        db.commit()
+        source = Mock()
+        source.source_name = "akshare"
+        source.get_market_quotes.return_value = [
+            MarketQuoteSnapshot(
+                asset_code="515450",
+                asset_name="红利低波ETF",
+                asset_type="etf",
+                market="CN",
+                trade_date=date(2026, 6, 5),
+                quote_time=datetime(2026, 6, 5, 10, 30),
+                latest_price=Decimal("1.4638"),
+                prev_close=Decimal("1.4908"),
+                change_rate=Decimal("-0.0181"),
+            )
+        ]
+
+        try:
+            quotes = MarketService(db, source).refresh_quotes_for_holdings(["515450"])
+        finally:
+            db.close()
+
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(quotes[0].asset_code, "515450")
+        source.get_market_quotes.assert_called_once_with(["515450"])
 
     def test_bond_holdings_do_not_participate_in_estimate_but_reduce_coverage(self) -> None:
         engine = create_engine("sqlite:///:memory:")

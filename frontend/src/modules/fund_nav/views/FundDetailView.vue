@@ -200,8 +200,8 @@ function ensureNavChart() {
     topColor: 'rgba(40, 115, 86, 0.28)',
     bottomColor: 'rgba(40, 115, 86, 0.02)',
     lineWidth: 2,
-    priceLineVisible: true,
-    lastValueVisible: true,
+    priceLineVisible: false,
+    lastValueVisible: false,
   })
   navChartResizeObserver = new ResizeObserver((entries) => {
     const width = entries[0]?.contentRect.width

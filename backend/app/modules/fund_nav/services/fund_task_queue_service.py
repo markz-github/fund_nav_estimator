@@ -213,7 +213,7 @@ class FundTaskQueueService:
         mapping = FundIndexMappingService(self.db).refresh_mapping(fund_code)
         nav = fund_service.refresh_nav(fund_code)
         holdings = HoldingService(self.db).refresh_holdings(fund_code)
-        quotes = MarketService(self.db).refresh_quotes_for_holdings([fund_code]) if holdings else []
+        quotes = MarketService(self.db).refresh_quotes_for_holdings([fund_code])
         estimates = EstimateService(self.db).run_estimates([fund_code])
         status = "success" if profile and nav and holdings and not estimates["skipped_count"] else "partial"
         return status, (
