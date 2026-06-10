@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -23,6 +24,8 @@ PID_FILE = PROJECT_ROOT / ".runtime" / "a_stock_history_sync.json"
 PROGRESS_TABLE = "stock_daily_bars_sync_progress"
 TASK_TABLE = "a_stock_history_sync_tasks"
 TERMINAL_TASK_STATUSES = {"success", "partial", "failed", "skipped", "stopped"}
+DAILY_BARS_TABLE = "stock_daily_bars_none"
+logger = logging.getLogger(__name__)
 
 
 def ymd(value: date) -> str:
@@ -37,6 +40,13 @@ def date_range_from_request(payload: AStockHistorySyncRequest) -> tuple[str, str
     return ymd(payload.start_date or today), ymd(payload.end_date or today)
 
 
+def previous_weekday(today: date) -> date:
+    candidate = today - timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
 class AStockHistorySyncService:
     _start_lock = Lock()
 
@@ -45,6 +55,68 @@ class AStockHistorySyncService:
 
     def engine(self) -> Engine:
         return create_engine(self.settings.a_stock_database_url, pool_pre_ping=True)
+
+    def previous_trading_day(self, today: date | None = None) -> date:
+        today = today or date.today()
+        try:
+            import akshare as ak
+
+            calendar = ak.tool_trade_date_hist_sina()
+            if "trade_date" not in calendar.columns:
+                return previous_weekday(today)
+            trade_dates = [
+                value.date() if hasattr(value, "date") else date.fromisoformat(str(value)[:10])
+                for value in calendar["trade_date"].dropna().tolist()
+            ]
+            previous_dates = [trade_date for trade_date in trade_dates if trade_date < today]
+            return max(previous_dates) if previous_dates else previous_weekday(today)
+        except Exception:
+            logger.exception("previous_trading_day calendar_failed")
+            return previous_weekday(today)
+
+    def has_daily_bars_for_date(self, trade_date: date) -> bool:
+        try:
+            with self.engine().connect() as connection:
+                exists = connection.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM information_schema.tables
+                        WHERE table_schema = DATABASE()
+                          AND table_name = :table_name
+                        """
+                    ),
+                    {"table_name": DAILY_BARS_TABLE},
+                ).scalar()
+                if not exists:
+                    return False
+                count = connection.execute(
+                    text(f"SELECT COUNT(*) FROM {DAILY_BARS_TABLE} WHERE trade_date = :trade_date"),
+                    {"trade_date": trade_date},
+                ).scalar()
+                return int(count or 0) > 0
+        except Exception:
+            logger.exception("has_daily_bars_for_date failed trade_date=%s", trade_date)
+            return False
+
+    def sync_previous_trading_day_if_missing(self, today: date | None = None) -> dict[str, object]:
+        trade_date = self.previous_trading_day(today)
+        date_text = ymd(trade_date)
+        if self.has_daily_bars_for_date(trade_date):
+            return {
+                "started": False,
+                "trade_date": date_text,
+                "message": f"前一交易日 {date_text} 的 A 股数据已存在。",
+            }
+        result = self.start(
+            AStockHistorySyncRequest(
+                mode="date_range",
+                start_date=trade_date,
+                end_date=trade_date,
+                workers=self.settings.scheduler_a_stock_history_workers,
+            )
+        )
+        return {**result, "trade_date": date_text}
 
     def start(self, payload: AStockHistorySyncRequest) -> dict[str, object]:
         with self._start_lock:

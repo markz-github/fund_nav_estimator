@@ -12,7 +12,7 @@ from app.modules.fund_nav.api import estimates, funds, history, market
 from app.modules.operations.api import errors, tasks
 from app.config import get_settings
 from app.logging_config import configure_logging
-from app.scheduler.scheduler import create_scheduler
+from app.scheduler.scheduler import create_a_stock_scheduler, create_fund_scheduler
 from app.modules.fund_nav.services.fund_task_queue_service import dispatcher
 
 
@@ -35,7 +35,8 @@ app.include_router(history.router, prefix="/api")
 app.include_router(a_stock_api.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(errors.router, prefix="/api")
-scheduler = create_scheduler() if settings.scheduler_fund_enabled else None
+fund_scheduler = create_fund_scheduler() if settings.scheduler_fund_enabled else None
+a_stock_scheduler = create_a_stock_scheduler() if settings.scheduler_a_stock_enabled else None
 
 
 @app.middleware("http")
@@ -61,12 +62,16 @@ def health_check() -> dict[str, str]:
 @app.on_event("startup")
 def start_scheduler() -> None:
     dispatcher.start()
-    if scheduler and not scheduler.running:
-        scheduler.start()
+    if fund_scheduler and not fund_scheduler.running:
+        fund_scheduler.start()
+    if a_stock_scheduler and not a_stock_scheduler.running:
+        a_stock_scheduler.start()
 
 
 @app.on_event("shutdown")
 def stop_scheduler() -> None:
     dispatcher.shutdown()
-    if scheduler and scheduler.running:
-        scheduler.shutdown(wait=False)
+    if fund_scheduler and fund_scheduler.running:
+        fund_scheduler.shutdown(wait=False)
+    if a_stock_scheduler and a_stock_scheduler.running:
+        a_stock_scheduler.shutdown(wait=False)
