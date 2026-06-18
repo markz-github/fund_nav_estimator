@@ -270,7 +270,7 @@ onUnmounted(() => {
       <span>{{ tasks.length }} 条</span>
     </section>
     <div class="table-card">
-      <table class="a-stock-table">
+      <table class="a-stock-table responsive-card-table">
         <thead>
           <tr>
             <th>任务</th>
@@ -289,15 +289,15 @@ onUnmounted(() => {
             <td colspan="9">暂无同步任务。</td>
           </tr>
           <tr v-for="task in tasks" :key="task.id">
-            <td>#{{ task.id }}</td>
-            <td>{{ statusText(task.status) }}</td>
-            <td>{{ task.start_date }} - {{ task.end_date }}</td>
-            <td>{{ task.success_count }}</td>
-            <td>{{ task.failed_count }}</td>
-            <td>{{ task.running_count }}</td>
-            <td>{{ formatDateTime(task.started_at) }}</td>
-            <td>{{ durationText(task.duration_seconds) }}</td>
-            <td>
+            <td data-label="任务">#{{ task.id }}</td>
+            <td data-label="状态">{{ statusText(task.status) }}</td>
+            <td data-label="日期范围">{{ task.start_date }} - {{ task.end_date }}</td>
+            <td data-label="成功">{{ task.success_count }}</td>
+            <td data-label="失败">{{ task.failed_count }}</td>
+            <td data-label="执行中">{{ task.running_count }}</td>
+            <td data-label="开始时间">{{ formatDateTime(task.started_at) }}</td>
+            <td data-label="耗时">{{ durationText(task.duration_seconds) }}</td>
+            <td data-label="操作">
               <div class="quick-actions">
                 <RouterLink
                   class="link-button"

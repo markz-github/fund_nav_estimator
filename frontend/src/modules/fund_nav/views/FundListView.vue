@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import AppLogo from '../components/AppLogo.vue'
 import FundTable from '../components/FundTable.vue'
 import { apiErrorMessage, isRequestTimeout } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
@@ -29,6 +28,8 @@ const estimating = ref(false)
 const refreshingNavs = ref(false)
 const message = ref('')
 const pendingDeleteFund = ref<Fund | null>(null)
+const batchActionsOpen = ref(false)
+const addFundOpen = ref(false)
 const initialSort = readSavedSort()
 const sortBy = ref<FundSortBy | null>(initialSort.sortBy)
 const sortOrder = ref<SortOrder>(initialSort.sortOrder)
@@ -210,35 +211,51 @@ onMounted(loadFunds)
     <section class="dashboard-panel">
       <header class="dashboard-header">
         <div class="brand-heading">
-          <AppLogo />
-          <div>
-          <h1>基金当日净值估算 <span>(Intraday Fund NAV Estimates)</span></h1>
-          <p class="subtitle">实时同步行情，高频（半小时粒度）精细估算。</p>
-          </div>
+          <h1>基金估值</h1>
         </div>
       </header>
 
       <div class="toolbar">
-        <div class="page-actions">
-          <button class="ghost" :disabled="estimating" @click="estimateToday">
-            {{ estimating ? '估算中...' : selectedFundCodes.length ? `估算选中 ${selectedFundCodes.length} 只` : '批量估算全部' }}
+        <section class="mobile-collapsible" :class="{ 'is-open': batchActionsOpen }">
+          <button
+            class="mobile-collapsible-toggle"
+            type="button"
+            :aria-expanded="batchActionsOpen"
+            @click="batchActionsOpen = !batchActionsOpen"
+          >
+            批量操作
           </button>
-          <button class="ghost" :disabled="refreshingNavs" @click="refreshSelectedNavs">
-            {{
-              refreshingNavs
-                ? '更新中...'
-                : selectedFundCodes.length
-                  ? `更新选中 ${selectedFundCodes.length} 只官方净值`
-                  : '批量更新官方净值'
-            }}
+          <div class="page-actions mobile-collapsible-content">
+            <button class="ghost" :disabled="estimating" @click="estimateToday">
+              {{ estimating ? '估算中...' : selectedFundCodes.length ? `估算选中 ${selectedFundCodes.length} 只` : '批量估算全部' }}
+            </button>
+            <button class="ghost" :disabled="refreshingNavs" @click="refreshSelectedNavs">
+              {{
+                refreshingNavs
+                  ? '更新中...'
+                  : selectedFundCodes.length
+                    ? `更新选中 ${selectedFundCodes.length} 只官方净值`
+                    : '批量更新官方净值'
+              }}
+            </button>
+            <RouterLink class="link-button" :to="{ name: routeNames.operations }">查看运行状态</RouterLink>
+          </div>
+        </section>
+        <section class="mobile-collapsible" :class="{ 'is-open': addFundOpen }">
+          <button
+            class="mobile-collapsible-toggle"
+            type="button"
+            :aria-expanded="addFundOpen"
+            @click="addFundOpen = !addFundOpen"
+          >
+            添加基金
           </button>
-          <RouterLink class="link-button" :to="{ name: routeNames.operations }">查看运行状态</RouterLink>
-        </div>
-        <form class="inline-add-form" @submit.prevent="submitFund">
-          <input v-model="fundCode" class="code-input" placeholder="基金代码" />
-          <input v-model="remark" class="remark-input" placeholder="备注" />
-          <button type="submit" :disabled="saving">{{ saving ? '添加中...' : '添加基金' }}</button>
-        </form>
+          <form class="inline-add-form mobile-collapsible-content" @submit.prevent="submitFund">
+            <input v-model="fundCode" class="code-input" placeholder="基金代码" />
+            <input v-model="remark" class="remark-input" placeholder="备注" />
+            <button type="submit" :disabled="saving">{{ saving ? '添加中...' : '添加基金' }}</button>
+          </form>
+        </section>
       </div>
 
       <p v-if="message" class="message">{{ message }}</p>

@@ -199,7 +199,7 @@ watch(
     </form>
 
     <div class="table-card">
-      <table class="operations-table">
+      <table class="operations-table responsive-card-table">
         <thead>
           <tr>
             <th>ID</th>
@@ -219,27 +219,27 @@ watch(
             <td colspan="10">暂无任务日志。</td>
           </tr>
           <tr v-for="log in taskLogs" :key="log.id">
-            <td class="mono">{{ log.id }}</td>
-            <td>{{ log.task_name }}</td>
-            <td>
+            <td class="mono" data-label="ID">{{ log.id }}</td>
+            <td data-label="任务">{{ log.task_name }}</td>
+            <td data-label="类型">
               <RouterLink :to="{ name: routeNames.operations, query: { ...filterQuery(), task_type: log.task_type } }">
                 {{ taskTypeLabel(log.task_type) }}
               </RouterLink>
             </td>
-            <td class="mono">
+            <td class="mono" data-label="目标">
               <RouterLink v-if="targetRoute(log)" :to="targetRoute(log)!">
                 {{ log.target_type }}:{{ log.target_id }}
               </RouterLink>
               <span v-else>{{ log.target_type && log.target_id ? `${log.target_type}:${log.target_id}` : '-' }}</span>
             </td>
-            <td class="mono">{{ log.external_task_id ?? '-' }}</td>
-            <td><span class="status-pill" :class="statusClass(log.status)">{{ log.status_label }}</span></td>
-            <td>{{ formatDateTime(log.started_at) }}</td>
-            <td>{{ durationText(log.duration_ms) }}</td>
-            <td class="log-text-cell" @mouseenter="showTextPopover($event, log.message)" @mouseleave="hideTextPopover">
+            <td class="mono" data-label="外部任务 ID">{{ log.external_task_id ?? '-' }}</td>
+            <td data-label="状态"><span class="status-pill" :class="statusClass(log.status)">{{ log.status_label }}</span></td>
+            <td data-label="开始时间">{{ formatDateTime(log.started_at) }}</td>
+            <td data-label="耗时">{{ durationText(log.duration_ms) }}</td>
+            <td class="log-text-cell" data-label="摘要" @mouseenter="showTextPopover($event, log.message)" @mouseleave="hideTextPopover">
               <span class="log-text-preview">{{ log.message ?? '-' }}</span>
             </td>
-            <td class="log-text-cell" @mouseenter="showTextPopover($event, log.error_message)" @mouseleave="hideTextPopover">
+            <td class="log-text-cell" data-label="错误信息" @mouseenter="showTextPopover($event, log.error_message)" @mouseleave="hideTextPopover">
               <span class="log-text-preview">{{ log.error_message ?? '-' }}</span>
             </td>
           </tr>

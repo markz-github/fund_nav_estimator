@@ -528,7 +528,7 @@ onBeforeUnmount(disposeNavChart)
     <p v-if="holdingCompletenessWarning" class="message">{{ holdingCompletenessWarning }}</p>
 
     <div class="table-card">
-      <table>
+      <table class="responsive-card-table holdings-table">
         <thead>
           <tr>
             <th>报告期</th>
@@ -549,14 +549,14 @@ onBeforeUnmount(disposeNavChart)
             <td colspan="8">当前报告期没有持仓数据。</td>
           </tr>
           <tr v-for="holding in filteredHoldings" :key="`${holding.report_period}-${holding.asset_code}`">
-            <td>{{ holding.report_period }}</td>
-            <td class="mono">{{ holding.asset_code }}</td>
-            <td>{{ holding.asset_name }}</td>
-            <td>{{ holding.asset_type }}</td>
-            <td>{{ holding.market ?? '-' }}</td>
-            <td>{{ percent(holding.holding_ratio) }}</td>
-            <td>{{ holding.holding_value ?? '-' }}</td>
-            <td>{{ holding.source }}</td>
+            <td data-label="报告期">{{ holding.report_period }}</td>
+            <td class="mono" data-label="资产代码">{{ holding.asset_code }}</td>
+            <td data-label="资产名称">{{ holding.asset_name }}</td>
+            <td data-label="资产类型">{{ holding.asset_type }}</td>
+            <td data-label="市场">{{ holding.market ?? '-' }}</td>
+            <td data-label="持仓比例">{{ percent(holding.holding_ratio) }}</td>
+            <td data-label="持仓市值">{{ holding.holding_value ?? '-' }}</td>
+            <td data-label="来源">{{ holding.source }}</td>
           </tr>
         </tbody>
       </table>
