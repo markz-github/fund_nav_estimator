@@ -85,7 +85,7 @@ function sortIndicator(sortBy: FundSortBy) {
 
 <template>
   <div class="table-card fund-table-card">
-    <table>
+    <table class="responsive-card-table fund-list-table">
       <thead>
         <tr>
           <th>
@@ -117,7 +117,7 @@ function sortIndicator(sortBy: FundSortBy) {
           <td colspan="7">还没有自选基金，先添加一只试试。</td>
         </tr>
         <tr v-for="fund in funds" :key="fund.fund_code">
-          <td>
+          <td data-label="选择" class="mobile-select-cell">
             <input
               class="row-check"
               type="checkbox"
@@ -125,24 +125,25 @@ function sortIndicator(sortBy: FundSortBy) {
               @change="toggleFund(fund.fund_code, ($event.target as HTMLInputElement).checked)"
             />
           </td>
-          <td class="fund-cell">
+          <td class="fund-cell" data-label="基金资产">
             <RouterLink class="fund-name" :to="{ name: routeNames.fundDetail, params: { fundCode: fund.fund_code } }">{{ fund.fund_name }}</RouterLink>
             <span class="muted mono">{{ fund.fund_code }}</span>
           </td>
-          <td>
+          <td class="mobile-hidden-cell" data-label="最新估算数据">
             <strong class="metric">{{ fund.latest_estimated_nav ?? '-' }}</strong>
             <span class="muted">{{ formatDateTime(fund.latest_estimate_time) }}</span>
           </td>
-          <td>
+          <td data-label="涨跌幅">
             <strong class="metric change-rate" :class="growthClass(fund.latest_estimated_growth_rate, isStaleEstimate(fund))">
               {{ growthPercent(fund.latest_estimated_growth_rate) }}
             </strong>
+            <span class="muted mobile-only">估算 {{ formatDateTime(fund.latest_estimate_time) }}</span>
           </td>
-          <td class="status-cell">
+          <td class="status-cell mobile-hidden-cell" data-label="估算状态">
             <span class="status-pill" :class="statusClass(fund)">{{ statusText(fund) }}</span>
             <span class="muted">覆盖 {{ percent(fund.latest_coverage_ratio) }}</span>
           </td>
-          <td>
+          <td data-label="官方净值">
             <div class="benchmark-cell">
               <div>
                 <strong class="metric">{{ fund.latest_unit_nav ?? '-' }}</strong>
@@ -153,7 +154,7 @@ function sortIndicator(sortBy: FundSortBy) {
               </strong>
             </div>
           </td>
-          <td>
+          <td class="mobile-hidden-cell" data-label="快捷操作">
             <div class="quick-actions">
               <RouterLink class="link-button" :to="{ name: routeNames.fundDetail, params: { fundCode: fund.fund_code } }">详情</RouterLink>
               <button class="ghost" @click="emit('refresh', fund.fund_code)">刷新</button>

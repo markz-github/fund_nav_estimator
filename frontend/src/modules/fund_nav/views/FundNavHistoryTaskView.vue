@@ -201,7 +201,7 @@ onUnmounted(() => {
       <span>{{ runningCount }} 只</span>
     </section>
     <div class="table-card">
-      <table class="a-stock-table">
+      <table class="a-stock-table responsive-card-table">
         <thead>
           <tr>
             <th>基金</th>
@@ -214,9 +214,9 @@ onUnmounted(() => {
             <td colspan="3">暂无正在处理的基金。</td>
           </tr>
           <tr v-for="item in task?.running_items" :key="item.fund_code">
-            <td>{{ fundName(item) }}</td>
-            <td>{{ formatDateTime(item.started_at) }}</td>
-            <td>{{ durationText(item.duration_seconds) }}</td>
+            <td data-label="基金">{{ fundName(item) }}</td>
+            <td data-label="开始时间">{{ formatDateTime(item.started_at) }}</td>
+            <td data-label="耗时">{{ durationText(item.duration_seconds) }}</td>
           </tr>
         </tbody>
       </table>
@@ -230,7 +230,7 @@ onUnmounted(() => {
       <span>{{ doneCount }} 只已完成</span>
     </section>
     <div class="table-card">
-      <table class="a-stock-table">
+      <table class="a-stock-table responsive-card-table">
         <thead>
           <tr>
             <th>基金</th>
@@ -243,9 +243,9 @@ onUnmounted(() => {
             <td colspan="3">暂无完成记录。</td>
           </tr>
           <tr v-for="item in task?.latest_done" :key="item.fund_code">
-            <td>{{ fundName(item) }}</td>
-            <td>{{ formatDateTime(item.finished_at) }}</td>
-            <td>{{ durationText(item.duration_seconds) }}</td>
+            <td data-label="基金">{{ fundName(item) }}</td>
+            <td data-label="完成时间">{{ formatDateTime(item.finished_at) }}</td>
+            <td data-label="耗时">{{ durationText(item.duration_seconds) }}</td>
           </tr>
         </tbody>
       </table>
@@ -259,7 +259,7 @@ onUnmounted(() => {
       <span>{{ failedCount }} 只</span>
     </section>
     <div v-if="task?.failed_items.length" class="table-card">
-      <table class="a-stock-table">
+      <table class="a-stock-table responsive-card-table">
         <thead>
           <tr>
             <th>基金</th>
@@ -269,9 +269,9 @@ onUnmounted(() => {
         </thead>
         <tbody>
           <tr v-for="item in task.failed_items" :key="item.fund_code">
-            <td>{{ fundName(item) }}</td>
-            <td>{{ formatDateTime(item.finished_at) }}</td>
-            <td class="log-text-preview">{{ item.error ?? '-' }}</td>
+            <td data-label="基金">{{ fundName(item) }}</td>
+            <td data-label="完成时间">{{ formatDateTime(item.finished_at) }}</td>
+            <td class="log-text-preview" data-label="错误">{{ item.error ?? '-' }}</td>
           </tr>
         </tbody>
       </table>

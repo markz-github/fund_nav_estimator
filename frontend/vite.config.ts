@@ -19,12 +19,12 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       proxy: {
         [prefixedApiPath]: {
-          target: 'http://127.0.0.1:8000',
+          target: 'http://192.168.50.50:18888/fund-nav-estimator',
           changeOrigin: true,
           rewrite: (path) => path.replace(new RegExp(`^${prefixedApiPath}`), '/api'),
         },
         '/api': {
-          target: 'http://127.0.0.1:8000',
+          target: 'http://192.168.50.50:18888/fund-nav-estimator',
           changeOrigin: true,
         },
       },
