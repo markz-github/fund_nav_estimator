@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Index, String, Text, func
+from sqlalchemy import BigInteger, DateTime, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -13,7 +13,7 @@ class DataFetchError(Base):
         Index("idx_fetch_errors_time", "occurred_at"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False)
     data_type: Mapped[str] = mapped_column(String(50), nullable=False)
     target_code: Mapped[str] = mapped_column(String(30), nullable=False)

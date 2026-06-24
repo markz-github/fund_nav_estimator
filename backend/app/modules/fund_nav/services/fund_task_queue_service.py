@@ -22,6 +22,7 @@ from app.modules.fund_nav.services.fund_profile_service import FundProfileServic
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.market_service import MarketService
+from app.modules.fund_nav.data_sources.akshare_source import FetchDiagnostic
 from app.modules.operations.models.task_log import TaskLog
 from app.modules.operations.services.operation_log_service import log_fetch_error
 
@@ -186,20 +187,23 @@ class FundTaskQueueService:
             total = sum(len(HoldingService(self.db).refresh_holdings(code)) for code in self._codes(fund_codes))
             return ("success" if total else "partial"), f"holdings={total}"
         if task.task_type == "refresh_quote":
-            quotes = MarketService(self.db).refresh_quotes_for_holdings(fund_codes)
-            return ("success" if quotes else "partial"), f"quotes={len(quotes)}"
+            market_service = MarketService(self.db)
+            quotes = market_service.refresh_quotes_for_holdings(fund_codes)
+            return self._quote_status_message(len(quotes), market_service.last_refresh_diagnostics)
         if task.task_type == "estimate_nav":
             result = EstimateService(self.db).run_estimates(fund_codes)
             return ("success" if not result["skipped_count"] else "partial"), self._estimate_message(result)
         if task.task_type == "refresh_quote_estimate":
             nav_success = sum(FundService(self.db).refresh_nav(code) is not None for code in self._codes(fund_codes))
             holding_total = sum(len(HoldingService(self.db).refresh_holdings(code)) for code in self._codes(fund_codes))
-            quotes = MarketService(self.db).refresh_quotes_for_holdings(fund_codes)
+            market_service = MarketService(self.db)
+            quotes = market_service.refresh_quotes_for_holdings(fund_codes)
             result = EstimateService(self.db).run_estimates(fund_codes)
-            return (
-                "success" if nav_success and holding_total and quotes and not result["skipped_count"] else "partial",
-                f"nav={nav_success};holdings={holding_total};quotes={len(quotes)};{self._estimate_message(result)}",
-            )
+            quote_status, quote_message = self._quote_status_message(len(quotes), market_service.last_refresh_diagnostics)
+            status = "success" if nav_success and holding_total and quote_status == "success" and not result["skipped_count"] else "partial"
+            if quote_status == "failed" and not nav_success and not holding_total:
+                status = "failed"
+            return status, f"nav={nav_success};holdings={holding_total};{quote_message};{self._estimate_message(result)}"
         if task.task_type == "refresh_index_mapping":
             refreshed = FundIndexMappingService(self.db).refresh_mapping(payload["fund_code"])
             return ("success" if refreshed else "partial"), f"fund_code={payload['fund_code']};refreshed={refreshed is not None}"
@@ -213,12 +217,14 @@ class FundTaskQueueService:
         mapping = FundIndexMappingService(self.db).refresh_mapping(fund_code)
         nav = fund_service.refresh_nav(fund_code)
         holdings = HoldingService(self.db).refresh_holdings(fund_code)
-        quotes = MarketService(self.db).refresh_quotes_for_holdings([fund_code])
+        market_service = MarketService(self.db)
+        quotes = market_service.refresh_quotes_for_holdings([fund_code])
         estimates = EstimateService(self.db).run_estimates([fund_code])
-        status = "success" if profile and nav and holdings and not estimates["skipped_count"] else "partial"
+        quote_status, quote_message = self._quote_status_message(len(quotes), market_service.last_refresh_diagnostics)
+        status = "success" if profile and nav and holdings and quote_status == "success" and not estimates["skipped_count"] else "partial"
         return status, (
             f"profile={profile is not None};index_mapping={mapping is not None};nav={nav is not None};"
-            f"holdings={len(holdings)};quotes={len(quotes)};{self._estimate_message(estimates)}"
+            f"holdings={len(holdings)};{quote_message};{self._estimate_message(estimates)}"
         )
 
     def _codes(self, fund_codes: list[str] | None) -> list[str]:
@@ -227,6 +233,27 @@ class FundTaskQueueService:
     @staticmethod
     def _estimate_message(result: dict) -> str:
         return f"estimated={result['estimated_count']};skipped={result['skipped_count']};details={result['skipped']}"
+
+    def _quote_status_message(self, quote_count: int, diagnostics: list[FetchDiagnostic]) -> tuple[str, str]:
+        error_count = sum(1 for item in diagnostics if item.severity == "error")
+        warning_count = sum(1 for item in diagnostics if item.severity == "warning")
+        for item in diagnostics:
+            if item.severity == "error":
+                log_fetch_error(self.db, item.source, "market_quote", item.target, item.message)
+        status = "success"
+        if error_count:
+            status = "partial" if quote_count else "failed"
+        elif warning_count:
+            status = "partial"
+        elif not quote_count:
+            status = "partial"
+        parts = [f"quotes={quote_count}"]
+        if diagnostics:
+            examples = "|".join(f"{item.source}:{item.target}:{item.message}" for item in diagnostics[:3])
+            parts.append(f"upstream_errors={error_count}")
+            parts.append(f"upstream_warnings={warning_count}")
+            parts.append(f"diagnostics={examples}")
+        return status, ";".join(parts)
 
     def _finish(self, task: FundTaskQueue, status: str, message: str) -> None:
         now = datetime.now()

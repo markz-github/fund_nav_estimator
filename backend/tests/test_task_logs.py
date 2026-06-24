@@ -14,6 +14,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 import app.models  # noqa: F401
 from app.database import Base
+from app.logging_config import ShanghaiMidnightRotatingFileHandler
 from app.modules.operations.api.tasks import get_task_log_options, list_task_logs
 from app.modules.operations.models.task_log import TaskLog
 from app.modules.operations.services.operation_log_service import normalize_task_status, task_status_from_counts
@@ -70,6 +71,14 @@ class TaskLogTests(unittest.TestCase):
         log = self.db.get(TaskLog, result.task_log_id)
         self.assertEqual(log.target_type, "fund")
         self.assertEqual(log.target_id, "000001")
+
+    def test_shanghai_midnight_log_backup_uses_local_log_date(self) -> None:
+        rotated_name = ShanghaiMidnightRotatingFileHandler.rotation_filename(
+            object(),
+            "logs/backend.log.2026-06-23",
+        )
+
+        self.assertEqual(rotated_name.replace("\\", "/"), "logs/backend.log.2026-06-24")
 
 
 if __name__ == "__main__":
