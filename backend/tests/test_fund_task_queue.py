@@ -4,6 +4,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import sys
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -15,9 +16,11 @@ if str(BACKEND_DIR) not in sys.path:
 
 import app.models  # noqa: F401
 from app.database import Base
+from app.modules.fund_nav.data_sources.akshare_source import FetchDiagnostic
 from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.operations.models.task_log import TaskLog
+from app.modules.operations.models.data_fetch_error import DataFetchError
 
 
 class FundTaskQueueTests(unittest.TestCase):
@@ -92,6 +95,31 @@ class FundTaskQueueTests(unittest.TestCase):
 
         self.assertEqual(task.status, "pending")
         self.assertEqual(task_log.status, "pending")
+
+    def test_refresh_quote_records_upstream_failure_in_task_log(self) -> None:
+        submitted = self.service.submit("refresh_quote", "刷新持仓资产行情", origin="manual")
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        class FakeMarketService:
+            def __init__(self, db):
+                self.last_refresh_diagnostics = [
+                    FetchDiagnostic("error", "akshare", "fund_etf_spot_em", "fetch failed: RemoteDisconnected")
+                ]
+
+            def refresh_quotes_for_holdings(self, fund_codes=None):
+                return [object()]
+
+        with patch("app.modules.fund_nav.services.fund_task_queue_service.MarketService", FakeMarketService):
+            self.service.execute(submitted.task_id)
+
+        task_log = self.db.get(TaskLog, submitted.task_log_id)
+        self.assertEqual(task_log.status, "partial")
+        self.assertIn("upstream_errors=1", task_log.message)
+        self.assertIn("fund_etf_spot_em", task_log.message)
+        fetch_error = self.db.scalar(select(DataFetchError))
+        self.assertEqual(fetch_error.source, "akshare")
 
     def test_concurrent_identical_submissions_reuse_one_pending_task(self) -> None:
         engine = create_engine(

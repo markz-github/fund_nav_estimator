@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from contextvars import ContextVar, Token
 import re
 import logging
 from threading import Lock
@@ -55,6 +56,14 @@ class MarketQuoteSnapshot:
     change_rate: Decimal | None
 
 
+@dataclass(frozen=True)
+class FetchDiagnostic:
+    severity: str
+    source: str
+    target: str
+    message: str
+
+
 class AkshareSource:
     """Thin adapter for akshare calls.
 
@@ -71,6 +80,26 @@ class AkshareSource:
     _dataframe_cache: dict[str, tuple[object, float]] = {}
     _cache_locks: dict[str, Lock] = {}
     _cache_locks_guard = Lock()
+    _fetch_diagnostics: ContextVar[list[FetchDiagnostic] | None] = ContextVar(
+        "akshare_fetch_diagnostics",
+        default=None,
+    )
+
+    @classmethod
+    def begin_fetch_diagnostics(cls) -> Token[list[FetchDiagnostic] | None]:
+        return cls._fetch_diagnostics.set([])
+
+    @classmethod
+    def end_fetch_diagnostics(cls, token: Token[list[FetchDiagnostic] | None]) -> list[FetchDiagnostic]:
+        diagnostics = list(cls._fetch_diagnostics.get() or [])
+        cls._fetch_diagnostics.reset(token)
+        return diagnostics
+
+    @classmethod
+    def _record_fetch_diagnostic(cls, severity: str, source: str, target: str, message: str) -> None:
+        diagnostics = cls._fetch_diagnostics.get()
+        if diagnostics is not None:
+            diagnostics.append(FetchDiagnostic(severity, source, target, message[:500]))
 
     @timed()
     def get_fund_profile(self, fund_code: str) -> FundProfile:
@@ -624,12 +653,13 @@ class AkshareSource:
             started = monotonic()
             try:
                 dataframe = fetcher()
-            except Exception:
+            except Exception as exc:
                 logging.getLogger("app.performance").exception(
                     "akshare_fetch endpoint=%s status=failed duration_ms=%.2f",
                     endpoint,
                     (monotonic() - started) * 1000,
                 )
+                cls._record_fetch_diagnostic("error", "akshare", endpoint, f"fetch failed: {exc!r}")
                 stale = cls._stale_cache(endpoint)
                 if stale is not None:
                     value, loaded_at = stale
@@ -641,11 +671,23 @@ class AkshareSource:
                             age,
                             max_stale_age_seconds,
                         )
+                        cls._record_fetch_diagnostic(
+                            "error",
+                            "akshare",
+                            endpoint,
+                            f"stale cache rejected: age_seconds={age:.2f};max_age_seconds={max_stale_age_seconds}",
+                        )
                         raise
                     logging.getLogger("app.performance").warning(
                         "akshare_cache endpoint=%s status=stale_fallback age_seconds=%.2f",
                         endpoint,
                         age,
+                    )
+                    cls._record_fetch_diagnostic(
+                        "warning",
+                        "akshare",
+                        endpoint,
+                        f"stale cache fallback: age_seconds={age:.2f}",
                     )
                     return value
                 raise
@@ -1038,11 +1080,12 @@ class AkshareSource:
             )
             response.raise_for_status()
             payload = response.json()
-        except Exception:
+        except Exception as exc:
             logging.getLogger("app.performance").exception(
                 "fallback_quote source=eastmoney_etf asset_code=%s status=failed",
                 asset_code,
             )
+            self._record_fetch_diagnostic("error", "eastmoney_etf", asset_code, f"fallback quote failed: {exc!r}")
             return None
 
         data = payload.get("data") if isinstance(payload, dict) else None

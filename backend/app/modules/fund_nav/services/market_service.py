@@ -6,7 +6,7 @@ from time import perf_counter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
+from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, FetchDiagnostic
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.market_quote import MarketQuote
@@ -18,6 +18,7 @@ class MarketService:
     def __init__(self, db: Session, source: AkshareSource | None = None) -> None:
         self.db = db
         self.source = source or AkshareSource()
+        self.last_refresh_diagnostics: list[FetchDiagnostic] = []
 
     @timed()
     def fetch_quotes(self, asset_codes: list[str]):
@@ -35,7 +36,11 @@ class MarketService:
             if valuation_configs.resolve(asset["asset_type"], asset["market"]).realtime_valuable
         }
         asset_codes = list(valuable_assets.keys())
-        snapshots = self.source.get_market_quotes(asset_codes)
+        token = self.source.begin_fetch_diagnostics()
+        try:
+            snapshots = self.source.get_market_quotes(asset_codes)
+        finally:
+            self.last_refresh_diagnostics = self.source.end_fetch_diagnostics(token)
         quotes: list[MarketQuote] = []
 
         for snapshot in snapshots:

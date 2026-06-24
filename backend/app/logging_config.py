@@ -3,7 +3,7 @@ from __future__ import annotations
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import logging
 import sys
 
@@ -23,6 +23,18 @@ class ShanghaiFormatter(logging.Formatter):
         if datefmt:
             return log_time.strftime(datefmt)
         return log_time.isoformat(timespec="seconds")
+
+
+class ShanghaiMidnightRotatingFileHandler(TimedRotatingFileHandler):
+    """Rotate at Shanghai midnight and name backups by the local log date."""
+
+    def rotation_filename(self, default_name: str) -> str:
+        path = Path(default_name)
+        try:
+            log_date = datetime.strptime(path.suffix.lstrip("."), "%Y-%m-%d").date() + timedelta(days=1)
+        except ValueError:
+            return super().rotation_filename(default_name)
+        return str(path.with_suffix(f".{log_date:%Y-%m-%d}"))
 
 
 def _parse_log_level(log_level: str) -> int:
@@ -53,7 +65,7 @@ def configure_logging(
     level = _parse_log_level(log_level)
     formatter = ShanghaiFormatter(LOG_FORMAT, DATE_FORMAT)
 
-    file_handler = TimedRotatingFileHandler(
+    file_handler = ShanghaiMidnightRotatingFileHandler(
         log_path / log_file_name,
         when="midnight",
         interval=1,
