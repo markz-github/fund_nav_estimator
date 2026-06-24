@@ -745,6 +745,202 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(result.estimated_nav, Decimal("1.0100000000000000"))
         self.assertEqual(result.coverage_ratio, Decimal("0.5"))
 
+    def test_etf_feeder_estimate_skips_stale_target_etf_quote(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(Fund(id=1, fund_code="018172", fund_name="华泰柏瑞中证电力全指ETF发起式联接A"))
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="018172",
+                nav_date=date(2026, 6, 23),
+                unit_nav=Decimal("1.1906"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("-0.0103"),
+                source="test",
+            )
+        )
+        db.add(
+            FundNav(
+                id=2,
+                fund_code="561560",
+                nav_date=date(2026, 6, 23),
+                unit_nav=Decimal("1.3119"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("-0.0109"),
+                source="test",
+            )
+        )
+        db.add(
+            FundHolding(
+                id=1,
+                fund_code="018172",
+                report_period="2026Q1",
+                asset_code="561560",
+                asset_name="电力ETF华泰柏瑞",
+                asset_type="etf",
+                market="CN",
+                holding_ratio=Decimal("1.000000"),
+                holding_value=None,
+                source="local:fund_name_match",
+            )
+        )
+        db.add(
+            MarketQuote(
+                id=1,
+                asset_code="561560",
+                asset_name="电力ETF华泰柏瑞",
+                asset_type="etf",
+                market="CN",
+                trade_date=date(2026, 6, 23),
+                quote_time=datetime(2026, 6, 24, 15, 0),
+                latest_price=Decimal("1.3840"),
+                prev_close=Decimal("1.3710"),
+                change_rate=Decimal("0.0095"),
+                source="test",
+            )
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "018172"))
+            result = EstimateService(db, Mock())._estimate_one(fund, datetime(2026, 6, 24, 15, 5))
+        finally:
+            db.close()
+
+        self.assertEqual(result, "missing_quotes")
+
+    def test_estimate_skips_stale_stock_quote(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(Fund(id=1, fund_code="018125", fund_name="永赢先进制造智选混合发起C"))
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="018125",
+                nav_date=date(2026, 6, 23),
+                unit_nav=Decimal("1.0000"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("0"),
+                source="test",
+            )
+        )
+        db.add(
+            FundHolding(
+                id=1,
+                fund_code="018125",
+                report_period="2026Q1",
+                asset_code="689009",
+                asset_name="九号公司-WD",
+                asset_type="stock",
+                market="SH",
+                holding_ratio=Decimal("1.000000"),
+                holding_value=None,
+                source="test",
+            )
+        )
+        db.add(
+            MarketQuote(
+                id=1,
+                asset_code="689009",
+                asset_name="九号公司-WD",
+                asset_type="stock",
+                market="SH",
+                trade_date=date(2026, 6, 23),
+                quote_time=datetime(2026, 6, 24, 15, 0),
+                latest_price=Decimal("35.8"),
+                prev_close=Decimal("34.67"),
+                change_rate=Decimal("0.0326"),
+                source="test",
+            )
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "018125"))
+            result = EstimateService(db, Mock())._estimate_one(fund, datetime(2026, 6, 24, 15, 5))
+        finally:
+            db.close()
+
+        self.assertEqual(result, "missing_quotes")
+
+    def test_etf_quote_trade_date_uses_etf_spot_data_date(self) -> None:
+        trade_date = AkshareSource._quote_trade_date({"数据日期": "2026-06-23"}, datetime(2026, 6, 24, 15, 0))
+
+        self.assertEqual(trade_date, date(2026, 6, 23))
+
+    def test_etf_feeder_estimate_uses_fresh_target_etf_quote(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(Fund(id=1, fund_code="018172", fund_name="华泰柏瑞中证电力全指ETF发起式联接A"))
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="018172",
+                nav_date=date(2026, 6, 23),
+                unit_nav=Decimal("1.1906"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("-0.0103"),
+                source="test",
+            )
+        )
+        db.add(
+            FundNav(
+                id=2,
+                fund_code="561560",
+                nav_date=date(2026, 6, 24),
+                unit_nav=Decimal("1.2880"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("-0.0182"),
+                source="test",
+            )
+        )
+        db.add(
+            FundHolding(
+                id=1,
+                fund_code="018172",
+                report_period="2026Q1",
+                asset_code="561560",
+                asset_name="电力ETF华泰柏瑞",
+                asset_type="etf",
+                market="CN",
+                holding_ratio=Decimal("1.000000"),
+                holding_value=None,
+                source="local:fund_name_match",
+            )
+        )
+        db.add(
+            MarketQuote(
+                id=1,
+                asset_code="561560",
+                asset_name="电力ETF华泰柏瑞",
+                asset_type="etf",
+                market="CN",
+                trade_date=date(2026, 6, 24),
+                quote_time=datetime(2026, 6, 24, 14, 30),
+                latest_price=Decimal("1.3840"),
+                prev_close=Decimal("1.3710"),
+                change_rate=Decimal("0.0095"),
+                source="test",
+            )
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "018172"))
+            result = EstimateService(db, Mock())._estimate_one(fund, datetime(2026, 6, 24, 14, 35))
+        finally:
+            db.close()
+
+        self.assertEqual(result.estimated_growth_rate, Decimal("0.009500000000"))
+        self.assertEqual(result.estimated_nav, Decimal("1.2019107000000000"))
+
     def test_target_fund_holdings_replace_stale_stock_holdings_from_newer_period(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
@@ -1059,6 +1255,20 @@ class FundNavRefreshTests(unittest.TestCase):
             result = AkshareSource._get_etf_spot_dataframe()
 
         self.assertIs(result, etf_df)
+
+    def test_realtime_cache_rejects_too_old_stale_dataframe_when_refresh_fails(self) -> None:
+        etf_df = pd.DataFrame([{"代码": "561560", "最新价": "1.384", "涨跌幅": "0.95"}])
+        AkshareSource._dataframe_cache["fund_etf_spot_em"] = (
+            etf_df,
+            monotonic() - AkshareSource._realtime_stale_cache_max_age_seconds - 1,
+        )
+
+        with patch(
+            "app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em",
+            side_effect=RuntimeError("network down"),
+        ):
+            with self.assertRaises(RuntimeError):
+                AkshareSource._get_etf_spot_dataframe()
 
     def test_cn_primary_spot_source_skips_backup_when_target_is_covered(self) -> None:
         primary_df = pd.DataFrame(

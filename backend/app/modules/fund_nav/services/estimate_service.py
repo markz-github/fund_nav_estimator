@@ -58,6 +58,8 @@ class HoldingWeightedEstimateStrategy(EstimateStrategy):
             quote = latest_quotes.get(holding.asset_code)
             if quote is None or quote.change_rate is None:
                 continue
+            if self.service._is_stale_realtime_quote(holding, quote, estimate_time):
+                continue
             weighted_growth += holding.holding_ratio * quote.change_rate
             covered_ratio += holding.holding_ratio
 
@@ -278,3 +280,15 @@ class EstimateService:
             )
         ).all()
         return {quote.asset_code: quote for quote in quotes}
+
+    @staticmethod
+    def _is_stale_realtime_quote(
+        holding: FundHolding,
+        quote: MarketQuote,
+        estimate_time: datetime,
+    ) -> bool:
+        realtime_markets = {"SH", "SZ", "BJ", "HK", "CN"}
+        return (
+            holding.market in realtime_markets
+            and quote.trade_date < estimate_time.date()
+        )

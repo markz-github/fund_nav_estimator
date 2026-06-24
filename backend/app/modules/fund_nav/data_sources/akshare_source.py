@@ -65,6 +65,7 @@ class AkshareSource:
     source_name = "akshare"
     _fund_daily_cache_ttl_seconds = 600
     _realtime_cache_ttl_seconds = 300
+    _realtime_stale_cache_max_age_seconds = 900
     _cache_wait_timeout_seconds = 60
     _normalized_code_column = "_normalized_code"
     _dataframe_cache: dict[str, tuple[object, float]] = {}
@@ -541,6 +542,7 @@ class AkshareSource:
             cls._realtime_cache_ttl_seconds,
             code_column="代码",
             normalizer=lambda value: cls._normalize_asset_code(value, "CN"),
+            max_stale_age_seconds=cls._realtime_stale_cache_max_age_seconds,
         )
 
     @classmethod
@@ -551,6 +553,7 @@ class AkshareSource:
             cls._realtime_cache_ttl_seconds,
             code_column="代码",
             normalizer=lambda value: cls._normalize_asset_code(value, "CN"),
+            max_stale_age_seconds=cls._realtime_stale_cache_max_age_seconds,
         )
 
     @classmethod
@@ -561,6 +564,7 @@ class AkshareSource:
             cls._realtime_cache_ttl_seconds,
             code_column="代码",
             normalizer=lambda value: cls._normalize_asset_code(value, "CN"),
+            max_stale_age_seconds=cls._realtime_stale_cache_max_age_seconds,
         )
 
     @classmethod
@@ -571,6 +575,7 @@ class AkshareSource:
             cls._realtime_cache_ttl_seconds,
             code_column="代码",
             normalizer=lambda value: cls._normalize_asset_code(value, "HK"),
+            max_stale_age_seconds=cls._realtime_stale_cache_max_age_seconds,
         )
 
     @classmethod
@@ -581,6 +586,7 @@ class AkshareSource:
             cls._realtime_cache_ttl_seconds,
             code_column="代码",
             normalizer=lambda value: cls._normalize_asset_code(value, "HK"),
+            max_stale_age_seconds=cls._realtime_stale_cache_max_age_seconds,
         )
 
     @classmethod
@@ -592,6 +598,7 @@ class AkshareSource:
         *,
         code_column: str | None = None,
         normalizer=None,
+        max_stale_age_seconds: int | None = None,
     ):
         cached = cls._fresh_cache(endpoint, ttl_seconds)
         if cached is not None:
@@ -626,10 +633,19 @@ class AkshareSource:
                 stale = cls._stale_cache(endpoint)
                 if stale is not None:
                     value, loaded_at = stale
+                    age = monotonic() - loaded_at
+                    if max_stale_age_seconds is not None and age > max_stale_age_seconds:
+                        logging.getLogger("app.performance").warning(
+                            "akshare_cache endpoint=%s status=stale_rejected age_seconds=%.2f max_age_seconds=%s",
+                            endpoint,
+                            age,
+                            max_stale_age_seconds,
+                        )
+                        raise
                     logging.getLogger("app.performance").warning(
                         "akshare_cache endpoint=%s status=stale_fallback age_seconds=%.2f",
                         endpoint,
-                        monotonic() - loaded_at,
+                        age,
                     )
                     return value
                 raise
@@ -1110,6 +1126,15 @@ class AkshareSource:
 
     @staticmethod
     def _quote_trade_date(row, quote_time: datetime) -> date:
+        raw_date = row.get("数据日期")
+        if raw_date is not None:
+            try:
+                if hasattr(raw_date, "date"):
+                    return raw_date.date()
+                return date.fromisoformat(str(raw_date).split(" ")[0])
+            except ValueError:
+                pass
+
         raw_datetime = row.get("日期时间")
         if raw_datetime is not None:
             try:
