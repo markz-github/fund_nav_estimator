@@ -1,6 +1,4 @@
-# syntax=docker/dockerfile:1.7
-
-FROM 192.168.50.50:16666/node:22-alpine AS build
+FROM 192.168.50.50:16666/library/node:22-alpine AS build
 
 WORKDIR /app
 
@@ -10,8 +8,7 @@ ENV VITE_APP_BASE_PATH=${VITE_APP_BASE_PATH}
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 COPY package*.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefer-offline
+RUN npm ci --prefer-offline
 
 COPY . .
 RUN npm run build
