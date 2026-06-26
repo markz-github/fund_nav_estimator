@@ -1,4 +1,4 @@
-FROM 192.168.50.50:16666/library/node:22-alpine AS build
+FROM 192.168.50.50:16060/library/node:22-alpine AS build
 
 WORKDIR /app
 

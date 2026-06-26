@@ -4,7 +4,7 @@ services:
     build:
       context: ./backend
       args:
-        BACKEND_BASE_IMAGE: ${BACKEND_BASE_IMAGE:-192.168.50.50:16666/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621}
+        BACKEND_BASE_IMAGE: ${BACKEND_BASE_IMAGE:-192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621}
     image: fund-nav-estimator-backend:${DEPLOY_ENV:-prod}
     restart: unless-stopped
     network_mode: bridge
