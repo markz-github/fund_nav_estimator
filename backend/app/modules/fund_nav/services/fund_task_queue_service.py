@@ -22,6 +22,7 @@ from app.modules.fund_nav.services.fund_profile_service import FundProfileServic
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.market_service import MarketService
+from app.modules.fund_nav.services.nav_quality_service import FundNavQualityService
 from app.modules.fund_nav.data_sources.akshare_source import FetchDiagnostic
 from app.modules.operations.models.task_log import TaskLog
 from app.modules.operations.services.operation_log_service import log_fetch_error
@@ -183,6 +184,12 @@ class FundTaskQueueService:
         if task.task_type == "refresh_nav":
             success = sum(FundService(self.db).refresh_nav(code) is not None for code in self._codes(fund_codes))
             return ("success" if success else "partial"), f"funds={len(self._codes(fund_codes))};success={success}"
+        if task.task_type == "check_nav_quality":
+            result = FundNavQualityService(self.db).check_latest_nav_freshness()
+            return (
+                "success" if result["stale_count"] == 0 else "partial",
+                self._nav_quality_message(result),
+            )
         if task.task_type == "refresh_holding":
             total = sum(len(HoldingService(self.db).refresh_holdings(code)) for code in self._codes(fund_codes))
             return ("success" if total else "partial"), f"holdings={total}"
@@ -233,6 +240,14 @@ class FundTaskQueueService:
     @staticmethod
     def _estimate_message(result: dict) -> str:
         return f"estimated={result['estimated_count']};skipped={result['skipped_count']};details={result['skipped']}"
+
+    @staticmethod
+    def _nav_quality_message(result: dict) -> str:
+        examples = result["stale"][:5]
+        return (
+            f"checked={result['checked_count']};stale={result['stale_count']};"
+            f"expected_nav_date={result['expected_nav_date']};details={examples}"
+        )
 
     def _quote_status_message(self, quote_count: int, diagnostics: list[FetchDiagnostic]) -> tuple[str, str]:
         error_count = sum(1 for item in diagnostics if item.severity == "error")

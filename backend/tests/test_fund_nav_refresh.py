@@ -868,6 +868,62 @@ class FundNavRefreshTests(unittest.TestCase):
 
         self.assertEqual(result, "missing_quotes")
 
+    def test_estimate_skips_stale_official_nav(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(Fund(id=1, fund_code="018125", fund_name="永赢先进制造智选混合发起C"))
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="018125",
+                nav_date=date(2026, 6, 19),
+                unit_nav=Decimal("1.0000"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("0"),
+                source="test",
+            )
+        )
+        db.add(
+            FundHolding(
+                id=1,
+                fund_code="018125",
+                report_period="2026Q1",
+                asset_code="689009",
+                asset_name="九号公司-WD",
+                asset_type="stock",
+                market="SH",
+                holding_ratio=Decimal("1.000000"),
+                holding_value=None,
+                source="test",
+            )
+        )
+        db.add(
+            MarketQuote(
+                id=1,
+                asset_code="689009",
+                asset_name="九号公司-WD",
+                asset_type="stock",
+                market="SH",
+                trade_date=date(2026, 6, 24),
+                quote_time=datetime(2026, 6, 24, 15, 0),
+                latest_price=Decimal("35.8"),
+                prev_close=Decimal("34.67"),
+                change_rate=Decimal("0.0326"),
+                source="test",
+            )
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "018125"))
+            result = EstimateService(db, Mock())._estimate_one(fund, datetime(2026, 6, 24, 15, 5))
+        finally:
+            db.close()
+
+        self.assertEqual(result, "stale_nav")
+
     def test_etf_quote_trade_date_uses_etf_spot_data_date(self) -> None:
         trade_date = AkshareSource._quote_trade_date({"数据日期": "2026-06-23"}, datetime(2026, 6, 24, 15, 0))
 

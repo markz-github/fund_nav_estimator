@@ -18,6 +18,7 @@ from app.modules.fund_nav.services.asset_valuation_config_service import (
     AssetValuationConfigMap,
     load_asset_valuation_config_map,
 )
+from app.modules.fund_nav.services.nav_quality_service import FundNavQualityService
 from app.utils.performance import timed
 
 
@@ -35,6 +36,8 @@ class HoldingWeightedEstimateStrategy(EstimateStrategy):
         latest_nav = self.service._latest_nav(fund_code)
         if latest_nav is None:
             return "missing_nav"
+        if self.service._is_stale_official_nav(latest_nav, estimate_time):
+            return "stale_nav"
 
         holdings = self.service._latest_holdings(fund_code)
         if not holdings:
@@ -292,3 +295,7 @@ class EstimateService:
             holding.market in realtime_markets
             and quote.trade_date < estimate_time.date()
         )
+
+    @staticmethod
+    def _is_stale_official_nav(nav: FundNav, estimate_time: datetime) -> bool:
+        return nav.nav_date < FundNavQualityService.expected_nav_date(estimate_time)
