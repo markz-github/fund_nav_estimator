@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 
 from app.modules.a_stock import api as a_stock_api
-from app.modules.fund_nav.api import estimates, funds, history, market
+from app.modules.fund_nav.api import estimates, funds, history, market, quality
 from app.modules.operations.api import errors, tasks
 from app.config import get_settings
 from app.logging_config import configure_logging
@@ -32,6 +32,7 @@ app.include_router(funds.router, prefix="/api")
 app.include_router(estimates.router, prefix="/api")
 app.include_router(market.router, prefix="/api")
 app.include_router(history.router, prefix="/api")
+app.include_router(quality.router, prefix="/api")
 app.include_router(a_stock_api.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(errors.router, prefix="/api")

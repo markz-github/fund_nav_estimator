@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import sys
@@ -17,6 +18,7 @@ if str(BACKEND_DIR) not in sys.path:
 import app.models  # noqa: F401
 from app.database import Base
 from app.modules.fund_nav.data_sources.akshare_source import FetchDiagnostic
+from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.operations.models.task_log import TaskLog
@@ -120,6 +122,26 @@ class FundTaskQueueTests(unittest.TestCase):
         self.assertIn("fund_etf_spot_em", task_log.message)
         fetch_error = self.db.scalar(select(DataFetchError))
         self.assertEqual(fetch_error.source, "akshare")
+
+    def test_check_nav_quality_task_records_partial_when_stale_nav_exists(self) -> None:
+        self.db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))
+        self.db.commit()
+        submitted = self.service.submit("check_nav_quality", "检查基金官方净值新鲜度", origin="scheduled")
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        with patch(
+            "app.modules.fund_nav.services.fund_task_queue_service.FundNavQualityService.expected_nav_date",
+            return_value=date(2026, 6, 8),
+        ):
+            self.service.execute(submitted.task_id)
+
+        task_log = self.db.get(TaskLog, submitted.task_log_id)
+        fetch_error = self.db.scalar(select(DataFetchError))
+        self.assertEqual(task_log.status, "partial")
+        self.assertIn("stale=1", task_log.message)
+        self.assertEqual(fetch_error.source, "quality_check")
 
     def test_concurrent_identical_submissions_reuse_one_pending_task(self) -> None:
         engine = create_engine(

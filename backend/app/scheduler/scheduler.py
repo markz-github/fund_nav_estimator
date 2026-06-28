@@ -6,6 +6,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.config import get_settings
 from app.scheduler.a_stock_jobs import sync_previous_a_stock_trading_day_job
 from app.scheduler.fund_jobs import (
+    check_fund_nav_quality_job,
     estimate_fund_navs_job,
     refresh_fund_holdings_job,
     refresh_fund_navs_job,
@@ -22,6 +23,7 @@ def _add_fund_jobs(scheduler: BackgroundScheduler) -> None:
     settings = get_settings()
     fund_jobs = [
         (refresh_fund_navs_job, settings.scheduler_refresh_nav_cron, "refresh_fund_navs"),
+        (check_fund_nav_quality_job, settings.scheduler_check_nav_quality_cron, "check_fund_nav_quality"),
         (refresh_fund_profiles_job, settings.scheduler_refresh_profiles_cron, "refresh_fund_profiles"),
         (refresh_fund_holdings_job, settings.scheduler_refresh_holdings_cron, "refresh_fund_holdings"),
         (refresh_market_quotes_job, settings.scheduler_refresh_quotes_cron, "refresh_market_quotes"),

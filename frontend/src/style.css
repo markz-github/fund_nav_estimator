@@ -324,6 +324,10 @@ table {
   min-width: 1360px;
 }
 
+.quality-table {
+  min-width: 980px;
+}
+
 .a-stock-table {
   min-width: 760px;
 }
@@ -484,6 +488,23 @@ tbody tr {
   align-items: center;
   border-radius: 8px;
   padding: 0.66rem 0.9rem;
+}
+
+.table-link-button {
+  display: block;
+  width: 100%;
+  border-radius: 0;
+  padding: 0;
+  color: #102a43;
+  background: transparent;
+  font-weight: 700;
+  text-align: left;
+}
+
+.table-link-button:hover {
+  color: #1f3f35;
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 .page-actions {
@@ -799,6 +820,18 @@ tbody tr {
 .warning-card {
   border-color: rgba(122, 75, 18, 0.35);
   background: #fff3cd;
+}
+
+.quality-summary-grid .info-card strong {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}
+
+.quality-message {
+  color: #52615a;
+  font-family: "Cascadia Code", monospace;
+  font-size: 0.9rem;
 }
 
 .filter-bar {
