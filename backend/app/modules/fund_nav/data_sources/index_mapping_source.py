@@ -20,78 +20,10 @@ class FundIndexMappingSnapshot:
 class FundIndexMappingSource:
     source_name = "fund_index_mapping"
 
-    _KNOWN_MAPPINGS = {
-        "012414": FundIndexMappingSnapshot(
-            fund_code="012414",
-            index_code="399997",
-            index_name="中证白酒指数",
-            benchmark_text=None,
-            source="known:index_mapping",
-            confidence="high",
-        ),
-        "013275": FundIndexMappingSnapshot(
-            fund_code="013275",
-            index_code="399998",
-            index_name="中证煤炭指数",
-            benchmark_text=None,
-            source="known:index_mapping",
-            confidence="high",
-        ),
-        "160218": FundIndexMappingSnapshot(
-            fund_code="160218",
-            index_code="399393",
-            index_name="国证地产指数",
-            benchmark_text=None,
-            source="known:index_mapping",
-            confidence="high",
-        ),
-        "160221": FundIndexMappingSnapshot(
-            fund_code="160221",
-            index_code="399395",
-            index_name="国证有色指数",
-            benchmark_text=None,
-            source="known:index_mapping",
-            confidence="high",
-        ),
-        "160643": FundIndexMappingSnapshot(
-            fund_code="160643",
-            index_code="930875",
-            index_name="中证空天一体军工指数",
-            benchmark_text=None,
-            source="known:index_mapping",
-            confidence="high",
-        ),
-        "161036": FundIndexMappingSnapshot(
-            fund_code="161036",
-            index_code="930790",
-            index_name="中证娱乐主题指数",
-            benchmark_text=None,
-            source="known:index_mapping",
-            confidence="high",
-        ),
-        "501009": FundIndexMappingSnapshot(
-            fund_code="501009",
-            index_code="930743.CSI",
-            index_name="中证生物科技主题指数",
-            benchmark_text=None,
-            source="known:index_mapping",
-            confidence="high",
-        ),
-        "501057": FundIndexMappingSnapshot(
-            fund_code="501057",
-            index_code="930997.CSI",
-            index_name="中证新能源汽车产业指数",
-            benchmark_text=None,
-            source="known:index_mapping",
-            confidence="high",
-        ),
-    }
-
     def get_mapping(self, fund_code: str) -> FundIndexMappingSnapshot | None:
         normalized_code = str(fund_code).strip().zfill(6)
         return (
             self._get_99fund_mapping(normalized_code)
-            or self._KNOWN_MAPPINGS.get(normalized_code)
             or self._get_eastmoney_mapping(normalized_code)
         )
 
@@ -132,11 +64,11 @@ class FundIndexMappingSource:
         stripped = self._strip_tags(text)
         benchmark_text = self._match_value(
             stripped,
-            r"业绩比较基准[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()×+%\.，,\-\s]+?)(?:\s+跟踪标的|\s+风险收益|$)",
+            r"业绩比较基准[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()×+*%\.，,\-\s]+?)(?:\s+跟踪标的|\s+风险收益|$)",
         )
         index_name = self._match_value(
             stripped,
-            r"跟踪标的[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()·\-\s]+?)(?:\s+跟踪方式|\s+基金经理|$)",
+            r"跟踪标的[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()·\-\s]+?指数)(?:\s+跟踪方式|\s+基金经理|\s+投资目标|\s+投资理念|\s+投资范围|$)",
         )
         if not index_name and benchmark_text:
             index_name = self._extract_index_name_from_benchmark(benchmark_text)

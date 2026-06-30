@@ -21,6 +21,10 @@ def refresh_fund_profiles_job() -> None:
     _enqueue("refresh_profile", "刷新基金名称和类型")
 
 
+def refresh_index_catalog_job() -> None:
+    _enqueue("refresh_index_catalog", "刷新指数目录")
+
+
 def refresh_fund_holdings_job() -> None:
     _enqueue("refresh_holding", "刷新基金持仓")
 

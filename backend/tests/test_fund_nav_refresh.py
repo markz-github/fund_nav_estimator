@@ -19,6 +19,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot, MarketQuoteSnapshot
 from app.modules.fund_nav.data_sources.eastmoney_source import EastmoneySource
+from app.modules.fund_nav.data_sources.index_catalog_source import MarketIndexSnapshot
 from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMappingSnapshot
 from app.database import Base
 from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
@@ -27,12 +28,17 @@ from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.models.manual_fund_index_mapping import ManualFundIndexMapping
+from app.modules.fund_nav.models.market_index import MarketIndex
 from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.schemas.fund import FundCreate
+from app.modules.fund_nav.schemas.manual_index_mapping import ManualFundIndexMappingIn
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
 from app.modules.fund_nav.services.holding_service import HoldingService
+from app.modules.fund_nav.services.index_catalog_service import IndexCatalogService
+from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
 from app.modules.fund_nav.services.estimate_service import EstimateService
 from app.modules.fund_nav.services.market_service import MarketService
 from app.modules.fund_nav.services.asset_valuation_config_service import load_asset_valuation_config_map
@@ -928,6 +934,215 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(len(mappings), 2)
         self.assertEqual(saved_codes, ["501009", "515450"])
         self.assertEqual([call.args[0] for call in source.get_mapping.call_args_list], ["501009", "515450"])
+
+    def test_refresh_index_catalog_upserts_indexes(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source.get_indexes.return_value = [
+            MarketIndexSnapshot(
+                index_code="931027",
+                index_name="中证港股通大消费主题指数",
+                index_short_name="港股通大消费",
+                provider="csindex",
+                currency="港元",
+                asset_class="股票",
+                source="test",
+            )
+        ]
+
+        try:
+            indexes = IndexCatalogService(db, source).refresh_indexes()
+            saved = db.scalar(select(MarketIndex).where(MarketIndex.index_code == "931027"))
+        finally:
+            db.close()
+
+        self.assertEqual(len(indexes), 1)
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.index_name, "中证港股通大消费主题指数")
+        self.assertEqual(saved.provider, "csindex")
+
+    def test_refresh_mapping_resolves_index_code_from_local_catalog(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(
+            MarketIndex(
+                index_code="931027",
+                index_name="中证港股通大消费主题指数",
+                index_short_name="港股通大消费",
+                provider="csindex",
+                currency="港元",
+                asset_class="股票",
+                source="test",
+            )
+        )
+        db.add(
+            FundIndexMapping(
+                id=1,
+                fund_code="006786",
+                index_code=None,
+                index_name="旧指数",
+                source="old",
+                confidence="low",
+            )
+        )
+        db.commit()
+        source = Mock()
+        source.get_mapping.return_value = FundIndexMappingSnapshot(
+            fund_code="006786",
+            index_code=None,
+            index_name="中证港股通大消费主题港元指数",
+            benchmark_text="中证港股通大消费主题指数收益率*95%+金融机构人民币活期存款利率(税后)*5%",
+            source="eastmoney",
+            confidence="medium",
+        )
+
+        try:
+            mapping = FundIndexMappingService(db, source).refresh_mapping("006786")
+        finally:
+            db.close()
+
+        self.assertIsNotNone(mapping)
+        self.assertEqual(mapping.index_code, "931027")
+        self.assertEqual(mapping.index_name, "中证港股通大消费主题指数")
+        self.assertEqual(mapping.source, "eastmoney+index_catalog:csindex")
+        self.assertEqual(mapping.confidence, "high")
+
+    def test_index_catalog_does_not_cross_provider_match_exact_name(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add_all(
+            [
+                MarketIndex(
+                    index_code="932112",
+                    index_name="国证有色金属行业指数",
+                    index_short_name="国证有色金属",
+                    provider="csindex",
+                    currency="人民币",
+                    asset_class="股票",
+                    source="test",
+                ),
+                MarketIndex(
+                    index_code="399395",
+                    index_name="国证有色",
+                    index_short_name="国证有色",
+                    provider="cni",
+                    currency=None,
+                    asset_class=None,
+                    source="test",
+                ),
+            ]
+        )
+        db.commit()
+
+        try:
+            resolved = IndexCatalogService(db).resolve_index("国证有色金属行业指数")
+        finally:
+            db.close()
+
+        self.assertIsNone(resolved)
+
+    def test_manual_index_mapping_crud_and_refresh_priority(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(Fund(id=1, fund_code="160218", fund_name="国泰国证房地产行业指数A", fund_type="指数型-股票"))
+        db.add(
+            FundIndexMapping(
+                id=1,
+                fund_code="160218",
+                index_code=None,
+                index_name="旧指数",
+                source="old",
+                confidence="low",
+            )
+        )
+        db.commit()
+        manual_service = ManualIndexMappingService(db)
+        manual_service.save_mapping(
+            ManualFundIndexMappingIn(
+                fund_code="160218",
+                index_code="399393",
+                index_name="国证地产",
+                remark="国证目录只有简称，人工维护",
+            )
+        )
+        source = Mock()
+        source.get_mapping.return_value = FundIndexMappingSnapshot(
+            fund_code="160218",
+            index_code=None,
+            index_name="国证房地产行业指数",
+            benchmark_text=None,
+            source="eastmoney",
+            confidence="medium",
+        )
+
+        try:
+            refreshed = FundIndexMappingService(db, source).refresh_mapping("160218")
+            manual = db.scalar(select(ManualFundIndexMapping).where(ManualFundIndexMapping.fund_code == "160218"))
+        finally:
+            db.close()
+
+        self.assertIsNotNone(manual)
+        self.assertEqual(manual.fund_name, "国泰国证房地产行业指数A")
+        self.assertEqual(refreshed.index_code, "399393")
+        self.assertEqual(refreshed.index_name, "国证地产")
+        self.assertEqual(refreshed.source, "manual")
+        source.get_mapping.assert_not_called()
+
+    def test_fund_detail_includes_target_etf_from_target_holding(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(Fund(id=1, fund_code="018172", fund_name="华泰柏瑞中证电力全指ETF发起式联接A"))
+        db.add_all(
+            [
+                FundHolding(
+                    id=1,
+                    fund_code="018172",
+                    report_period="2026Q1",
+                    asset_code="561560",
+                    asset_name="电力ETF华泰柏瑞",
+                    asset_type="etf",
+                    market="CN",
+                    holding_ratio=Decimal("1"),
+                    holding_value=None,
+                    source="local:fund_name_match",
+                ),
+                FundHolding(
+                    id=2,
+                    fund_code="018172",
+                    report_period="2026Q1",
+                    asset_code="510300",
+                    asset_name="沪深300ETF",
+                    asset_type="etf",
+                    market="CN",
+                    holding_ratio=Decimal("0.1"),
+                    holding_value=None,
+                    source="akshare:portfolio",
+                ),
+            ]
+        )
+        db.commit()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+
+        try:
+            detail = FundService(db, source).get_fund_detail("18172")
+        finally:
+            db.close()
+
+        self.assertEqual(detail["target_etf_code"], "561560")
+        self.assertEqual(detail["target_etf_name"], "电力ETF华泰柏瑞")
+        self.assertEqual(detail["target_etf_source"], "local:fund_name_match")
 
     def test_bond_holdings_do_not_participate_in_estimate_but_reduce_coverage(self) -> None:
         engine = create_engine("sqlite:///:memory:")

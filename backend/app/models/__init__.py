@@ -7,6 +7,8 @@ from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.fund_profile import FundProfile
 from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
+from app.modules.fund_nav.models.manual_fund_index_mapping import ManualFundIndexMapping
+from app.modules.fund_nav.models.market_index import MarketIndex
 from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.operations.models.task_log import TaskLog
 
@@ -20,6 +22,8 @@ __all__ = [
     "FundNav",
     "FundProfile",
     "FundTaskQueue",
+    "ManualFundIndexMapping",
+    "MarketIndex",
     "MarketQuote",
     "TaskLog",
 ]

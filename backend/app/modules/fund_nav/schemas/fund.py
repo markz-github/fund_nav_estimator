@@ -43,6 +43,9 @@ class FundOut(BaseModel):
     tracked_index_name: str | None = None
     tracked_index_source: str | None = None
     tracked_index_confidence: str | None = None
+    target_etf_code: str | None = None
+    target_etf_name: str | None = None
+    target_etf_source: str | None = None
     latest_unit_nav: Decimal | None = None
     latest_nav_date: date | None = None
     latest_daily_growth_rate: Decimal | None = None
