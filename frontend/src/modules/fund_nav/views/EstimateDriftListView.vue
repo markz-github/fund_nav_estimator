@@ -42,6 +42,16 @@ function percent(value?: string | null) {
   return `${(Number(value) * 100).toFixed(2)}%`
 }
 
+function driftLevelClass(value?: string | null) {
+  if (value == null) return 'status-muted'
+  const percentValue = Number(value) * 100
+  if (!Number.isFinite(percentValue)) return 'status-muted'
+  if (percentValue >= 3) return 'status-deep-danger'
+  if (percentValue >= 2) return 'status-danger'
+  if (percentValue >= 1) return 'status-warn'
+  return 'status-ok'
+}
+
 function thresholdText() {
   return thresholdPercent.value.trim() ? `${thresholdPercent.value.trim()}%` : '未设置'
 }
@@ -158,9 +168,21 @@ onMounted(loadSummaries)
               <span class="muted mono">{{ item.fund_code }}</span>
             </td>
             <td data-label="可比较天数">{{ item.comparable_count }}</td>
-            <td data-label="最大偏差率">{{ percent(item.max_difference_rate) }}</td>
-            <td data-label="平均偏差率">{{ percent(item.avg_difference_rate) }}</td>
-            <td data-label="最近偏差率">{{ percent(item.latest_difference_rate) }}</td>
+            <td data-label="最大偏差率">
+              <span class="status-pill" :class="driftLevelClass(item.max_difference_rate)">
+                {{ percent(item.max_difference_rate) }}
+              </span>
+            </td>
+            <td data-label="平均偏差率">
+              <span class="status-pill" :class="driftLevelClass(item.avg_difference_rate)">
+                {{ percent(item.avg_difference_rate) }}
+              </span>
+            </td>
+            <td data-label="最近偏差率">
+              <span class="status-pill" :class="driftLevelClass(item.latest_difference_rate)">
+                {{ percent(item.latest_difference_rate) }}
+              </span>
+            </td>
             <td class="mono" data-label="最近日期">{{ item.latest_date || '-' }}</td>
             <td data-label="超阈值次数">
               <span v-if="thresholdDecimal" class="status-pill" :class="item.threshold_exceeded_count ? 'status-warn' : 'status-ok'">

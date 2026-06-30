@@ -12,6 +12,7 @@ from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
+from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.fund_nav.services.asset_valuation_config_service import (
@@ -36,7 +37,7 @@ class HoldingWeightedEstimateStrategy(EstimateStrategy):
         latest_nav = self.service._latest_nav(fund_code)
         if latest_nav is None:
             return "missing_nav"
-        if self.service._is_stale_official_nav(latest_nav, estimate_time):
+        if self.service._is_stale_official_nav(fund, latest_nav, estimate_time):
             return "stale_nav"
 
         holdings = self.service._latest_holdings(fund_code)
@@ -83,6 +84,42 @@ class HoldingWeightedEstimateStrategy(EstimateStrategy):
             estimated_nav=estimated_nav,
             coverage_ratio=coverage_ratio,
             source_snapshot=f"strategy=holding_weighted;holdings={holdings[0].report_period};quotes={estimate_time.isoformat()}",
+        )
+
+
+class IndexTrackingEstimateStrategy(EstimateStrategy):
+    def __init__(self, service: "EstimateService") -> None:
+        self.service = service
+
+    def estimate(self, fund: Fund, estimate_time: datetime) -> FundEstimate | str:
+        latest_nav = self.service._latest_nav(fund.fund_code)
+        if latest_nav is None:
+            return "missing_nav"
+        if self.service._is_stale_official_nav(fund, latest_nav, estimate_time):
+            return "stale_nav"
+
+        mapping = self.service._index_mapping(fund.fund_code)
+        index_code = self.service._normalize_index_code(mapping.index_code if mapping else None)
+        if not index_code:
+            return "missing_index_mapping"
+
+        quote = self.service._latest_quotes([index_code]).get(index_code)
+        if quote is None or quote.change_rate is None:
+            return "missing_index_quote"
+        if self.service._is_stale_index_quote(quote, estimate_time):
+            return "stale_index_quote"
+
+        estimated_nav = self.service.calculate_estimated_nav(latest_nav.unit_nav, quote.change_rate)
+        return FundEstimate(
+            fund_code=fund.fund_code,
+            estimate_date=estimate_time.date(),
+            estimate_time=estimate_time,
+            base_nav_date=latest_nav.nav_date,
+            base_unit_nav=latest_nav.unit_nav,
+            estimated_growth_rate=quote.change_rate,
+            estimated_nav=estimated_nav,
+            coverage_ratio=Decimal("1"),
+            source_snapshot=f"strategy=index_tracking;index={index_code};quote={quote.quote_time.isoformat()}",
         )
 
 
@@ -207,14 +244,27 @@ class EstimateService:
         return base_nav * (Decimal("1") + weighted_growth)
 
     def _estimate_one(self, fund: Fund, estimate_time: datetime) -> FundEstimate | str:
-        result = self._strategy_for_fund(fund).estimate(fund, estimate_time)
+        result = self._estimate_with_preferred_strategy(fund, estimate_time)
         if isinstance(result, FundEstimate):
             self.db.add(result)
         return result
 
+    def _estimate_with_preferred_strategy(self, fund: Fund, estimate_time: datetime) -> FundEstimate | str:
+        if self.is_exchange_traded_fund(fund) or self._has_etf_nav_source(fund.fund_code):
+            return EtfIopvEstimateStrategy(self).estimate(fund, estimate_time)
+
+        if self.is_index_tracking_fund(fund):
+            result = IndexTrackingEstimateStrategy(self).estimate(fund, estimate_time)
+            if isinstance(result, FundEstimate) or result in {"missing_nav", "stale_nav"}:
+                return result
+
+        return HoldingWeightedEstimateStrategy(self).estimate(fund, estimate_time)
+
     def _strategy_for_fund(self, fund: Fund) -> EstimateStrategy:
         if self.is_exchange_traded_fund(fund) or self._has_etf_nav_source(fund.fund_code):
             return EtfIopvEstimateStrategy(self)
+        if self.is_index_tracking_fund(fund):
+            return IndexTrackingEstimateStrategy(self)
         return HoldingWeightedEstimateStrategy(self)
 
     def _asset_valuation_configs(self) -> AssetValuationConfigMap:
@@ -228,6 +278,12 @@ class EstimateService:
         fund_name = fund.fund_name or ""
         fund_type = fund.fund_type or ""
         return fund_code.startswith(("5", "1")) and ("ETF" in fund_name.upper() or "ETF" in fund_type.upper())
+
+    @staticmethod
+    def is_index_tracking_fund(fund: Fund) -> bool:
+        fund_name = fund.fund_name or ""
+        fund_type = fund.fund_type or ""
+        return "指数" in fund_type and "ETF" not in fund_name.upper() and "ETF" not in fund_type.upper()
 
     def _has_etf_nav_source(self, fund_code: str) -> bool:
         fund_code = str(fund_code or "").strip()
@@ -266,6 +322,15 @@ class EstimateService:
             .order_by(FundHolding.holding_ratio.desc())
         ).all()
 
+    def _index_mapping(self, fund_code: str) -> FundIndexMapping | None:
+        normalized_code = str(fund_code or "").strip().zfill(6)
+        return self.db.scalar(
+            select(FundIndexMapping).where(
+                FundIndexMapping.fund_code == normalized_code,
+                FundIndexMapping.index_code.is_not(None),
+            )
+        )
+
     def _latest_quotes(self, asset_codes: list[str]) -> dict[str, MarketQuote]:
         if not asset_codes:
             return {}
@@ -297,5 +362,19 @@ class EstimateService:
         )
 
     @staticmethod
-    def _is_stale_official_nav(nav: FundNav, estimate_time: datetime) -> bool:
-        return nav.nav_date < FundNavQualityService.expected_nav_date(estimate_time)
+    def _is_stale_index_quote(quote: MarketQuote, estimate_time: datetime) -> bool:
+        return quote.trade_date < estimate_time.date()
+
+    @staticmethod
+    def _normalize_index_code(index_code: str | None) -> str | None:
+        code = str(index_code or "").strip().upper()
+        if not code:
+            return None
+        for suffix in (".CSI", ".CSINDEX", ".CNI", ".SH", ".SZ"):
+            if code.endswith(suffix):
+                return code[: -len(suffix)]
+        return code
+
+    @staticmethod
+    def _is_stale_official_nav(fund: Fund, nav: FundNav, estimate_time: datetime) -> bool:
+        return nav.nav_date < FundNavQualityService.expected_nav_date_for_fund(fund, estimate_time)

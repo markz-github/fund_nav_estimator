@@ -48,6 +48,12 @@ function reasonLabel(reason?: string | null) {
   return reason || '-'
 }
 
+function navRuleLabel(rule?: string | null) {
+  if (rule === 'qdii_delayed') return 'QDII 延迟规则'
+  if (rule === 'standard') return '普通规则'
+  return '-'
+}
+
 async function loadReport() {
   loading.value = true
   message.value = ''
@@ -137,6 +143,7 @@ onMounted(loadReport)
             </td>
             <td data-label="原因">
               <span class="status-pill status-warn">{{ reasonLabel(issue.reason) }}</span>
+              <span class="muted">{{ navRuleLabel(issue.nav_rule) }}</span>
             </td>
             <td class="mono" data-label="最新净值日期">{{ issue.latest_nav_date || '-' }}</td>
             <td class="mono" data-label="预期净值日期">{{ issue.expected_nav_date || '-' }}</td>

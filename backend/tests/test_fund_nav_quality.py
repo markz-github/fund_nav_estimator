@@ -92,6 +92,64 @@ class FundNavQualityTests(unittest.TestCase):
         self.assertEqual(errors[0].target_code, "000001")
         self.assertIn("expected_nav_date=2026-06-08", errors[0].error_message)
 
+    def test_qdii_fund_allows_previous_business_day_nav(self) -> None:
+        self.db.add_all(
+            [
+                Fund(
+                    id=1,
+                    fund_code="017436",
+                    fund_name="华宝纳斯达克精选股票发起式(QDII)A",
+                    fund_type="QDII",
+                ),
+                FundNav(
+                    id=1,
+                    fund_code="017436",
+                    nav_date=date(2026, 6, 26),
+                    unit_nav=Decimal("2.5000"),
+                    accumulated_nav=None,
+                    daily_growth_rate=Decimal("0.0100"),
+                    source="test",
+                ),
+            ]
+        )
+        self.db.commit()
+
+        result = FundNavQualityService(self.db).check_latest_nav_freshness(datetime(2026, 6, 29, 22, 30))
+        self.db.commit()
+
+        self.assertEqual(result["stale_count"], 0)
+        self.assertEqual(self.db.query(DataFetchError).count(), 0)
+
+    def test_qdii_fund_still_reports_nav_older_than_allowed_window(self) -> None:
+        self.db.add_all(
+            [
+                Fund(
+                    id=1,
+                    fund_code="017436",
+                    fund_name="华宝纳斯达克精选股票发起式(QDII)A",
+                    fund_type="QDII",
+                ),
+                FundNav(
+                    id=1,
+                    fund_code="017436",
+                    nav_date=date(2026, 6, 25),
+                    unit_nav=Decimal("2.5000"),
+                    accumulated_nav=None,
+                    daily_growth_rate=Decimal("0.0100"),
+                    source="test",
+                ),
+            ]
+        )
+        self.db.commit()
+
+        result = FundNavQualityService(self.db).check_latest_nav_freshness(datetime(2026, 6, 29, 22, 30))
+        self.db.commit()
+
+        error = self.db.scalar(select(DataFetchError))
+        self.assertEqual(result["stale_count"], 1)
+        self.assertIn("expected_nav_date=2026-06-26", error.error_message)
+        self.assertIn("nav_rule=qdii_delayed", error.error_message)
+
     def test_quality_report_returns_latest_task_and_unresolved_issues(self) -> None:
         self.db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))
         self.db.add(

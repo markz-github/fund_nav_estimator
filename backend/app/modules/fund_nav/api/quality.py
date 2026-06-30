@@ -107,6 +107,7 @@ def _issue_out(error: DataFetchError, fund: Fund | None) -> FundNavQualityIssueO
         fund_name=fund.fund_name if fund else None,
         latest_nav_date=details.get("latest_nav_date"),
         expected_nav_date=details.get("expected_nav_date"),
+        nav_rule=details.get("nav_rule"),
         reason=details.get("reason"),
         occurred_at=error.occurred_at,
         message=error.error_message,

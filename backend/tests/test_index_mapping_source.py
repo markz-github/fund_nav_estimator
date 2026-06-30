@@ -32,6 +32,16 @@ class FundIndexMappingSourceTests(unittest.TestCase):
         self.assertEqual(mapping.source, "99fund")
         self.assertEqual(mapping.confidence, "high")
 
+    def test_get_mapping_uses_known_index_mapping_when_public_pages_have_no_code(self) -> None:
+        with patch.object(FundIndexMappingSource, "_fetch_text", return_value=""):
+            mapping = FundIndexMappingSource().get_mapping("160221")
+
+        self.assertIsNotNone(mapping)
+        self.assertEqual(mapping.index_code, "399395")
+        self.assertEqual(mapping.index_name, "国证有色指数")
+        self.assertEqual(mapping.source, "known:index_mapping")
+        self.assertEqual(mapping.confidence, "high")
+
 
 if __name__ == "__main__":
     unittest.main()
