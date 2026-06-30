@@ -143,6 +143,51 @@ class FundTaskQueueTests(unittest.TestCase):
         self.assertIn("stale=1", task_log.message)
         self.assertEqual(fetch_error.source, "quality_check")
 
+    def test_refresh_holding_task_also_refreshes_index_mappings(self) -> None:
+        submitted = self.service.submit(
+            "refresh_holding",
+            "刷新基金持仓",
+            origin="manual",
+            fund_codes=["501009"],
+        )
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        calls: dict[str, list] = {"holdings": [], "mappings": []}
+
+        class FakeHoldingService:
+            def __init__(self, db):
+                pass
+
+            def refresh_holdings(self, fund_code):
+                calls["holdings"].append(fund_code)
+                return [object()]
+
+        class FakeFundIndexMappingService:
+            def __init__(self, db):
+                pass
+
+            def refresh_mappings_for_index_related_funds(self, fund_codes=None):
+                calls["mappings"].append(fund_codes)
+                return [object(), object()]
+
+        with (
+            patch("app.modules.fund_nav.services.fund_task_queue_service.HoldingService", FakeHoldingService),
+            patch(
+                "app.modules.fund_nav.services.fund_task_queue_service.FundIndexMappingService",
+                FakeFundIndexMappingService,
+            ),
+        ):
+            self.service.execute(submitted.task_id)
+
+        task_log = self.db.get(TaskLog, submitted.task_log_id)
+        self.assertEqual(task_log.status, "success")
+        self.assertIn("holdings=1", task_log.message)
+        self.assertIn("index_mappings=2", task_log.message)
+        self.assertEqual(calls["holdings"], ["501009"])
+        self.assertEqual(calls["mappings"], [["501009"]])
+
     def test_concurrent_identical_submissions_reuse_one_pending_task(self) -> None:
         engine = create_engine(
             "sqlite://",
