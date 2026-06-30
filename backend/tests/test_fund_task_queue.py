@@ -188,6 +188,26 @@ class FundTaskQueueTests(unittest.TestCase):
         self.assertEqual(calls["holdings"], ["501009"])
         self.assertEqual(calls["mappings"], [["501009"]])
 
+    def test_refresh_index_catalog_task_records_count(self) -> None:
+        submitted = self.service.submit("refresh_index_catalog", "刷新指数目录", origin="manual")
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        class FakeIndexCatalogService:
+            def __init__(self, db):
+                pass
+
+            def refresh_indexes(self):
+                return [object(), object(), object()]
+
+        with patch("app.modules.fund_nav.services.fund_task_queue_service.IndexCatalogService", FakeIndexCatalogService):
+            self.service.execute(submitted.task_id)
+
+        task_log = self.db.get(TaskLog, submitted.task_log_id)
+        self.assertEqual(task_log.status, "success")
+        self.assertIn("indexes=3", task_log.message)
+
     def test_concurrent_identical_submissions_reuse_one_pending_task(self) -> None:
         engine = create_engine(
             "sqlite://",

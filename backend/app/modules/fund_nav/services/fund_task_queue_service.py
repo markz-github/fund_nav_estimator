@@ -21,6 +21,7 @@ from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMa
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.holding_service import HoldingService
+from app.modules.fund_nav.services.index_catalog_service import IndexCatalogService
 from app.modules.fund_nav.services.market_service import MarketService
 from app.modules.fund_nav.services.nav_quality_service import FundNavQualityService
 from app.modules.fund_nav.data_sources.akshare_source import FetchDiagnostic
@@ -219,6 +220,9 @@ class FundTaskQueueService:
         if task.task_type == "refresh_index_mapping":
             refreshed = FundIndexMappingService(self.db).refresh_mapping(payload["fund_code"])
             return ("success" if refreshed else "partial"), f"fund_code={payload['fund_code']};refreshed={refreshed is not None}"
+        if task.task_type == "refresh_index_catalog":
+            indexes = IndexCatalogService(self.db).refresh_indexes()
+            return ("success" if indexes else "partial"), f"indexes={len(indexes)}"
         if task.task_type == "sync_new_fund_data":
             return self._sync_new_fund(payload["fund_code"])
         raise ValueError(f"Unsupported fund task type: {task.task_type}")

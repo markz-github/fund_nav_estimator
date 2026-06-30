@@ -80,6 +80,52 @@ CREATE TABLE fund_index_mappings (
 );
 ```
 
+## manual_fund_index_mappings
+
+人工维护的基金跟踪指数映射表。用于自动解析无法稳定识别的特殊基金；刷新 `fund_index_mappings` 时该表优先级最高。
+
+```sql
+CREATE TABLE manual_fund_index_mappings (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    fund_code VARCHAR(20) NOT NULL COMMENT '基金代码',
+    fund_name VARCHAR(100) NULL COMMENT '基金名称快照',
+    index_code VARCHAR(30) NOT NULL COMMENT '指数代码',
+    index_name VARCHAR(150) NOT NULL COMMENT '指数名称',
+    benchmark_text TEXT NULL COMMENT '业绩比较基准原文',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_manual_fund_index_mapping_code (fund_code),
+    INDEX idx_manual_fund_index_mapping_index_code (index_code),
+    INDEX idx_manual_fund_index_mapping_updated_at (updated_at)
+);
+```
+
+## market_indexes
+
+指数基础目录表，低频从指数提供方同步，用于将基金页面解析到的指数名称反查为稳定指数代码。
+
+```sql
+CREATE TABLE market_indexes (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    index_code VARCHAR(30) NOT NULL COMMENT '指数代码',
+    index_name VARCHAR(150) NOT NULL COMMENT '指数全称',
+    index_short_name VARCHAR(100) NULL COMMENT '指数简称',
+    provider VARCHAR(30) NOT NULL COMMENT '指数提供方，如 csindex、cni',
+    currency VARCHAR(20) NULL COMMENT '指数币种',
+    asset_class VARCHAR(50) NULL COMMENT '资产类别',
+    source VARCHAR(50) NOT NULL COMMENT '数据来源接口',
+    raw_snapshot TEXT NULL COMMENT '原始快照摘要',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_market_index_provider_code (provider, index_code),
+    INDEX idx_market_index_code (index_code),
+    INDEX idx_market_index_name (index_name),
+    INDEX idx_market_index_short_name (index_short_name),
+    INDEX idx_market_index_updated_at (updated_at)
+);
+```
+
 ## fund_holdings
 
 基金持仓表。

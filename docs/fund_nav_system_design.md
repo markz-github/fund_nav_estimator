@@ -93,7 +93,18 @@ backend/app/modules/operations/
 - 使用 `昨收` 时来源标记为 `akshare:etf_spot_prev_close`。
 - 使用实时字段时来源标记为 `akshare:etf_spot`。
 
-### 3.4 基金持仓
+### 3.4 指数目录与指数映射
+
+`market_indexes` 保存本地指数基础目录，低频从指数提供方同步：
+
+- 中证指数目录：`ak.index_csindex_all()`。
+- 国证指数目录：`ak.index_all_cni()`。
+
+基金指数映射保存在 `fund_index_mappings`。刷新映射时优先读取数据库人工维护表 `manual_fund_index_mappings`；未命中人工记录时，再从基金公司页面或天天基金页面解析 `index_code / index_name / benchmark_text`。当基金页面只给出指数名称而没有指数代码时，会从 `market_indexes` 按指数全称或简称反查指数代码。这样 `006786` 这类页面只有“中证港股通大消费主题港元指数”的基金，也可以通过本地中证指数目录补齐 `931027`。
+
+人工映射通过前端“指数映射”页面维护，不再写在代码常量中。它用于处理自动解析不能严格匹配的特殊情况，例如基金页面名称与指数目录简称不完全一致。
+
+### 3.5 基金持仓
 
 `fund_holdings` 保存基金最近披露的底层资产及持仓比例。
 
@@ -103,7 +114,7 @@ backend/app/modules/operations/
 
 资产是否参与实时估算由 `asset_valuation_configs` 控制。刷新行情和运行估值前会加载该表为内存 Map，并按 `asset_type + market` 匹配，未匹配时视为不可实时估值。债券持仓会进入 `fund_holdings`，但当前默认不可实时估值。
 
-### 3.5 行情快照
+### 3.6 行情快照
 
 `market_quotes` 保存底层资产行情快照，包括：
 
@@ -115,7 +126,7 @@ backend/app/modules/operations/
 
 同一个资产在同一个 `quote_time` 只保存一条记录。
 
-### 3.6 估算结果
+### 3.7 估算结果
 
 `fund_estimates` 保存基金估算结果。
 
@@ -198,6 +209,7 @@ fund_task_queue
 | `refresh_profile` | 刷新基金名称和类型 | 定时任务 |
 | `refresh_nav` | 刷新官方净值 | 单只、批量、定时任务 |
 | `check_nav_quality` | 检查官方净值是否达到预期日期，发现缺失或滞后时记录异常 | 定时任务 |
+| `refresh_index_catalog` | 刷新本地指数目录，用于指数名称反查代码 | 手动、定时任务 |
 | `refresh_holding` | 刷新基金持仓，并同步刷新指数基金/ETF 的指数映射 | 单只、定时任务 |
 | `refresh_quote` | 刷新持仓资产行情 | 手动、定时任务 |
 | `estimate_nav` | 估算基金当日净值 | 手动、定时任务 |

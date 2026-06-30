@@ -10,10 +10,12 @@ from app.database import get_db
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.schemas.fund import FundCreate, FundNavOut, FundOut, RefreshFundNavsRequest
 from app.modules.fund_nav.schemas.holding import FundHoldingOut
+from app.modules.fund_nav.schemas.manual_index_mapping import ManualFundIndexMappingIn, ManualFundIndexMappingOut
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.fund_nav.services.holding_service import HoldingService
+from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
 from app.modules.operations.services.operation_log_service import log_task
 
 router = APIRouter(prefix="/funds", tags=["funds"])
@@ -64,6 +66,35 @@ def refresh_navs(
     return FundTaskQueueService(db).submit(
         "refresh_nav", "批量刷新基金官方净值", origin="manual", fund_codes=fund_codes
     )
+
+
+@router.post("/actions/refresh-index-catalog", response_model=FundTaskSubmitOut, status_code=status.HTTP_202_ACCEPTED)
+def refresh_index_catalog(db: Session = Depends(get_db)) -> dict:
+    return FundTaskQueueService(db).submit(
+        "refresh_index_catalog", "刷新指数目录", origin="manual"
+    )
+
+
+@router.get("/index-mappings/manual", response_model=list[ManualFundIndexMappingOut])
+def list_manual_index_mappings(db: Session = Depends(get_db)):
+    return ManualIndexMappingService(db).list_mappings()
+
+
+@router.post(
+    "/index-mappings/manual",
+    response_model=ManualFundIndexMappingOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def save_manual_index_mapping(payload: ManualFundIndexMappingIn, db: Session = Depends(get_db)):
+    return ManualIndexMappingService(db).save_mapping(payload)
+
+
+@router.delete("/index-mappings/manual/{fund_code}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_manual_index_mapping(fund_code: str, db: Session = Depends(get_db)) -> Response:
+    deleted = ManualIndexMappingService(db).delete_mapping(fund_code)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Manual index mapping not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/{fund_code}", status_code=status.HTTP_204_NO_CONTENT)

@@ -11,6 +11,9 @@ export interface Fund {
   tracked_index_name?: string | null
   tracked_index_source?: string | null
   tracked_index_confidence?: string | null
+  target_etf_code?: string | null
+  target_etf_name?: string | null
+  target_etf_source?: string | null
   latest_unit_nav?: string | null
   latest_nav_date?: string | null
   latest_daily_growth_rate?: string | null
