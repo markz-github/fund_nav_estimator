@@ -191,8 +191,10 @@ class FundTaskQueueService:
                 self._nav_quality_message(result),
             )
         if task.task_type == "refresh_holding":
-            total = sum(len(HoldingService(self.db).refresh_holdings(code)) for code in self._codes(fund_codes))
-            return ("success" if total else "partial"), f"holdings={total}"
+            holding_total, mapping_total = self._refresh_holdings_and_index_mappings(fund_codes)
+            return ("success" if holding_total or mapping_total else "partial"), (
+                f"holdings={holding_total};index_mappings={mapping_total}"
+            )
         if task.task_type == "refresh_quote":
             market_service = MarketService(self.db)
             quotes = market_service.refresh_quotes_for_holdings(fund_codes)
@@ -202,7 +204,7 @@ class FundTaskQueueService:
             return ("success" if not result["skipped_count"] else "partial"), self._estimate_message(result)
         if task.task_type == "refresh_quote_estimate":
             nav_success = sum(FundService(self.db).refresh_nav(code) is not None for code in self._codes(fund_codes))
-            holding_total = sum(len(HoldingService(self.db).refresh_holdings(code)) for code in self._codes(fund_codes))
+            holding_total, mapping_total = self._refresh_holdings_and_index_mappings(fund_codes)
             market_service = MarketService(self.db)
             quotes = market_service.refresh_quotes_for_holdings(fund_codes)
             result = EstimateService(self.db).run_estimates(fund_codes)
@@ -210,7 +212,10 @@ class FundTaskQueueService:
             status = "success" if nav_success and holding_total and quote_status == "success" and not result["skipped_count"] else "partial"
             if quote_status == "failed" and not nav_success and not holding_total:
                 status = "failed"
-            return status, f"nav={nav_success};holdings={holding_total};{quote_message};{self._estimate_message(result)}"
+            return status, (
+                f"nav={nav_success};holdings={holding_total};index_mappings={mapping_total};"
+                f"{quote_message};{self._estimate_message(result)}"
+            )
         if task.task_type == "refresh_index_mapping":
             refreshed = FundIndexMappingService(self.db).refresh_mapping(payload["fund_code"])
             return ("success" if refreshed else "partial"), f"fund_code={payload['fund_code']};refreshed={refreshed is not None}"
@@ -233,6 +238,12 @@ class FundTaskQueueService:
             f"profile={profile is not None};index_mapping={mapping is not None};nav={nav is not None};"
             f"holdings={len(holdings)};{quote_message};{self._estimate_message(estimates)}"
         )
+
+    def _refresh_holdings_and_index_mappings(self, fund_codes: list[str] | None) -> tuple[int, int]:
+        codes = self._codes(fund_codes)
+        mapping_total = len(FundIndexMappingService(self.db).refresh_mappings_for_index_related_funds(codes))
+        holding_total = sum(len(HoldingService(self.db).refresh_holdings(code)) for code in codes)
+        return holding_total, mapping_total
 
     def _codes(self, fund_codes: list[str] | None) -> list[str]:
         return fund_codes or list(self.db.scalars(select(Fund.fund_code).where(Fund.enabled == 1)).all())

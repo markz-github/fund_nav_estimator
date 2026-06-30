@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMappingSource
+from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.utils.performance import timed
 
@@ -53,3 +54,29 @@ class FundIndexMappingService:
         self.db.commit()
         self.db.refresh(mapping)
         return mapping
+
+    @timed()
+    def refresh_mappings_for_index_related_funds(self, fund_codes: list[str] | None = None) -> list[FundIndexMapping]:
+        normalized_codes = (
+            sorted({str(code).strip().zfill(6) for code in fund_codes if str(code).strip()})
+            if fund_codes
+            else None
+        )
+        statement = select(Fund).where(Fund.enabled == 1)
+        if normalized_codes:
+            statement = statement.where(Fund.fund_code.in_(normalized_codes))
+
+        refreshed: list[FundIndexMapping] = []
+        for fund in self.db.scalars(statement).all():
+            if not self._is_index_related_fund(fund):
+                continue
+            mapping = self.refresh_mapping(fund.fund_code)
+            if mapping is not None:
+                refreshed.append(mapping)
+        return refreshed
+
+    @staticmethod
+    def _is_index_related_fund(fund: Fund) -> bool:
+        fund_name = (fund.fund_name or "").upper()
+        fund_type = (fund.fund_type or "").upper()
+        return "指数" in (fund.fund_type or "") or "ETF" in fund_name or "ETF" in fund_type

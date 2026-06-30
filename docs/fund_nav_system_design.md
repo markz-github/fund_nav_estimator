@@ -99,6 +99,8 @@ backend/app/modules/operations/
 
 持仓是估算依据，但存在天然滞后。页面应结合 `report_period` 和估算覆盖率理解结果可信度。
 
+持仓刷新任务会同步刷新指数相关基金的 `fund_index_mappings`：启用基金中 `fund_type` 含“指数”，或基金名称/类型含 `ETF` 的基金，会在刷新持仓时尝试更新跟踪指数映射。这样指数基金估算、ETF 相关展示和后续行情刷新可以使用同一份映射关系。
+
 资产是否参与实时估算由 `asset_valuation_configs` 控制。刷新行情和运行估值前会加载该表为内存 Map，并按 `asset_type + market` 匹配，未匹配时视为不可实时估值。债券持仓会进入 `fund_holdings`，但当前默认不可实时估值。
 
 ### 3.5 行情快照
@@ -196,7 +198,7 @@ fund_task_queue
 | `refresh_profile` | 刷新基金名称和类型 | 定时任务 |
 | `refresh_nav` | 刷新官方净值 | 单只、批量、定时任务 |
 | `check_nav_quality` | 检查官方净值是否达到预期日期，发现缺失或滞后时记录异常 | 定时任务 |
-| `refresh_holding` | 刷新基金持仓 | 单只、定时任务 |
+| `refresh_holding` | 刷新基金持仓，并同步刷新指数基金/ETF 的指数映射 | 单只、定时任务 |
 | `refresh_quote` | 刷新持仓资产行情 | 手动、定时任务 |
 | `estimate_nav` | 估算基金当日净值 | 手动、定时任务 |
 | `refresh_quote_estimate` | 刷新行情并估算 | 手动组合任务 |

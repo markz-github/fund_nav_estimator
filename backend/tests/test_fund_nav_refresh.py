@@ -19,6 +19,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot, MarketQuoteSnapshot
 from app.modules.fund_nav.data_sources.eastmoney_source import EastmoneySource
+from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMappingSnapshot
 from app.database import Base
 from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
 from app.modules.fund_nav.models.fund import Fund
@@ -30,6 +31,7 @@ from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.services.fund_service import FundService
+from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.estimate_service import EstimateService
 from app.modules.fund_nav.services.market_service import MarketService
@@ -865,6 +867,67 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(quotes[0].asset_type, "index")
         source.get_market_quotes.assert_called_once_with([])
         source.get_index_quotes.assert_called_once_with(["930743"])
+
+    def test_refresh_index_related_mappings_includes_index_and_etf_funds(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add_all(
+            [
+                Fund(
+                    id=1,
+                    fund_code="501009",
+                    fund_name="汇添富中证生物科技指数(LOF)A",
+                    fund_type="指数型-股票",
+                ),
+                Fund(id=2, fund_code="515450", fund_name="红利低波ETF", fund_type="指数型-股票"),
+                Fund(id=3, fund_code="018125", fund_name="永赢先进制造智选混合发起C", fund_type="混合型"),
+            ]
+        )
+        db.add_all(
+            [
+                FundIndexMapping(
+                    id=1,
+                    fund_code="501009",
+                    index_code="OLD1",
+                    index_name="旧指数1",
+                    source="old",
+                    confidence="low",
+                ),
+                FundIndexMapping(
+                    id=2,
+                    fund_code="515450",
+                    index_code="OLD2",
+                    index_name="旧指数2",
+                    source="old",
+                    confidence="low",
+                ),
+            ]
+        )
+        db.commit()
+        source = Mock()
+        source.get_mapping.side_effect = lambda code: FundIndexMappingSnapshot(
+            fund_code=code,
+            index_code=f"{code}.IDX",
+            index_name=f"测试指数{code}",
+            benchmark_text=None,
+            source="test",
+            confidence="high",
+        )
+
+        try:
+            mappings = FundIndexMappingService(db, source).refresh_mappings_for_index_related_funds()
+            saved_codes = sorted(
+                row.fund_code
+                for row in db.scalars(select(FundIndexMapping).order_by(FundIndexMapping.fund_code)).all()
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(len(mappings), 2)
+        self.assertEqual(saved_codes, ["501009", "515450"])
+        self.assertEqual([call.args[0] for call in source.get_mapping.call_args_list], ["501009", "515450"])
 
     def test_bond_holdings_do_not_participate_in_estimate_but_reduce_coverage(self) -> None:
         engine = create_engine("sqlite:///:memory:")
