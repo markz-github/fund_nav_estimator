@@ -163,8 +163,8 @@ http://127.0.0.1:5173/fund-nav
 
 ```powershell
 docker build -f backend/Dockerfile.base `
-  --build-arg PIP_INDEX_URL=https://pypi.mirrors.ustc.edu.cn/simple/ `
-  --build-arg PIP_TRUSTED_HOST=pypi.mirrors.ustc.edu.cn `
+  --build-arg PIP_INDEX_URL=http://192.168.50.50:16666/repository/pypi-group/simple/ `
+  --build-arg PIP_TRUSTED_HOST=192.168.50.50 `
   -t 192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621 `
   backend
 

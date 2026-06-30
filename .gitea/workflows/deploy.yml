@@ -117,8 +117,8 @@ jobs:
 
       - name: Test backend
         env:
-          PIP_INDEX_URL: https://pypi.mirrors.ustc.edu.cn/simple/
-          PIP_TRUSTED_HOST: pypi.mirrors.ustc.edu.cn
+          PIP_INDEX_URL: http://192.168.50.50:16666/repository/pypi-group/simple/
+          PIP_TRUSTED_HOST: 192.168.50.50
         run: |
           set -o pipefail
 
