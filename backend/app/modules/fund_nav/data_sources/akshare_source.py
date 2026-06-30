@@ -563,6 +563,21 @@ class AkshareSource:
 
         return list(snapshots.values())
 
+    @timed()
+    def get_index_quotes(self, index_codes: list[str]) -> list[MarketQuoteSnapshot]:
+        quote_time = datetime.now()
+        snapshots: list[MarketQuoteSnapshot] = []
+        for raw_code in index_codes:
+            index_code = self._normalize_index_code(raw_code)
+            if not index_code:
+                continue
+            snapshot = self._get_csindex_quote(index_code, quote_time)
+            if snapshot is None:
+                snapshot = self._get_cni_index_quote(index_code, quote_time)
+            if snapshot is not None:
+                snapshots.append(snapshot)
+        return snapshots
+
     @classmethod
     def _get_etf_spot_dataframe(cls):
         return cls._load_dataframe(
@@ -1001,6 +1016,76 @@ class AkshareSource:
             change_rate=change_rate,
         )
 
+    def _get_csindex_quote(
+        self,
+        index_code: str,
+        quote_time: datetime,
+    ) -> MarketQuoteSnapshot | None:
+        end_date = quote_time.strftime("%Y%m%d")
+        start_date = (quote_time - timedelta(days=45)).strftime("%Y%m%d")
+        try:
+            history_df = ak.stock_zh_index_hist_csindex(
+                symbol=index_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except Exception:
+            return None
+        if history_df.empty:
+            return None
+
+        row = history_df.iloc[-1]
+        trade_date = self._date_from_value(row.get("日期"))
+        latest_price = self._optional_decimal(row.get("收盘"))
+        change_rate = self._percent(row.get("涨跌幅"))
+        prev_close = self._previous_close(latest_price, change_rate)
+        return MarketQuoteSnapshot(
+            asset_code=index_code,
+            asset_name=self._none_if_nan(row.get("指数中文简称") or row.get("指数中文全称")),
+            asset_type="index",
+            market="CN",
+            trade_date=trade_date,
+            quote_time=quote_time,
+            latest_price=latest_price,
+            prev_close=prev_close,
+            change_rate=change_rate,
+        )
+
+    def _get_cni_index_quote(
+        self,
+        index_code: str,
+        quote_time: datetime,
+    ) -> MarketQuoteSnapshot | None:
+        end_date = quote_time.strftime("%Y%m%d")
+        start_date = (quote_time - timedelta(days=45)).strftime("%Y%m%d")
+        try:
+            history_df = ak.index_hist_cni(
+                symbol=index_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except Exception:
+            return None
+        if history_df.empty:
+            return None
+
+        row = history_df.iloc[-1]
+        trade_date = self._date_from_value(row.get("日期"))
+        latest_price = self._optional_decimal(row.get("收盘价"))
+        change_rate = self._optional_decimal(row.get("涨跌幅"))
+        prev_close = self._previous_close(latest_price, change_rate)
+        return MarketQuoteSnapshot(
+            asset_code=index_code,
+            asset_name=None,
+            asset_type="index",
+            market="CN",
+            trade_date=trade_date,
+            quote_time=quote_time,
+            latest_price=latest_price,
+            prev_close=prev_close,
+            change_rate=change_rate,
+        )
+
     def _get_sina_quote(
         self, asset_code: str, quote_time: datetime
     ) -> MarketQuoteSnapshot | None:
@@ -1155,6 +1240,17 @@ class AkshareSource:
         if asset_code.startswith(("0", "1", "2", "3")):
             return f"sz{asset_code}"
         return None
+
+    @staticmethod
+    def _normalize_index_code(index_code: str) -> str:
+        code = str(index_code or "").strip().upper()
+        return re.sub(r"\.(CSI|CSINDEX|CNI|SH|SZ)$", "", code)
+
+    @staticmethod
+    def _date_from_value(value) -> date:
+        if hasattr(value, "date"):
+            return value.date()
+        return date.fromisoformat(str(value).split(" ")[0])
 
     @staticmethod
     def _previous_close(

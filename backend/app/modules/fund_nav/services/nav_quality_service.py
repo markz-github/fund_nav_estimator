@@ -16,11 +16,13 @@ class FundNavQualityService:
         self.db = db
 
     def check_latest_nav_freshness(self, reference_time: datetime | None = None) -> dict:
-        expected_nav_date = self.expected_nav_date(reference_time)
+        default_expected_nav_date = self.expected_nav_date(reference_time)
         rows = self._latest_nav_rows()
         stale: list[dict] = []
 
         for fund, latest_nav in rows:
+            expected_nav_date = self.expected_nav_date_for_fund(fund, reference_time)
+            nav_rule = self.nav_freshness_rule(fund)
             if latest_nav is not None and latest_nav.nav_date >= expected_nav_date:
                 continue
             item = {
@@ -28,6 +30,7 @@ class FundNavQualityService:
                 "fund_name": fund.fund_name,
                 "latest_nav_date": latest_nav.nav_date.isoformat() if latest_nav else None,
                 "expected_nav_date": expected_nav_date.isoformat(),
+                "nav_rule": nav_rule,
                 "reason": "missing_nav" if latest_nav is None else "stale_nav",
             }
             stale.append(item)
@@ -36,7 +39,7 @@ class FundNavQualityService:
         return {
             "checked_count": len(rows),
             "stale_count": len(stale),
-            "expected_nav_date": expected_nav_date,
+            "expected_nav_date": default_expected_nav_date,
             "stale": stale,
         }
 
@@ -64,6 +67,7 @@ class FundNavQualityService:
         message = (
             f"latest_nav_date={item['latest_nav_date']};"
             f"expected_nav_date={item['expected_nav_date']};"
+            f"nav_rule={item['nav_rule']};"
             f"reason={item['reason']}"
         )
         exists = self.db.scalar(
@@ -89,6 +93,37 @@ class FundNavQualityService:
         if now.hour < 20:
             return cls.previous_business_day(today)
         return today
+
+    @classmethod
+    def expected_nav_date_for_fund(cls, fund: Fund, reference_time: datetime | None = None) -> date:
+        expected_date = cls.expected_nav_date(reference_time)
+        if cls.nav_freshness_rule(fund) == "qdii_delayed":
+            return cls.previous_business_day(expected_date)
+        return expected_date
+
+    @classmethod
+    def nav_freshness_rule(cls, fund: Fund) -> str:
+        return "qdii_delayed" if cls.is_delayed_nav_fund(fund) else "standard"
+
+    @staticmethod
+    def is_delayed_nav_fund(fund: Fund) -> bool:
+        fund_type = (fund.fund_type or "").upper()
+        fund_name = (fund.fund_name or "").upper()
+        if "QDII" in fund_type or "QDII" in fund_name:
+            return True
+        delayed_name_keywords = (
+            "纳斯达克",
+            "标普",
+            "道琼斯",
+            "海外",
+            "全球",
+            "美国",
+            "美股",
+            "印度",
+            "德国",
+            "日经",
+        )
+        return any(keyword in fund_name for keyword in delayed_name_keywords)
 
     @staticmethod
     def previous_business_day(value: date) -> date:

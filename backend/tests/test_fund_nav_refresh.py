@@ -24,6 +24,7 @@ from app.modules.fund_nav.models.asset_valuation_config import AssetValuationCon
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
+from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
@@ -549,6 +550,144 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIsInstance(result, FundEstimate)
         self.assertIn("strategy=etf_iopv", result.source_snapshot)
 
+    def test_index_fund_estimate_uses_tracking_index_quote(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(
+            Fund(
+                id=1,
+                fund_code="501009",
+                fund_name="汇添富中证生物科技指数(LOF)A",
+                fund_type="指数型-股票",
+            )
+        )
+        db.add(
+            FundIndexMapping(
+                id=1,
+                fund_code="501009",
+                index_code="930743.CSI",
+                index_name="中证生物科技主题指数",
+                source="test",
+                confidence="high",
+            )
+        )
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="501009",
+                nav_date=date(2026, 6, 23),
+                unit_nav=Decimal("1.0992"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("0.0058"),
+                source="test",
+            )
+        )
+        db.add(
+            MarketQuote(
+                id=1,
+                asset_code="930743",
+                asset_name="中证生科",
+                asset_type="index",
+                market="CN",
+                trade_date=date(2026, 6, 24),
+                quote_time=datetime(2026, 6, 24, 15, 30),
+                latest_price=Decimal("2901.69"),
+                prev_close=Decimal("2853.55"),
+                change_rate=Decimal("0.0169"),
+                source="test",
+            )
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "501009"))
+            result = EstimateService(db, Mock())._estimate_one(fund, datetime(2026, 6, 24, 15, 35))
+        finally:
+            db.close()
+
+        self.assertIsInstance(result, FundEstimate)
+        self.assertEqual(result.estimated_nav, Decimal("1.117776480000"))
+        self.assertEqual(result.estimated_growth_rate, Decimal("0.0169"))
+        self.assertEqual(result.coverage_ratio, Decimal("1"))
+        self.assertIn("strategy=index_tracking", result.source_snapshot)
+
+    def test_index_fund_estimate_falls_back_to_holdings_without_index_quote(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(
+            Fund(
+                id=1,
+                fund_code="501009",
+                fund_name="汇添富中证生物科技指数(LOF)A",
+                fund_type="指数型-股票",
+            )
+        )
+        db.add(
+            FundIndexMapping(
+                id=1,
+                fund_code="501009",
+                index_code="930743.CSI",
+                index_name="中证生物科技主题指数",
+                source="test",
+                confidence="high",
+            )
+        )
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="501009",
+                nav_date=date(2026, 6, 23),
+                unit_nav=Decimal("1.0992"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("0.0058"),
+                source="test",
+            )
+        )
+        db.add(
+            FundHolding(
+                id=1,
+                fund_code="501009",
+                report_period="2026Q1",
+                asset_code="600276",
+                asset_name="恒瑞医药",
+                asset_type="stock",
+                market="SH",
+                holding_ratio=Decimal("1.000000"),
+                holding_value=None,
+                source="test",
+            )
+        )
+        db.add(
+            MarketQuote(
+                id=1,
+                asset_code="600276",
+                asset_name="恒瑞医药",
+                asset_type="stock",
+                market="SH",
+                trade_date=date(2026, 6, 24),
+                quote_time=datetime(2026, 6, 24, 15, 0),
+                latest_price=Decimal("50"),
+                prev_close=Decimal("49"),
+                change_rate=Decimal("0.020000"),
+                source="test",
+            )
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "501009"))
+            result = EstimateService(db, Mock())._estimate_one(fund, datetime(2026, 6, 24, 15, 35))
+        finally:
+            db.close()
+
+        self.assertIsInstance(result, FundEstimate)
+        self.assertEqual(result.estimated_nav, Decimal("1.1211840000000000"))
+        self.assertIn("strategy=holding_weighted", result.source_snapshot)
+
     def test_asset_valuation_config_map_uses_exact_and_default_rules(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
@@ -585,6 +724,7 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(config_map.resolve("stock", "SZ").valuation_mode, "quote")
         self.assertFalse(config_map.resolve("bond", "CN").realtime_valuable)
         self.assertEqual(config_map.resolve("bond", "CN").valuation_mode, "none")
+        self.assertTrue(config_map.resolve("index", "CN").realtime_valuable)
         self.assertFalse(config_map.resolve("cash", "CN").realtime_valuable)
 
     def test_refresh_quotes_for_holdings_skips_non_realtime_bonds(self) -> None:
@@ -672,6 +812,59 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(len(quotes), 1)
         self.assertEqual(quotes[0].asset_code, "515450")
         source.get_market_quotes.assert_called_once_with(["515450"])
+        source.get_index_quotes.assert_not_called()
+
+    def test_refresh_quotes_for_holdings_includes_index_mapping_for_index_fund(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(
+            Fund(
+                id=1,
+                fund_code="501009",
+                fund_name="汇添富中证生物科技指数(LOF)A",
+                fund_type="指数型-股票",
+            )
+        )
+        db.add(
+            FundIndexMapping(
+                id=1,
+                fund_code="501009",
+                index_code="930743.CSI",
+                index_name="中证生物科技主题指数",
+                source="test",
+                confidence="high",
+            )
+        )
+        db.commit()
+        source = Mock()
+        source.source_name = "akshare"
+        source.get_market_quotes.return_value = []
+        source.get_index_quotes.return_value = [
+            MarketQuoteSnapshot(
+                asset_code="930743",
+                asset_name="中证生科",
+                asset_type="index",
+                market="CN",
+                trade_date=date(2026, 6, 24),
+                quote_time=datetime(2026, 6, 24, 15, 30),
+                latest_price=Decimal("2901.69"),
+                prev_close=Decimal("2853.55"),
+                change_rate=Decimal("0.0169"),
+            )
+        ]
+
+        try:
+            quotes = MarketService(db, source).refresh_quotes_for_holdings(["501009"])
+        finally:
+            db.close()
+
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(quotes[0].asset_code, "930743")
+        self.assertEqual(quotes[0].asset_type, "index")
+        source.get_market_quotes.assert_called_once_with([])
+        source.get_index_quotes.assert_called_once_with(["930743"])
 
     def test_bond_holdings_do_not_participate_in_estimate_but_reduce_coverage(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -923,6 +1116,80 @@ class FundNavRefreshTests(unittest.TestCase):
             db.close()
 
         self.assertEqual(result, "stale_nav")
+
+    def test_qdii_estimate_allows_previous_business_day_official_nav(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(
+            Fund(
+                id=1,
+                fund_code="017436",
+                fund_name="华宝纳斯达克精选股票发起式(QDII)A",
+                fund_type="QDII",
+            )
+        )
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="017436",
+                nav_date=date(2026, 6, 26),
+                unit_nav=Decimal("2.5000"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("0"),
+                source="test",
+            )
+        )
+        db.add(
+            AssetValuationConfig(
+                id=1,
+                asset_type="stock",
+                market="US",
+                realtime_valuable=1,
+                valuation_mode="quote",
+                enabled=1,
+            )
+        )
+        db.add(
+            FundHolding(
+                id=1,
+                fund_code="017436",
+                report_period="2026Q1",
+                asset_code="AAPL",
+                asset_name="苹果",
+                asset_type="stock",
+                market="US",
+                holding_ratio=Decimal("1.000000"),
+                holding_value=None,
+                source="test",
+            )
+        )
+        db.add(
+            MarketQuote(
+                id=1,
+                asset_code="AAPL",
+                asset_name="苹果",
+                asset_type="stock",
+                market="US",
+                trade_date=date(2026, 6, 29),
+                quote_time=datetime(2026, 6, 29, 15, 0),
+                latest_price=Decimal("200"),
+                prev_close=Decimal("198"),
+                change_rate=Decimal("0.0100"),
+                source="test",
+            )
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "017436"))
+            result = EstimateService(db, Mock())._estimate_one(fund, datetime(2026, 6, 29, 22, 30))
+        finally:
+            db.close()
+
+        self.assertIsInstance(result, FundEstimate)
+        self.assertEqual(result.base_nav_date, date(2026, 6, 26))
 
     def test_etf_quote_trade_date_uses_etf_spot_data_date(self) -> None:
         trade_date = AkshareSource._quote_trade_date({"数据日期": "2026-06-23"}, datetime(2026, 6, 24, 15, 0))

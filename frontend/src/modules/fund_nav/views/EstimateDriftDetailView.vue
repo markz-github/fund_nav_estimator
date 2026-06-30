@@ -36,7 +36,7 @@ const chartData = computed(() =>
   points.value.map((point) => ({
     time: point.estimate_date as Time,
     value: Number(point.difference_rate) * 100,
-    color: point.threshold_exceeded ? '#a43f35' : '#287356',
+    color: driftLevelColor(point.difference_rate),
   })),
 )
 const thresholdDecimal = computed(() => percentInputToDecimal(thresholdPercent.value))
@@ -72,6 +72,33 @@ function signedNav(value?: string | null) {
   const numericValue = Number(value)
   const sign = numericValue > 0 ? '+' : ''
   return `${sign}${numericValue.toFixed(6)}`
+}
+
+function driftLevelClass(value?: string | null) {
+  if (value == null) return 'status-muted'
+  const percentValue = Number(value) * 100
+  if (!Number.isFinite(percentValue)) return 'status-muted'
+  if (percentValue >= 3) return 'status-deep-danger'
+  if (percentValue >= 2) return 'status-danger'
+  if (percentValue >= 1) return 'status-warn'
+  return 'status-ok'
+}
+
+function driftLevelColor(value?: string | null) {
+  const className = driftLevelClass(value)
+  if (className === 'status-deep-danger') return '#651b16'
+  if (className === 'status-danger') return '#a43f35'
+  if (className === 'status-warn') return '#b66a00'
+  return '#287356'
+}
+
+function driftRowClass(point: EstimateDriftPoint) {
+  const className = driftLevelClass(point.difference_rate)
+  return {
+    'drift-row-warn': className === 'status-warn',
+    'drift-row-danger': className === 'status-danger',
+    'drift-row-deep-danger': className === 'status-deep-danger',
+  }
 }
 
 function chartDateLabel(time: Time) {
@@ -288,13 +315,13 @@ onBeforeUnmount(disposeChart)
           <tr v-if="points.length === 0">
             <td colspan="7">暂无明细。</td>
           </tr>
-          <tr v-for="point in points" :key="point.estimate_date" :class="{ 'warning-card': point.threshold_exceeded }">
+          <tr v-for="point in points" :key="point.estimate_date" :class="driftRowClass(point)">
             <td class="mono" data-label="日期">{{ point.estimate_date }}</td>
             <td class="mono" data-label="预估净值">{{ point.estimated_nav }}</td>
             <td class="mono" data-label="官方净值">{{ point.official_nav }}</td>
             <td class="mono" data-label="差值">{{ signedNav(point.absolute_difference) }}</td>
             <td data-label="偏差率">
-              <span class="status-pill" :class="point.threshold_exceeded ? 'status-warn' : 'status-ok'">
+              <span class="status-pill" :class="driftLevelClass(point.difference_rate)">
                 {{ percent(point.difference_rate) }}
               </span>
             </td>

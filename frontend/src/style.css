@@ -812,6 +812,11 @@ tbody tr {
   background: #ffd3ca;
 }
 
+.status-deep-danger {
+  color: #ffffff;
+  background: #651b16;
+}
+
 .status-muted {
   color: #58625b;
   background: #e9ece7;
@@ -820,6 +825,18 @@ tbody tr {
 .warning-card {
   border-color: rgba(122, 75, 18, 0.35);
   background: #fff3cd;
+}
+
+.drift-row-warn {
+  background: #fff6df;
+}
+
+.drift-row-danger {
+  background: #ffe7e1;
+}
+
+.drift-row-deep-danger {
+  background: #f7d2cd;
 }
 
 .quality-summary-grid .info-card strong {

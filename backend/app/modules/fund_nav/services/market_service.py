@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, FetchDiagnostic
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
+from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.fund_nav.services.asset_valuation_config_service import load_asset_valuation_config_map
 from app.utils.performance import timed
@@ -30,15 +31,27 @@ class MarketService:
         valuation_configs = load_asset_valuation_config_map(self.db)
         assets = self._assets_from_latest_holdings(fund_codes)
         assets.update(self._etf_fund_assets(fund_codes))
+        assets.update(self._index_assets_from_mappings(fund_codes))
         valuable_assets = {
             asset_code: asset
             for asset_code, asset in assets.items()
             if valuation_configs.resolve(asset["asset_type"], asset["market"]).realtime_valuable
         }
-        asset_codes = list(valuable_assets.keys())
+        index_codes = [
+            asset_code
+            for asset_code, asset in valuable_assets.items()
+            if asset["asset_type"] == "index"
+        ]
+        market_asset_codes = [
+            asset_code
+            for asset_code, asset in valuable_assets.items()
+            if asset["asset_type"] != "index"
+        ]
         token = self.source.begin_fetch_diagnostics()
         try:
-            snapshots = self.source.get_market_quotes(asset_codes)
+            snapshots = self.source.get_market_quotes(market_asset_codes)
+            if index_codes:
+                snapshots.extend(self.source.get_index_quotes(index_codes))
         finally:
             self.last_refresh_diagnostics = self.source.end_fetch_diagnostics(token)
         quotes: list[MarketQuote] = []
@@ -154,3 +167,38 @@ class MarketService:
                 "market": "CN",
             }
         return assets
+
+    def _index_assets_from_mappings(self, fund_codes: list[str] | None = None) -> dict[str, dict[str, str | None]]:
+        fund_statement = select(Fund.fund_code).where(
+            Fund.enabled == 1,
+            Fund.fund_type.like("%指数%"),
+            ~Fund.fund_name.like("%ETF%"),
+            ~Fund.fund_type.like("%ETF%"),
+        )
+        if fund_codes:
+            fund_statement = fund_statement.where(Fund.fund_code.in_(fund_codes))
+        eligible_funds = fund_statement.subquery()
+
+        rows = self.db.execute(
+            select(FundIndexMapping.index_code, FundIndexMapping.index_name)
+            .join(eligible_funds, FundIndexMapping.fund_code == eligible_funds.c.fund_code)
+            .where(FundIndexMapping.index_code.is_not(None))
+            .distinct()
+        ).all()
+        return {
+            self._normalize_index_code(index_code): {
+                "asset_name": index_name,
+                "asset_type": "index",
+                "market": "CN",
+            }
+            for index_code, index_name in rows
+            if index_code
+        }
+
+    @staticmethod
+    def _normalize_index_code(index_code: str) -> str:
+        code = str(index_code or "").strip().upper()
+        for suffix in (".CSI", ".CSINDEX", ".CNI", ".SH", ".SZ"):
+            if code.endswith(suffix):
+                return code[: -len(suffix)]
+        return code
