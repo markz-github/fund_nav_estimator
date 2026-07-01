@@ -16,6 +16,7 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
+from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
 from app.utils.performance import timed
 
 
@@ -64,7 +65,9 @@ class HoldingService:
                 snapshots = target_fund_snapshots
                 replace_all_periods = True
             else:
-                inferred_target = self._infer_target_fund_holding(normalized_code)
+                inferred_target = ManualIndexMappingService(self.db).get_target_etf_holding(normalized_code)
+                if inferred_target is None:
+                    inferred_target = self._infer_target_fund_holding(normalized_code)
                 if inferred_target is not None:
                     snapshots = [inferred_target]
                     replace_all_periods = True

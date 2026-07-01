@@ -344,7 +344,7 @@ class FundService:
             .where(
                 FundHolding.fund_code == fund_code,
                 FundHolding.asset_type == "etf",
-                FundHolding.source.in_(("fund_company", "local:fund_name_match")),
+                FundHolding.source.in_(("fund_company", "local:fund_name_match", "manual:target_etf")),
             )
             .order_by(FundHolding.report_period.desc(), FundHolding.holding_ratio.desc())
             .limit(1)

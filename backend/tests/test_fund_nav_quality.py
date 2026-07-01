@@ -17,12 +17,16 @@ import app.models  # noqa: F401
 from app.database import Base
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
+from app.modules.fund_nav.models.fund_holding import FundHolding
+from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.api.quality import (
     get_estimate_drift_detail,
     get_fund_nav_quality_report,
     list_estimate_drift_funds,
 )
+from app.modules.fund_nav.schemas.manual_index_mapping import ManualFundIndexMappingIn
+from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
 from app.modules.fund_nav.services.nav_quality_service import FundNavQualityService
 from app.modules.operations.models.data_fetch_error import DataFetchError
 from app.modules.operations.models.task_log import TaskLog
@@ -181,7 +185,97 @@ class FundNavQualityTests(unittest.TestCase):
         self.assertEqual(report["latest_task"].status, "partial")
         self.assertEqual(report["issue_count"], 1)
         self.assertEqual(report["issues"][0].fund_name, "测试基金")
+        self.assertEqual(report["issues"][0].issue_type, "fund_nav")
         self.assertEqual(report["issues"][0].expected_nav_date, "2026-06-08")
+
+    def test_check_quality_records_missing_manual_mapping_issues(self) -> None:
+        self.db.add_all(
+            [
+                Fund(id=1, fund_code="501009", fund_name="汇添富中证生物科技指数(LOF)A", fund_type="指数型-股票"),
+                Fund(id=2, fund_code="012805", fund_name="广发恒生科技ETF联接(QDII)A"),
+                Fund(id=3, fund_code="501057", fund_name="汇添富中证新能源汽车产业指数A", fund_type="指数型-股票"),
+                Fund(id=4, fund_code="018172", fund_name="华泰柏瑞中证电力全指ETF发起式联接A"),
+                FundIndexMapping(
+                    id=1,
+                    fund_code="501057",
+                    index_code="930997.CSI",
+                    index_name="中证新能源汽车产业指数",
+                    source="test",
+                    confidence="high",
+                ),
+                FundHolding(
+                    id=1,
+                    fund_code="018172",
+                    report_period="2026Q1",
+                    asset_code="561560",
+                    asset_name="电力ETF华泰柏瑞",
+                    asset_type="etf",
+                    market="CN",
+                    holding_ratio=Decimal("1"),
+                    holding_value=None,
+                    source="manual:target_etf",
+                ),
+            ]
+        )
+        self.db.commit()
+
+        result = FundNavQualityService(self.db).check_mapping_completeness()
+        self.db.commit()
+
+        errors = self.db.scalars(
+            select(DataFetchError).where(DataFetchError.data_type == "fund_mapping").order_by(DataFetchError.target_code)
+        ).all()
+        self.assertEqual(result, [
+            {
+                "fund_code": "012805",
+                "fund_name": "广发恒生科技ETF联接(QDII)A",
+                "mapping_type": "target_etf",
+                "reason": "missing_target_etf_mapping",
+                "action": "manual_target_etf_mapping_required",
+            },
+            {
+                "fund_code": "501009",
+                "fund_name": "汇添富中证生物科技指数(LOF)A",
+                "mapping_type": "index",
+                "reason": "missing_index_mapping",
+                "action": "manual_index_mapping_required",
+            },
+        ])
+        self.assertEqual([error.target_code for error in errors], ["012805", "501009"])
+        self.assertIn("mapping_type=target_etf", errors[0].error_message)
+        self.assertIn("mapping_type=index", errors[1].error_message)
+
+    def test_manual_mapping_page_lists_and_resolves_pending_mapping_issues(self) -> None:
+        self.db.add(Fund(id=1, fund_code="501009", fund_name="汇添富中证生物科技指数(LOF)A", fund_type="指数型-股票"))
+        self.db.add(
+            DataFetchError(
+                id=1,
+                source="quality_check",
+                data_type="fund_mapping",
+                target_code="501009",
+                error_message="mapping_type=index;reason=missing_index_mapping;action=manual_index_mapping_required",
+                occurred_at=datetime(2026, 6, 8, 21, 31),
+                resolved=0,
+            )
+        )
+        self.db.commit()
+        service = ManualIndexMappingService(self.db)
+
+        pending = service.list_pending_mappings()
+        service.save_mapping(
+            ManualFundIndexMappingIn(
+                fund_code="501009",
+                mapping_type="index",
+                target_code="930743.CSI",
+                target_name="中证生物科技主题指数",
+            )
+        )
+        resolved = self.db.get(DataFetchError, 1)
+
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["fund_name"], "汇添富中证生物科技指数(LOF)A")
+        self.assertEqual(pending[0]["mapping_type"], "index")
+        self.assertEqual(resolved.resolved, 1)
 
     def test_estimate_drift_only_compares_dates_with_official_nav_and_uses_latest_estimate(self) -> None:
         self.db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))

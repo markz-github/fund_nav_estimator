@@ -188,7 +188,7 @@ class FundTaskQueueService:
         if task.task_type == "check_nav_quality":
             result = FundNavQualityService(self.db).check_latest_nav_freshness()
             return (
-                "success" if result["stale_count"] == 0 else "partial",
+                "success" if result["stale_count"] == 0 and result["mapping_issue_count"] == 0 else "partial",
                 self._nav_quality_message(result),
             )
         if task.task_type == "refresh_holding":
@@ -259,9 +259,12 @@ class FundTaskQueueService:
     @staticmethod
     def _nav_quality_message(result: dict) -> str:
         examples = result["stale"][:5]
+        mapping_examples = result.get("mapping_issues", [])[:5]
         return (
             f"checked={result['checked_count']};stale={result['stale_count']};"
+            f"mapping_issues={result.get('mapping_issue_count', 0)};"
             f"expected_nav_date={result['expected_nav_date']};details={examples}"
+            f";mapping_details={mapping_examples}"
         )
 
     def _quote_status_message(self, quote_count: int, diagnostics: list[FetchDiagnostic]) -> tuple[str, str]:

@@ -9,11 +9,14 @@ from pydantic import BaseModel
 
 class FundNavQualityIssueOut(BaseModel):
     id: int
+    issue_type: str
     fund_code: str
     fund_name: str | None = None
     latest_nav_date: str | None = None
     expected_nav_date: str | None = None
     nav_rule: str | None = None
+    mapping_type: str | None = None
+    action: str | None = None
     reason: str | None = None
     occurred_at: datetime
     message: str

@@ -10,7 +10,11 @@ from app.database import get_db
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.schemas.fund import FundCreate, FundNavOut, FundOut, RefreshFundNavsRequest
 from app.modules.fund_nav.schemas.holding import FundHoldingOut
-from app.modules.fund_nav.schemas.manual_index_mapping import ManualFundIndexMappingIn, ManualFundIndexMappingOut
+from app.modules.fund_nav.schemas.manual_index_mapping import (
+    ManualFundIndexMappingIn,
+    ManualFundIndexMappingOut,
+    PendingManualFundMappingOut,
+)
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
@@ -80,6 +84,11 @@ def list_manual_index_mappings(db: Session = Depends(get_db)):
     return ManualIndexMappingService(db).list_mappings()
 
 
+@router.get("/index-mappings/manual/pending", response_model=list[PendingManualFundMappingOut])
+def list_pending_manual_index_mappings(db: Session = Depends(get_db)):
+    return ManualIndexMappingService(db).list_pending_mappings()
+
+
 @router.post(
     "/index-mappings/manual",
     response_model=ManualFundIndexMappingOut,
@@ -90,8 +99,12 @@ def save_manual_index_mapping(payload: ManualFundIndexMappingIn, db: Session = D
 
 
 @router.delete("/index-mappings/manual/{fund_code}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_manual_index_mapping(fund_code: str, db: Session = Depends(get_db)) -> Response:
-    deleted = ManualIndexMappingService(db).delete_mapping(fund_code)
+def delete_manual_index_mapping(
+    fund_code: str,
+    mapping_type: str = Query(default="index", pattern="^(index|target_etf)$"),
+    db: Session = Depends(get_db),
+) -> Response:
+    deleted = ManualIndexMappingService(db).delete_mapping(fund_code, mapping_type)
     if not deleted:
         raise HTTPException(status_code=404, detail="Manual index mapping not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

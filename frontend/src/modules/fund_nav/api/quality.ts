@@ -10,11 +10,14 @@ export interface FundNavQualityTask {
 
 export interface FundNavQualityIssue {
   id: number
+  issue_type: string
   fund_code: string
   fund_name?: string | null
   latest_nav_date?: string | null
   expected_nav_date?: string | null
   nav_rule?: string | null
+  mapping_type?: string | null
+  action?: string | null
   reason?: string | null
   occurred_at: string
   message: string
