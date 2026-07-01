@@ -19,6 +19,7 @@ import { formatDateTime } from '../../../utils/datetime'
 import { routeNames } from '../../../router/routeNames'
 import {
   getFund,
+  listFundTaskDetailLogs,
   listFundNavHistory,
   listFundHoldings,
   refreshFundNavHistory,
@@ -26,6 +27,7 @@ import {
   type Fund,
   type FundHolding,
   type FundNav,
+  type FundTaskDetailLog,
 } from '../api/funds'
 
 const route = useRoute()
@@ -34,6 +36,7 @@ const fundCode = computed(() => String(route.params.fundCode || ''))
 const fund = ref<Fund | null>(null)
 const holdings = ref<FundHolding[]>([])
 const navHistory = ref<FundNav[]>([])
+const taskDetailLogs = ref<FundTaskDetailLog[]>([])
 const selectedReportPeriod = ref('')
 const loading = ref(false)
 const refreshingHoldings = ref(false)
@@ -125,18 +128,46 @@ function growthClass(value?: string | null) {
   return Number(value) >= 0 ? 'up' : 'down'
 }
 
+function statusLabel(status?: string | null) {
+  if (status === 'success') return '成功'
+  if (status === 'skipped') return '跳过'
+  if (status === 'failed') return '失败'
+  return status || '-'
+}
+
+function statusClass(status?: string | null) {
+  if (status === 'success') return 'status-ok'
+  if (status === 'skipped') return 'status-muted'
+  return 'status-warn'
+}
+
+function strategyLabel(strategy?: string | null) {
+  if (strategy === 'index_tracking') return '指数法'
+  if (strategy === 'holding_weighted') return '持仓法'
+  if (strategy === 'etf_quote') return 'ETF实时价格'
+  if (strategy === 'etf_iopv') return 'ETF IOPV'
+  return strategy || '-'
+}
+
+function resultClass(result?: string | null) {
+  if (result === 'success') return 'status-ok'
+  return 'status-muted'
+}
+
 async function loadDetail() {
   loading.value = true
   message.value = ''
   try {
-    const [fundResult, holdingsResult, navHistoryResult] = await Promise.all([
+    const [fundResult, holdingsResult, navHistoryResult, taskDetailLogResult] = await Promise.all([
       getFund(fundCode.value),
       listFundHoldings(fundCode.value),
       listFundNavHistory(fundCode.value),
+      listFundTaskDetailLogs(fundCode.value),
     ])
     fund.value = fundResult
     holdings.value = holdingsResult
     navHistory.value = navHistoryResult
+    taskDetailLogs.value = taskDetailLogResult
     selectedReportPeriod.value = latestReportPeriod(holdingsResult)
   } catch (error) {
     message.value = apiErrorMessage(error, '基金详情加载失败，请稍后重试。')
@@ -512,6 +543,63 @@ onBeforeUnmount(disposeNavChart)
         Charts by TradingView
       </a>
     </section>
+
+    <section class="section-title">
+      <div>
+        <p class="eyebrow">Estimate Logs</p>
+        <h2>估算执行日志</h2>
+      </div>
+      <span>{{ taskDetailLogs.length }} 条</span>
+    </section>
+
+    <div class="table-card">
+      <table class="responsive-card-table quality-table">
+        <thead>
+          <tr>
+            <th>执行时间</th>
+            <th>状态</th>
+            <th>算法</th>
+            <th>估算涨跌幅</th>
+            <th>估算净值</th>
+            <th>覆盖率</th>
+            <th>原因/过程</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="taskDetailLogs.length === 0">
+            <td colspan="7">暂无基金级估算执行日志。</td>
+          </tr>
+          <tr v-for="log in taskDetailLogs" :key="log.id">
+            <td data-label="执行时间">{{ formatDateTime(log.estimate_time || log.created_at) }}</td>
+            <td data-label="状态">
+              <span class="status-pill" :class="statusClass(log.status)">{{ log.status_label || statusLabel(log.status) }}</span>
+            </td>
+            <td data-label="算法">{{ log.strategy_label || strategyLabel(log.strategy) }}</td>
+            <td :class="growthClass(log.estimated_growth_rate)" data-label="估算涨跌幅">
+              {{ growthPercent(log.estimated_growth_rate) }}
+            </td>
+            <td data-label="估算净值">{{ log.estimated_nav ?? '-' }}</td>
+            <td data-label="覆盖率">{{ percent(log.coverage_ratio) }}</td>
+            <td class="quality-message task-log-message" data-label="原因/过程">
+              <div v-if="log.reason_label && log.status !== 'success'" class="task-log-final-reason">
+                最终原因：{{ log.reason_label }}
+              </div>
+              <div v-if="log.attempts?.length" class="task-log-attempts">
+                <span
+                  v-for="attempt in log.attempts"
+                  :key="`${log.id}-${attempt.strategy}`"
+                  class="status-pill task-log-attempt"
+                  :class="resultClass(attempt.result)"
+                >
+                  {{ attempt.strategy_label }}：{{ attempt.result_label }}
+                </span>
+              </div>
+              <span v-else>{{ log.reason_label || '-' }}</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <section class="section-title">
       <div>

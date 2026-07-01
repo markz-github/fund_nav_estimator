@@ -48,6 +48,36 @@ export interface FundNav {
   source: string
 }
 
+export interface FundTaskAttempt {
+  strategy: string
+  strategy_label: string
+  result: string
+  result_label: string
+}
+
+export interface FundTaskDetailLog {
+  id: number
+  task_log_id?: number | null
+  task_type: string
+  fund_code: string
+  fund_name?: string | null
+  status: string
+  status_label: string
+  strategy?: string | null
+  strategy_label?: string | null
+  reason?: string | null
+  reason_label?: string | null
+  attempts: FundTaskAttempt[]
+  estimate_date?: string | null
+  estimate_time?: string | null
+  estimated_nav?: string | null
+  estimated_growth_rate?: string | null
+  coverage_ratio?: string | null
+  source_snapshot?: string | null
+  message?: string | null
+  created_at: string
+}
+
 export async function listFunds(options?: { sortBy?: FundSortBy | null; sortOrder?: SortOrder }): Promise<Fund[]> {
   const { data } = await apiClient.get<Fund[]>('/funds', {
     params: options?.sortBy
@@ -81,6 +111,13 @@ export async function listFundHoldings(fundCode: string): Promise<FundHolding[]>
 export async function listFundNavHistory(fundCode: string, limit = 500): Promise<FundNav[]> {
   const { data } = await apiClient.get<FundNav[]>(`/funds/${fundCode}/navs`, {
     params: { limit },
+  })
+  return data
+}
+
+export async function listFundTaskDetailLogs(fundCode: string, limit = 50): Promise<FundTaskDetailLog[]> {
+  const { data } = await apiClient.get<FundTaskDetailLog[]>(`/funds/${fundCode}/task-detail-logs`, {
+    params: { task_type: 'estimate_nav', limit },
   })
   return data
 }

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
 from app.modules.fund_nav.schemas.fund import FundCreate, FundNavOut, FundOut, RefreshFundNavsRequest
 from app.modules.fund_nav.schemas.holding import FundHoldingOut
 from app.modules.fund_nav.schemas.manual_index_mapping import (
@@ -17,6 +18,7 @@ from app.modules.fund_nav.schemas.manual_index_mapping import (
 )
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
+from app.modules.fund_nav.schemas.task_detail import FundTaskDetailLogOut
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
@@ -138,6 +140,25 @@ def refresh_nav(fund_code: str, db: Session = Depends(get_db)) -> dict:
     return FundTaskQueueService(db).submit(
         "refresh_nav", "手动刷新基金官方净值", origin="manual", fund_codes=[fund_code]
     )
+
+
+@router.get("/{fund_code}/task-detail-logs", response_model=list[FundTaskDetailLogOut])
+def list_fund_task_detail_logs(
+    fund_code: str,
+    task_type: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    normalized_code = str(fund_code).strip().zfill(6)
+    statement = (
+        select(FundTaskDetailLog)
+        .where(FundTaskDetailLog.fund_code == normalized_code)
+        .order_by(FundTaskDetailLog.created_at.desc(), FundTaskDetailLog.id.desc())
+        .limit(limit)
+    )
+    if task_type:
+        statement = statement.where(FundTaskDetailLog.task_type == task_type)
+    return list(db.scalars(statement).all())
 
 
 @router.get("/{fund_code}/navs", response_model=list[FundNavOut])

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 import logging
+import re
 from time import perf_counter
 
 from sqlalchemy import func, select
@@ -13,6 +14,7 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
+from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.fund_nav.services.asset_valuation_config_service import (
@@ -173,6 +175,7 @@ class EstimateService:
         self.db = db
         self.source = source or AkshareSource()
         self._valuation_configs: AssetValuationConfigMap | None = None
+        self._last_attempts: list[dict[str, str]] = []
 
     @timed()
     def latest_all(self) -> list[FundEstimate]:
@@ -202,7 +205,13 @@ class EstimateService:
         ).all()
 
     @timed()
-    def run_estimates(self, fund_codes: list[str] | None = None) -> dict:
+    def run_estimates(
+        self,
+        fund_codes: list[str] | None = None,
+        *,
+        task_log_id: int | None = None,
+        task_type: str = "estimate_nav",
+    ) -> dict:
         started = perf_counter()
         statement = select(Fund).where(Fund.enabled == 1)
         if fund_codes:
@@ -218,6 +227,13 @@ class EstimateService:
                 estimates.append(result)
             else:
                 skipped.append({"fund_code": fund.fund_code, "reason": result})
+            self._add_fund_task_detail_log(
+                fund,
+                result,
+                task_log_id=task_log_id,
+                task_type=task_type,
+                estimate_time=estimate_time,
+            )
 
         commit_started = perf_counter()
         self.db.commit()
@@ -250,15 +266,111 @@ class EstimateService:
         return result
 
     def _estimate_with_preferred_strategy(self, fund: Fund, estimate_time: datetime) -> FundEstimate | str:
+        attempts: list[dict[str, str]] = []
+        self._last_attempts = attempts
         if self.is_exchange_traded_fund(fund) or self._has_etf_nav_source(fund.fund_code):
-            return EtfIopvEstimateStrategy(self).estimate(fund, estimate_time)
+            result = EtfIopvEstimateStrategy(self).estimate(fund, estimate_time)
+            attempts.append({"strategy": "etf_iopv", "result": "success" if isinstance(result, FundEstimate) else result})
+            return result
 
         if self.is_index_tracking_fund(fund):
             result = IndexTrackingEstimateStrategy(self).estimate(fund, estimate_time)
+            attempts.append({"strategy": "index_tracking", "result": "success" if isinstance(result, FundEstimate) else result})
             if isinstance(result, FundEstimate) or result in {"missing_nav", "stale_nav"}:
                 return result
 
-        return HoldingWeightedEstimateStrategy(self).estimate(fund, estimate_time)
+        result = HoldingWeightedEstimateStrategy(self).estimate(fund, estimate_time)
+        attempts.append({"strategy": "holding_weighted", "result": "success" if isinstance(result, FundEstimate) else result})
+        return result
+
+    def _add_fund_task_detail_log(
+        self,
+        fund: Fund,
+        result: FundEstimate | str,
+        *,
+        task_log_id: int | None,
+        task_type: str,
+        estimate_time: datetime,
+    ) -> None:
+        attempts = list(self._last_attempts)
+        message = ";".join(f"{item['strategy']}={item['result']}" for item in attempts) or None
+        if isinstance(result, FundEstimate):
+            strategy = self._strategy_from_snapshot(result.source_snapshot)
+            self._upsert_fund_task_detail_log(
+                fund_code=fund.fund_code,
+                task_type=task_type,
+                estimate_date=result.estimate_date,
+                values={
+                    "task_log_id": task_log_id,
+                    "fund_name": fund.fund_name,
+                    "status": "success",
+                    "strategy": strategy,
+                    "reason": None,
+                    "estimate_time": result.estimate_time,
+                    "estimated_nav": result.estimated_nav,
+                    "estimated_growth_rate": result.estimated_growth_rate,
+                    "coverage_ratio": result.coverage_ratio,
+                    "source_snapshot": result.source_snapshot,
+                    "message": message,
+                },
+            )
+            return
+
+        self._upsert_fund_task_detail_log(
+            fund_code=fund.fund_code,
+            task_type=task_type,
+            estimate_date=estimate_time.date(),
+            values={
+                "task_log_id": task_log_id,
+                "fund_name": fund.fund_name,
+                "status": "skipped",
+                "strategy": attempts[-1]["strategy"] if attempts else None,
+                "reason": result,
+                "estimate_time": estimate_time,
+                "estimated_nav": None,
+                "estimated_growth_rate": None,
+                "coverage_ratio": None,
+                "source_snapshot": None,
+                "message": message,
+            },
+        )
+
+    def _upsert_fund_task_detail_log(
+        self,
+        *,
+        fund_code: str,
+        task_type: str,
+        estimate_date,
+        values: dict,
+    ) -> None:
+        detail_log = self.db.scalar(
+            select(FundTaskDetailLog).where(
+                FundTaskDetailLog.fund_code == fund_code,
+                FundTaskDetailLog.task_type == task_type,
+                FundTaskDetailLog.estimate_date == estimate_date,
+            )
+        )
+        if detail_log is None:
+            self.db.add(
+                FundTaskDetailLog(
+                    fund_code=fund_code,
+                    task_type=task_type,
+                    estimate_date=estimate_date,
+                    **values,
+                )
+            )
+            return
+
+        for key, value in values.items():
+            setattr(detail_log, key, value)
+        detail_log.created_at = datetime.now().replace(microsecond=0)
+
+    @staticmethod
+    def _strategy_from_snapshot(source_snapshot: str | None) -> str | None:
+        if not source_snapshot:
+            return None
+        match = re.search(r"(?:^|;)strategy=([^;]+)", source_snapshot)
+        return match.group(1) if match else None
 
     def _strategy_for_fund(self, fund: Fund) -> EstimateStrategy:
         if self.is_exchange_traded_fund(fund) or self._has_etf_nav_source(fund.fund_code):
