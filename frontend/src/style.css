@@ -894,6 +894,29 @@ tbody tr {
   font-size: 0.9rem;
 }
 
+.task-log-message,
+.task-log-final-reason,
+.task-log-attempts {
+  font-family: Inter, "Microsoft YaHei", Arial, sans-serif;
+}
+
+.task-log-final-reason {
+  margin-bottom: 8px;
+  color: #7a5200;
+  font-weight: 700;
+}
+
+.task-log-attempts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.task-log-attempt {
+  padding: 0.32rem 0.62rem;
+  font-size: 0.86rem;
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;

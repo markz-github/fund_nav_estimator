@@ -201,14 +201,18 @@ class FundTaskQueueService:
             quotes = market_service.refresh_quotes_for_holdings(fund_codes)
             return self._quote_status_message(len(quotes), market_service.last_refresh_diagnostics)
         if task.task_type == "estimate_nav":
-            result = EstimateService(self.db).run_estimates(fund_codes)
+            result = EstimateService(self.db).run_estimates(fund_codes, task_log_id=task.task_log_id, task_type=task.task_type)
             return ("success" if not result["skipped_count"] else "partial"), self._estimate_message(result)
         if task.task_type == "refresh_quote_estimate":
             nav_success = sum(FundService(self.db).refresh_nav(code) is not None for code in self._codes(fund_codes))
             holding_total, mapping_total = self._refresh_holdings_and_index_mappings(fund_codes)
             market_service = MarketService(self.db)
             quotes = market_service.refresh_quotes_for_holdings(fund_codes)
-            result = EstimateService(self.db).run_estimates(fund_codes)
+            result = EstimateService(self.db).run_estimates(
+                fund_codes,
+                task_log_id=task.task_log_id,
+                task_type=task.task_type,
+            )
             quote_status, quote_message = self._quote_status_message(len(quotes), market_service.last_refresh_diagnostics)
             status = "success" if nav_success and holding_total and quote_status == "success" and not result["skipped_count"] else "partial"
             if quote_status == "failed" and not nav_success and not holding_total:
@@ -224,10 +228,10 @@ class FundTaskQueueService:
             indexes = IndexCatalogService(self.db).refresh_indexes()
             return ("success" if indexes else "partial"), f"indexes={len(indexes)}"
         if task.task_type == "sync_new_fund_data":
-            return self._sync_new_fund(payload["fund_code"])
+            return self._sync_new_fund(payload["fund_code"], task.task_log_id)
         raise ValueError(f"Unsupported fund task type: {task.task_type}")
 
-    def _sync_new_fund(self, fund_code: str) -> tuple[str, str]:
+    def _sync_new_fund(self, fund_code: str, task_log_id: int | None = None) -> tuple[str, str]:
         fund_service = FundService(self.db)
         profile = fund_service.refresh_profile(fund_code)
         mapping = FundIndexMappingService(self.db).refresh_mapping(fund_code)
@@ -235,7 +239,11 @@ class FundTaskQueueService:
         holdings = HoldingService(self.db).refresh_holdings(fund_code)
         market_service = MarketService(self.db)
         quotes = market_service.refresh_quotes_for_holdings([fund_code])
-        estimates = EstimateService(self.db).run_estimates([fund_code])
+        estimates = EstimateService(self.db).run_estimates(
+            [fund_code],
+            task_log_id=task_log_id,
+            task_type="sync_new_fund_data",
+        )
         quote_status, quote_message = self._quote_status_message(len(quotes), market_service.last_refresh_diagnostics)
         status = "success" if profile and nav and holdings and quote_status == "success" and not estimates["skipped_count"] else "partial"
         return status, (
