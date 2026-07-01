@@ -1069,8 +1069,9 @@ class FundNavRefreshTests(unittest.TestCase):
         manual_service.save_mapping(
             ManualFundIndexMappingIn(
                 fund_code="160218",
-                index_code="399393",
-                index_name="国证地产",
+                mapping_type="index",
+                target_code="399393",
+                target_name="国证地产",
                 remark="国证目录只有简称，人工维护",
             )
         )
@@ -1096,6 +1097,50 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(refreshed.index_name, "国证地产")
         self.assertEqual(refreshed.source, "manual")
         source.get_mapping.assert_not_called()
+
+    def test_manual_target_etf_mapping_used_when_web_sources_empty(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(Fund(id=1, fund_code="012805", fund_name="广发恒生科技ETF联接(QDII)A"))
+        db.commit()
+        ManualIndexMappingService(db).save_mapping(
+            ManualFundIndexMappingIn(
+                fund_code="012805",
+                fund_name="广发恒生科技ETF联接(QDII)A",
+                mapping_type="target_etf",
+                target_code="513380",
+                target_name="广发恒生科技(QDII-ETF)",
+                target_market="CN",
+                holding_ratio=Decimal("0.9308"),
+                report_period="2024Q4",
+            )
+        )
+        holding_source = Mock()
+        holding_source.get_fund_holdings.return_value = []
+        target_source = Mock()
+        target_source.get_target_fund_holdings.return_value = []
+        normalize_source = Mock()
+        normalize_source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+
+        try:
+            refreshed = HoldingService(
+                db,
+                source=normalize_source,
+                holding_sources=[holding_source],
+                target_fund_sources=[target_source],
+            ).refresh_holdings("12805")
+            detail = FundService(db, normalize_source).get_fund_detail("012805")
+        finally:
+            db.close()
+
+        self.assertEqual(len(refreshed), 1)
+        self.assertEqual(refreshed[0].asset_code, "513380")
+        self.assertEqual(refreshed[0].asset_name, "广发恒生科技(QDII-ETF)")
+        self.assertEqual(refreshed[0].source, "manual:target_etf")
+        self.assertEqual(detail["target_etf_code"], "513380")
+        self.assertEqual(detail["target_etf_source"], "manual:target_etf")
 
     def test_fund_detail_includes_target_etf_from_target_holding(self) -> None:
         engine = create_engine("sqlite:///:memory:")

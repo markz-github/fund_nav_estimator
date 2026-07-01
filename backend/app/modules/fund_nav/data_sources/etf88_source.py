@@ -22,33 +22,9 @@ class TargetFundHolding:
 class Etf88Source:
     source_name = "etf88"
 
-    # ETF88 exposes these in public pages, but some detail pages intermittently
-    # return 404 from direct requests. Keep confirmed mappings as a conservative
-    # fallback for ETF-linked funds whose main position is otherwise invisible.
-    _KNOWN_TARGET_FUNDS = {
-        "008282": TargetFundHolding(
-            fund_code="008282",
-            report_period="2024Q4",
-            asset_code="512760",
-            asset_name="国泰CES芯片ETF",
-            holding_ratio=Decimal("0.9398"),
-            holding_value=Decimal("418387.48"),
-        ),
-        "012805": TargetFundHolding(
-            fund_code="012805",
-            report_period="2024Q4",
-            asset_code="513380",
-            asset_name="广发恒生科技(QDII-ETF)",
-            holding_ratio=Decimal("0.9308"),
-            holding_value=Decimal("211284.48"),
-        ),
-    }
-
     def get_target_fund_holdings(self, fund_code: str) -> list[dict]:
         normalized_code = str(fund_code).strip().zfill(6)
         holdings = self._fetch_target_fund_holdings(normalized_code)
-        if not holdings and normalized_code in self._KNOWN_TARGET_FUNDS:
-            holdings = [self._KNOWN_TARGET_FUNDS[normalized_code]]
 
         return [
             {
