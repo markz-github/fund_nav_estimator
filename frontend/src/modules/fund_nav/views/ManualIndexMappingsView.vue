@@ -20,6 +20,7 @@ const loading = ref(false)
 const saving = ref(false)
 const message = ref('')
 const editingFundCode = ref<string | null>(null)
+const mappingDialogOpen = ref(false)
 const form = ref<ManualFundIndexMappingPayload>({
   fund_code: '',
   fund_name: '',
@@ -37,6 +38,7 @@ const form = ref<ManualFundIndexMappingPayload>({
 const targetCodeLabel = computed(() => (form.value.mapping_type === 'target_etf' ? 'ETF代码' : '指数代码'))
 const targetNameLabel = computed(() => (form.value.mapping_type === 'target_etf' ? 'ETF名称' : '指数名称'))
 const pendingCount = computed(() => pendingMappings.value.length)
+const dialogTitle = computed(() => (editingFundCode.value ? '编辑人工映射' : '新增人工映射'))
 
 async function loadMappings() {
   loading.value = true
@@ -70,6 +72,7 @@ function editMapping(mapping: ManualFundIndexMapping) {
     benchmark_text: mapping.benchmark_text ?? '',
     remark: mapping.remark ?? '',
   }
+  mappingDialogOpen.value = true
 }
 
 function resetForm() {
@@ -89,6 +92,17 @@ function resetForm() {
   }
 }
 
+function openCreateDialog() {
+  resetForm()
+  mappingDialogOpen.value = true
+}
+
+function closeMappingDialog() {
+  if (saving.value) return
+  mappingDialogOpen.value = false
+  resetForm()
+}
+
 function maintainPending(issue: PendingManualFundMapping) {
   editingFundCode.value = issue.fund_code
   form.value = {
@@ -104,6 +118,7 @@ function maintainPending(issue: PendingManualFundMapping) {
     benchmark_text: '',
     remark: issue.mapping_type === 'target_etf' ? '巡检提示补充目标 ETF' : '巡检提示补充跟踪指数',
   }
+  mappingDialogOpen.value = true
 }
 
 function reasonLabel(reason?: string | null) {
@@ -133,6 +148,7 @@ async function submitMapping() {
     message.value = form.value.mapping_type === 'target_etf'
       ? '人工目标 ETF 映射已保存，刷新该基金持仓后生效。'
       : '人工指数映射已保存，刷新该基金指数映射后生效。'
+    mappingDialogOpen.value = false
     resetForm()
     await loadMappings()
   } catch (error) {
@@ -171,6 +187,7 @@ onMounted(loadMappings)
         <span class="status-pill" :class="pendingCount > 0 ? 'status-danger' : 'status-ok'">
           待维护 {{ pendingCount }} 条
         </span>
+        <button type="button" @click="openCreateDialog">新增映射</button>
         <button class="ghost" type="button" :disabled="loading" @click="loadMappings">
           {{ loading ? '刷新中...' : '刷新列表' }}
         </button>
@@ -220,50 +237,6 @@ onMounted(loadMappings)
         </tbody>
       </table>
     </div>
-
-    <form class="filter-bar compact-filter" @submit.prevent="submitMapping">
-      <label>
-        类型
-        <select v-model="form.mapping_type">
-          <option value="index">跟踪指数</option>
-          <option value="target_etf">目标 ETF</option>
-        </select>
-      </label>
-      <label>
-        基金代码
-        <input v-model="form.fund_code" placeholder="160218" />
-      </label>
-      <label>
-        基金名称
-        <input v-model="form.fund_name" placeholder="可选" />
-      </label>
-      <label>
-        {{ targetCodeLabel }}
-        <input v-model="form.target_code" :placeholder="form.mapping_type === 'target_etf' ? '513380' : '399393'" />
-      </label>
-      <label>
-        {{ targetNameLabel }}
-        <input v-model="form.target_name" :placeholder="form.mapping_type === 'target_etf' ? '广发恒生科技(QDII-ETF)' : '国证地产'" />
-      </label>
-      <label v-if="form.mapping_type === 'target_etf'">
-        持仓占比
-        <input v-model="form.holding_ratio" placeholder="0.9308" />
-      </label>
-      <label v-if="form.mapping_type === 'target_etf'">
-        报告期
-        <input v-model="form.report_period" placeholder="2024Q4" />
-      </label>
-      <label>
-        备注
-        <input v-model="form.remark" placeholder="可选" />
-      </label>
-      <div class="filter-actions">
-        <button type="submit" :disabled="saving">
-          {{ saving ? '保存中...' : editingFundCode ? '更新映射' : '新增映射' }}
-        </button>
-        <button class="ghost" type="button" :disabled="saving" @click="resetForm">清空</button>
-      </div>
-    </form>
 
     <section class="section-title">
       <div>
@@ -320,6 +293,62 @@ onMounted(loadMappings)
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="mappingDialogOpen" class="modal-backdrop" @click.self="closeMappingDialog">
+      <section class="form-dialog" role="dialog" aria-modal="true" aria-labelledby="mapping-dialog-title">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Manual Mapping</p>
+            <h2 id="mapping-dialog-title">{{ dialogTitle }}</h2>
+          </div>
+          <button class="ghost" type="button" :disabled="saving" @click="closeMappingDialog">关闭</button>
+        </div>
+
+        <form class="dialog-form" @submit.prevent="submitMapping">
+          <label>
+            类型
+            <select v-model="form.mapping_type">
+              <option value="index">跟踪指数</option>
+              <option value="target_etf">目标 ETF</option>
+            </select>
+          </label>
+          <label>
+            基金代码
+            <input v-model="form.fund_code" placeholder="160218" />
+          </label>
+          <label>
+            基金名称
+            <input v-model="form.fund_name" placeholder="可选" />
+          </label>
+          <label>
+            {{ targetCodeLabel }}
+            <input v-model="form.target_code" :placeholder="form.mapping_type === 'target_etf' ? '513380' : '399393'" />
+          </label>
+          <label>
+            {{ targetNameLabel }}
+            <input v-model="form.target_name" :placeholder="form.mapping_type === 'target_etf' ? '广发恒生科技(QDII-ETF)' : '国证地产'" />
+          </label>
+          <label v-if="form.mapping_type === 'target_etf'">
+            持仓占比
+            <input v-model="form.holding_ratio" placeholder="0.9308" />
+          </label>
+          <label v-if="form.mapping_type === 'target_etf'">
+            报告期
+            <input v-model="form.report_period" placeholder="2024Q4" />
+          </label>
+          <label>
+            备注
+            <input v-model="form.remark" placeholder="可选" />
+          </label>
+          <div class="dialog-actions">
+            <button type="submit" :disabled="saving">
+              {{ saving ? '保存中...' : editingFundCode ? '更新映射' : '新增映射' }}
+            </button>
+            <button class="ghost" type="button" :disabled="saving" @click="closeMappingDialog">取消</button>
+          </div>
+        </form>
+      </section>
     </div>
   </main>
 </template>
