@@ -551,6 +551,49 @@ tbody tr {
   font-size: 1.45rem;
 }
 
+.form-dialog {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border: 1px solid rgba(36, 63, 47, 0.16);
+  border-radius: 8px;
+  padding: 24px;
+  background: #fffdf6;
+  box-shadow: 0 24px 70px rgba(18, 28, 24, 0.28);
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.dialog-header h2 {
+  margin: 2px 0 0;
+  font-size: 1.45rem;
+}
+
+.dialog-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.dialog-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #50625d;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.dialog-form .dialog-actions {
+  grid-column: 1 / -1;
+}
+
 .dialog-copy {
   margin: 0;
   color: #4b574d;
@@ -1243,6 +1286,14 @@ tbody tr:hover {
   .quick-actions,
   .dialog-actions {
     width: 100%;
+  }
+
+  .dialog-header {
+    flex-direction: column;
+  }
+
+  .dialog-form {
+    grid-template-columns: 1fr;
   }
 
   .page-actions button,
