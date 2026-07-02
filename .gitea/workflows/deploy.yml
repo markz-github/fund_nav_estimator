@@ -75,6 +75,7 @@ jobs:
           echo "BACKEND_DEPLOY_RESULT=未执行" >> "$GITHUB_ENV"
           echo "COMPOSE_PROJECT_NAME=fund-nav-estimator-${DEPLOY_ENV}" >> "$GITHUB_ENV"
           echo "BACKEND_BASE_IMAGE=192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621" >> "$GITHUB_ENV"
+          echo "BACKEND_TEST_IMAGE=192.168.50.50:16061/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260702" >> "$GITHUB_ENV"
 
       - name: Deploy frontend
         env:
@@ -116,9 +117,6 @@ jobs:
           fi
 
       - name: Test backend
-        env:
-          PIP_INDEX_URL: http://192.168.50.50:16666/repository/pypi-group/simple/
-          PIP_TRUSTED_HOST: 192.168.50.50
         run: |
           set -o pipefail
 
@@ -126,31 +124,26 @@ jobs:
 
           if [[ "$DEPLOY_BACKEND" == "true" ]]; then
             echo "Testing backend before deployment." | tee -a .deploy.log
-            export PIP_CACHE_DIR="$HOME/.cache/pip"
-            mkdir -p "$HOME/.cache/fund-nav-estimator" "$PIP_CACHE_DIR"
-            requirements_hash="$(sha256sum backend/requirements.txt backend/requirements-dev.txt | sha256sum | awk '{print $1}')"
-            python_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-            venv_dir="$HOME/.cache/fund-nav-estimator/backend-ci-venv-py${python_version}"
-            marker_file="${venv_dir}/.requirements.hash"
 
-            if [[ ! -x "${venv_dir}/bin/python" ]] || [[ ! -f "$marker_file" ]] || [[ "$(cat "$marker_file")" != "$requirements_hash" ]]; then
-              echo "Creating backend test venv: ${venv_dir}" | tee -a .deploy.log
-              rm -rf "$venv_dir"
-              python3 -m venv "$venv_dir"
-              "${venv_dir}/bin/python" -m pip install --upgrade pip \
-                -i "$PIP_INDEX_URL" \
-                --trusted-host "$PIP_TRUSTED_HOST" \
-                --timeout 120 2>&1 | tee -a .deploy.log
-              "${venv_dir}/bin/python" -m pip install -r backend/requirements-dev.txt \
-                -i "$PIP_INDEX_URL" \
-                --trusted-host "$PIP_TRUSTED_HOST" \
-                --timeout 120 2>&1 | tee -a .deploy.log
-              printf '%s' "$requirements_hash" > "$marker_file"
-            else
-              echo "Reusing backend test venv: ${venv_dir}" | tee -a .deploy.log
-            fi
+            run_with_retry() {
+              label="$1"
+              shift
+              echo "Running: ${label}" | tee -a .deploy.log
+              if "$@" 2>&1 | tee -a .deploy.log; then
+                return 0
+              fi
 
-            "${venv_dir}/bin/python" -B -m pytest backend/tests 2>&1 | tee -a .deploy.log
+              echo "First attempt failed: ${label}; retrying once in 10 seconds..." | tee -a .deploy.log
+              sleep 10
+              "$@" 2>&1 | tee -a .deploy.log
+            }
+
+            run_with_retry "Pull backend test image" docker pull "$BACKEND_TEST_IMAGE"
+            run_with_retry "Run backend tests" docker run --rm \
+              -v "$PWD:/workspace" \
+              -w /workspace/backend \
+              "$BACKEND_TEST_IMAGE" \
+              python -B -m pytest -p no:cacheprovider tests
           else
             echo "No backend changes detected; skipping backend tests." | tee -a .deploy.log
           fi

@@ -150,14 +150,17 @@ http://127.0.0.1:5173/fund-nav
 
 ## 后端镜像
 
-后端 Docker 镜像分为两层：
+后端 Docker 镜像分为三类：
 
 - 项目级基础镜像：`192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621`，由 `backend/Dockerfile.base` 构建，安装 `backend/requirements.txt` 中的运行依赖。
 - 业务镜像：由 `backend/Dockerfile` 构建，基于项目级基础镜像，只复制 `app`、`config` 和 `scripts`。
+- 项目级测试基础镜像：`192.168.50.50:16061/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260702`，由 `backend/Dockerfile.test-base` 构建，安装 `backend/requirements-dev.txt` 中的测试依赖。
 
-自动部署中，后端测试使用 runner 上的临时虚拟环境和 `requirements-dev.txt`；生产业务镜像只依赖项目级基础镜像，不安装 pytest。
+自动部署中，后端测试使用项目级测试基础镜像，通过挂载当前代码运行 `pytest`；生产业务镜像只依赖项目级基础镜像，不安装 pytest。
 
 项目级基础镜像使用固定版本 tag。自动部署不会构建或推送基础镜像；当 `backend/requirements.txt` 或 `backend/Dockerfile.base` 变化时，应先独立构建并推送新的基础镜像 tag，再更新 `backend/Dockerfile`、`docker-compose.yml` 和 `.gitea/workflows/deploy.yml` 中的 `BACKEND_BASE_IMAGE` 默认值。
+
+项目级测试基础镜像也是固定版本 tag。自动部署不会构建或推送测试基础镜像；当 `backend/requirements.txt`、`backend/requirements-dev.txt` 或 `backend/Dockerfile.test-base` 变化时，应先独立构建并推送新的测试基础镜像 tag，再更新 `.gitea/workflows/deploy.yml` 中的 `BACKEND_TEST_IMAGE` 默认值。
 
 本地 Docker 仓库地址为 `http://192.168.50.50:16060/repository/docker-group/`。在 Dockerfile、Compose 和部署脚本中引用镜像时使用 Docker registry 前缀 `192.168.50.50:16060`，不要带 `http://` 或 `/repository/docker-group/` 路径。
 
@@ -169,6 +172,16 @@ docker build -f backend/Dockerfile.base `
   backend
 
 docker push 192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621
+```
+
+```powershell
+docker build -f backend/Dockerfile.test-base `
+  --build-arg PIP_INDEX_URL=http://192.168.50.50:16666/repository/pypi-group/simple/ `
+  --build-arg PIP_TRUSTED_HOST=192.168.50.50 `
+  -t 192.168.50.50:16061/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260702 `
+  backend
+
+docker push 192.168.50.50:16061/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260702
 ```
 
 ## 数据库初始化
