@@ -195,6 +195,8 @@ class FundNavQualityTests(unittest.TestCase):
                 Fund(id=2, fund_code="012805", fund_name="广发恒生科技ETF联接(QDII)A"),
                 Fund(id=3, fund_code="501057", fund_name="汇添富中证新能源汽车产业指数A", fund_type="指数型-股票"),
                 Fund(id=4, fund_code="018172", fund_name="华泰柏瑞中证电力全指ETF发起式联接A"),
+                Fund(id=5, fund_code="515450", fund_name="红利低波指数ETF", fund_type="指数型-股票"),
+                Fund(id=6, fund_code="019001", fund_name="红利低波指数ETF联接A", fund_type="指数型-股票"),
                 FundIndexMapping(
                     id=1,
                     fund_code="501057",
@@ -209,6 +211,18 @@ class FundNavQualityTests(unittest.TestCase):
                     report_period="2026Q1",
                     asset_code="561560",
                     asset_name="电力ETF华泰柏瑞",
+                    asset_type="etf",
+                    market="CN",
+                    holding_ratio=Decimal("1"),
+                    holding_value=None,
+                    source="manual:target_etf",
+                ),
+                FundHolding(
+                    id=2,
+                    fund_code="019001",
+                    report_period="2026Q1",
+                    asset_code="515450",
+                    asset_name="红利低波指数ETF",
                     asset_type="etf",
                     market="CN",
                     holding_ratio=Decimal("1"),
@@ -378,6 +392,51 @@ class FundNavQualityTests(unittest.TestCase):
         self.assertEqual(detail["points"][0]["difference_rate"], Decimal("0.010000"))
         self.assertFalse(detail["points"][0]["threshold_exceeded"])
         self.assertTrue(detail["points"][1]["threshold_exceeded"])
+
+    def test_estimate_drift_summary_includes_recent_7_trading_day_rate(self) -> None:
+        self.db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))
+        navs = []
+        estimates = []
+        for index in range(8):
+            nav_date = date(2026, 6, index + 1)
+            drift_rate = Decimal(index + 1) / Decimal("100")
+            navs.append(
+                FundNav(
+                    id=index + 1,
+                    fund_code="000001",
+                    nav_date=nav_date,
+                    unit_nav=Decimal("1.0000"),
+                    accumulated_nav=None,
+                    daily_growth_rate=Decimal("0.0100"),
+                    source="test",
+                )
+            )
+            estimates.append(
+                FundEstimate(
+                    id=index + 1,
+                    fund_code="000001",
+                    estimate_date=nav_date,
+                    estimate_time=datetime(2026, 6, index + 1, 15, 0),
+                    base_nav_date=date(2026, 5, 29),
+                    base_unit_nav=Decimal("1.0000"),
+                    estimated_growth_rate=drift_rate,
+                    estimated_nav=Decimal("1.0000") + drift_rate,
+                    coverage_ratio=Decimal("1.0000"),
+                    source_snapshot="test",
+                )
+            )
+        self.db.add_all(navs + estimates)
+        self.db.commit()
+
+        summaries = list_estimate_drift_funds(
+            start_date=date(2026, 6, 1),
+            end_date=date(2026, 6, 8),
+            db=self.db,
+        )
+
+        self.assertEqual(summaries[0]["comparable_count"], 8)
+        self.assertEqual(summaries[0]["avg_difference_rate"], Decimal("0.045000"))
+        self.assertEqual(summaries[0]["recent_7_trading_day_difference_rate"], Decimal("0.050000"))
 
 
 if __name__ == "__main__":

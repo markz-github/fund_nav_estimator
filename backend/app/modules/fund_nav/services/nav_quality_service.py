@@ -9,6 +9,7 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.operations.models.data_fetch_error import DataFetchError
 from app.modules.operations.services.operation_log_service import log_fetch_error
 
@@ -76,7 +77,7 @@ class FundNavQualityService:
         )
 
         for fund in funds:
-            if self.is_index_fund(fund) and fund.fund_code not in index_mapping_codes:
+            if self.is_index_tracking_fund(fund) and fund.fund_code not in index_mapping_codes:
                 item = {
                     "fund_code": fund.fund_code,
                     "fund_name": fund.fund_name,
@@ -184,34 +185,19 @@ class FundNavQualityService:
 
     @staticmethod
     def is_delayed_nav_fund(fund: Fund) -> bool:
-        fund_type = (fund.fund_type or "").upper()
-        fund_name = (fund.fund_name or "").upper()
-        if "QDII" in fund_type or "QDII" in fund_name:
-            return True
-        delayed_name_keywords = (
-            "纳斯达克",
-            "标普",
-            "道琼斯",
-            "海外",
-            "全球",
-            "美国",
-            "美股",
-            "印度",
-            "德国",
-            "日经",
-        )
-        return any(keyword in fund_name for keyword in delayed_name_keywords)
+        return FundClassifier.is_delayed_nav_fund(fund)
 
     @staticmethod
     def is_index_fund(fund: Fund) -> bool:
-        fund_type = fund.fund_type or ""
-        fund_name = fund.fund_name or ""
-        return "指数" in fund_type or "指数" in fund_name
+        return FundClassifier.is_index_tracking_fund(fund)
+
+    @staticmethod
+    def is_index_tracking_fund(fund: Fund) -> bool:
+        return FundClassifier.is_index_tracking_fund(fund)
 
     @staticmethod
     def is_etf_feeder_fund(fund: Fund) -> bool:
-        fund_name = fund.fund_name or ""
-        return "ETF联接" in fund_name or "联接" in fund_name
+        return FundClassifier.is_etf_feeder_fund(fund)
 
     @staticmethod
     def previous_business_day(value: date) -> date:

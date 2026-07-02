@@ -35,6 +35,7 @@ export interface EstimateDriftFundSummary {
   comparable_count: number
   max_difference_rate?: string | null
   avg_difference_rate?: string | null
+  recent_7_trading_day_difference_rate?: string | null
   latest_date?: string | null
   latest_difference_rate?: string | null
   threshold_exceeded_count: number

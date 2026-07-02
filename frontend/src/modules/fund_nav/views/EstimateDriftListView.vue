@@ -150,6 +150,7 @@ onMounted(loadSummaries)
             <th>可比较天数</th>
             <th>最大偏差率</th>
             <th>平均偏差率</th>
+            <th>近7个交易日偏差率</th>
             <th>最近偏差率</th>
             <th>最近日期</th>
             <th>超阈值次数</th>
@@ -158,7 +159,7 @@ onMounted(loadSummaries)
         </thead>
         <tbody>
           <tr v-if="summaries.length === 0">
-            <td colspan="8">暂无估算偏差数据。</td>
+            <td colspan="9">暂无估算偏差数据。</td>
           </tr>
           <tr v-for="item in summaries" :key="item.fund_code">
             <td data-label="基金">
@@ -176,6 +177,11 @@ onMounted(loadSummaries)
             <td data-label="平均偏差率">
               <span class="status-pill" :class="driftLevelClass(item.avg_difference_rate)">
                 {{ percent(item.avg_difference_rate) }}
+              </span>
+            </td>
+            <td data-label="近7个交易日偏差率">
+              <span class="status-pill" :class="driftLevelClass(item.recent_7_trading_day_difference_rate)">
+                {{ percent(item.recent_7_trading_day_difference_rate) }}
               </span>
             </td>
             <td data-label="最近偏差率">
