@@ -13,7 +13,7 @@ class FundTaskDetailLog(Base):
     __table_args__ = (
         Index("idx_fund_task_detail_task", "task_log_id"),
         Index("idx_fund_task_detail_fund_time", "fund_code", "created_at"),
-        UniqueConstraint("fund_code", "task_type", "estimate_date", name="uk_fund_task_detail_daily"),
+        UniqueConstraint("fund_code", "estimate_date", name="uk_fund_task_detail_daily"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)

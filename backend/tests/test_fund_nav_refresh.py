@@ -797,6 +797,84 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(detail_log_out.attempts[0].strategy_label, "指数法")
         self.assertEqual(detail_log_out.attempts[0].result_label, "成功")
 
+    def test_manual_quote_estimate_updates_daily_fund_detail_log(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        today = date.today()
+        db.add(
+            Fund(
+                id=1,
+                fund_code="501009",
+                fund_name="汇添富中证生物科技指数(LOF)A",
+                fund_type="指数型-股票",
+            )
+        )
+        db.add(
+            FundIndexMapping(
+                id=1,
+                fund_code="501009",
+                index_code="930743.CSI",
+                index_name="中证生物科技主题指数",
+                source="test",
+                confidence="high",
+            )
+        )
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="501009",
+                nav_date=today,
+                unit_nav=Decimal("1.0000"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("0"),
+                source="test",
+            )
+        )
+        db.add(
+            MarketQuote(
+                id=1,
+                asset_code="930743",
+                asset_name="中证生科",
+                asset_type="index",
+                market="CN",
+                trade_date=today,
+                quote_time=datetime.combine(today, datetime.min.time()).replace(hour=15, minute=30),
+                latest_price=Decimal("2901.69"),
+                prev_close=Decimal("2853.55"),
+                change_rate=Decimal("0.0169"),
+                source="test",
+            )
+        )
+        db.commit()
+
+        try:
+            EstimateService(db, Mock()).run_estimates(["501009"], task_log_id=123, task_type="estimate_nav")
+            detail_log = db.scalar(select(FundTaskDetailLog).where(FundTaskDetailLog.fund_code == "501009"))
+            first_detail_log_id = detail_log.id if detail_log else None
+
+            quote = db.scalar(select(MarketQuote).where(MarketQuote.asset_code == "930743"))
+            quote.change_rate = Decimal("0.0310")
+            db.commit()
+            sleep(1.1)
+            EstimateService(db, Mock()).run_estimates(
+                ["501009"],
+                task_log_id=456,
+                task_type="refresh_quote_estimate",
+            )
+            detail_logs = db.scalars(select(FundTaskDetailLog).where(FundTaskDetailLog.fund_code == "501009")).all()
+            detail_log = detail_logs[0]
+        finally:
+            db.close()
+
+        self.assertEqual(len(detail_logs), 1)
+        self.assertEqual(detail_log.id, first_detail_log_id)
+        self.assertEqual(detail_log.task_log_id, 456)
+        self.assertEqual(detail_log.task_type, "refresh_quote_estimate")
+        self.assertEqual(detail_log.strategy, "index_tracking")
+        self.assertEqual(detail_log.estimated_growth_rate, Decimal("0.031000"))
+
     def test_run_estimates_updates_daily_skipped_fund_detail_log(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)

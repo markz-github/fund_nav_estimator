@@ -300,6 +300,34 @@ ALTER TABLE task_logs
     ADD COLUMN external_task_id VARCHAR(100) NULL COMMENT '外部任务 ID' AFTER target_id;
 ```
 
+## fund_task_detail_logs
+
+基金级估算执行日志表。用于挂在基金详情页下展示当天该基金最近一次估算过程；手动估算和自动估算写同一条基金日志，`task_type` 仅表示最近一次写入来源。
+
+```sql
+CREATE TABLE fund_task_detail_logs (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    task_log_id BIGINT NULL COMMENT '关联 task_logs.id',
+    task_type VARCHAR(50) NOT NULL COMMENT '最近一次来源任务类型，如 estimate_nav、refresh_quote_estimate',
+    fund_code VARCHAR(20) NOT NULL COMMENT '基金代码',
+    fund_name VARCHAR(100) NULL COMMENT '基金名称',
+    status VARCHAR(20) NOT NULL COMMENT 'success、skipped、failed',
+    strategy VARCHAR(50) NULL COMMENT '最终采用的估算策略',
+    reason VARCHAR(100) NULL COMMENT '跳过或失败原因',
+    estimate_date DATE NOT NULL COMMENT '估算日期',
+    estimate_time DATETIME NULL COMMENT '估算时间',
+    estimated_nav DECIMAL(12, 6) NULL COMMENT '估算单位净值',
+    estimated_growth_rate DECIMAL(10, 6) NULL COMMENT '估算涨跌幅',
+    coverage_ratio DECIMAL(10, 6) NULL COMMENT '覆盖率',
+    source_snapshot VARCHAR(255) NULL COMMENT '数据快照说明',
+    message TEXT NULL COMMENT '各估算策略尝试结果',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_fund_task_detail_daily (fund_code, estimate_date),
+    INDEX idx_fund_task_detail_task (task_log_id),
+    INDEX idx_fund_task_detail_fund_time (fund_code, created_at)
+);
+```
+
 ## fund_task_queue
 
 基金耗时任务队列表。Web 接口、定时任务和新增基金流程只提交任务；进程内 worker 池最多并行执行两个任务。

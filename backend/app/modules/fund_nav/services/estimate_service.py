@@ -345,11 +345,12 @@ class EstimateService:
         values: dict,
     ) -> None:
         detail_log = self.db.scalar(
-            select(FundTaskDetailLog).where(
+            select(FundTaskDetailLog)
+            .where(
                 FundTaskDetailLog.fund_code == fund_code,
-                FundTaskDetailLog.task_type == task_type,
                 FundTaskDetailLog.estimate_date == estimate_date,
             )
+            .order_by(FundTaskDetailLog.estimate_time.desc(), FundTaskDetailLog.id.desc())
         )
         if detail_log is None:
             self.db.add(
@@ -362,6 +363,7 @@ class EstimateService:
             )
             return
 
+        detail_log.task_type = task_type
         for key, value in values.items():
             setattr(detail_log, key, value)
         detail_log.created_at = datetime.now().replace(microsecond=0)
