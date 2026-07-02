@@ -18,8 +18,10 @@ class AppConfig(BaseModel):
     scheduler_fund_enabled: bool = False
     scheduler_a_stock_enabled: bool = False
     cors_allow_origins: list[str] = Field(default_factory=list)
-    scheduler_refresh_nav_cron: str = "0 20 * * *"
+    scheduler_refresh_nav_cron: str = "0 21,22 * * *"
+    scheduler_check_nav_quality_cron: str = "30 22 * * mon-fri"
     scheduler_refresh_profiles_cron: str = "10 19 * * *"
+    scheduler_refresh_index_catalog_cron: str = "20 3 * * *"
     scheduler_refresh_holdings_cron: str = "30 20 * * mon-fri"
     scheduler_refresh_quotes_cron: str = "0,30 9-15 * * mon-fri"
     scheduler_estimate_nav_cron: str = "5,35 9-15 * * mon-fri"

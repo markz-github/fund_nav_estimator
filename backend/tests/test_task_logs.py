@@ -39,6 +39,10 @@ class TaskLogTests(unittest.TestCase):
         self.assertEqual(task_status_from_counts(success=1, failed=1), "partial")
         self.assertEqual(task_status_from_counts(), "skipped")
         self.assertEqual(normalize_task_status("unknown"), "failed")
+        self.assertIn(
+            "check_nav_quality",
+            [option["value"] for option in options["fund_nav_task_types"]],
+        )
 
     def test_list_task_logs_filters_and_paginates(self) -> None:
         now = datetime.now()

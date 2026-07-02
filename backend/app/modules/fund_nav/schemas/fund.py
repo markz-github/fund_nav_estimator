@@ -37,12 +37,19 @@ class FundOut(BaseModel):
     fund_code: str
     fund_name: str
     fund_type: str | None = None
+    fund_category: str | None = None
+    fund_category_label: str | None = None
+    fund_category_source: str | None = None
+    fund_category_updated_at: datetime | None = None
     enabled: int
     remark: str | None = None
     tracked_index_code: str | None = None
     tracked_index_name: str | None = None
     tracked_index_source: str | None = None
     tracked_index_confidence: str | None = None
+    target_etf_code: str | None = None
+    target_etf_name: str | None = None
+    target_etf_source: str | None = None
     latest_unit_nav: Decimal | None = None
     latest_nav_date: date | None = None
     latest_daily_growth_rate: Decimal | None = None

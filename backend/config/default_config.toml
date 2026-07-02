@@ -11,8 +11,10 @@ cors_allow_origins = [
   "http://127.0.0.1:5173",
 ]
 
-scheduler_refresh_nav_cron = "0 20 * * *"
+scheduler_refresh_nav_cron = "0 21,22 * * *"
+scheduler_check_nav_quality_cron = "30 22 * * mon-fri"
 scheduler_refresh_profiles_cron = "10 19 * * *"
+scheduler_refresh_index_catalog_cron = "20 3 * * *"
 scheduler_refresh_holdings_cron = "30 20 * * mon-fri"
 scheduler_refresh_quotes_cron = "0,30 9-15 * * mon-fri"
 scheduler_estimate_nav_cron = "0,30 9-15 * * mon-fri"

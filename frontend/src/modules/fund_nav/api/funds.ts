@@ -5,12 +5,19 @@ export interface Fund {
   fund_code: string
   fund_name: string
   fund_type?: string | null
+  fund_category?: string | null
+  fund_category_label?: string | null
+  fund_category_source?: string | null
+  fund_category_updated_at?: string | null
   enabled: number
   remark?: string | null
   tracked_index_code?: string | null
   tracked_index_name?: string | null
   tracked_index_source?: string | null
   tracked_index_confidence?: string | null
+  target_etf_code?: string | null
+  target_etf_name?: string | null
+  target_etf_source?: string | null
   latest_unit_nav?: string | null
   latest_nav_date?: string | null
   latest_daily_growth_rate?: string | null
@@ -43,6 +50,36 @@ export interface FundNav {
   accumulated_nav?: string | null
   daily_growth_rate?: string | null
   source: string
+}
+
+export interface FundTaskAttempt {
+  strategy: string
+  strategy_label: string
+  result: string
+  result_label: string
+}
+
+export interface FundTaskDetailLog {
+  id: number
+  task_log_id?: number | null
+  task_type: string
+  fund_code: string
+  fund_name?: string | null
+  status: string
+  status_label: string
+  strategy?: string | null
+  strategy_label?: string | null
+  reason?: string | null
+  reason_label?: string | null
+  attempts: FundTaskAttempt[]
+  estimate_date?: string | null
+  estimate_time?: string | null
+  estimated_nav?: string | null
+  estimated_growth_rate?: string | null
+  coverage_ratio?: string | null
+  source_snapshot?: string | null
+  message?: string | null
+  created_at: string
 }
 
 export async function listFunds(options?: { sortBy?: FundSortBy | null; sortOrder?: SortOrder }): Promise<Fund[]> {
@@ -78,6 +115,13 @@ export async function listFundHoldings(fundCode: string): Promise<FundHolding[]>
 export async function listFundNavHistory(fundCode: string, limit = 500): Promise<FundNav[]> {
   const { data } = await apiClient.get<FundNav[]>(`/funds/${fundCode}/navs`, {
     params: { limit },
+  })
+  return data
+}
+
+export async function listFundTaskDetailLogs(fundCode: string, limit = 50): Promise<FundTaskDetailLog[]> {
+  const { data } = await apiClient.get<FundTaskDetailLog[]>(`/funds/${fundCode}/task-detail-logs`, {
+    params: { task_type: 'estimate_nav', limit },
   })
   return data
 }

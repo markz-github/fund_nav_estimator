@@ -9,6 +9,9 @@ const mobileMenuOpen = ref(false)
 
 const navItems = [
   { routeName: routeNames.fundList, label: '基金估值' },
+  { routeName: routeNames.fundNavQuality, label: '净值巡检' },
+  { routeName: routeNames.estimateDriftList, label: '估算偏差' },
+  { routeName: routeNames.manualIndexMappings, label: '指数映射' },
   { routeName: routeNames.operations, label: '运行状态' },
 ]
 

@@ -38,6 +38,7 @@ DEFAULT_ASSET_VALUATION_CONFIGS = [
     ("stock", "HK", True, "quote", "港股使用行情涨跌幅估算"),
     ("stock", "US", True, "quote", "美股使用最近可用行情涨跌幅估算"),
     ("etf", "CN", True, "quote", "场内 ETF 使用行情涨跌幅估算"),
+    ("index", "CN", True, "quote", "指数型基金使用跟踪指数涨跌幅估算"),
     ("bond", "*", False, "none", "债券暂不参与实时估算"),
 ]
 
@@ -52,11 +53,12 @@ def default_asset_valuation_config_map() -> AssetValuationConfigMap:
 
 
 def load_asset_valuation_config_map(db: Session) -> AssetValuationConfigMap:
+    rules = {
+        (asset_type, market): AssetValuationRule(realtime_valuable, valuation_mode)
+        for asset_type, market, realtime_valuable, valuation_mode, _remark in DEFAULT_ASSET_VALUATION_CONFIGS
+    }
     rows = db.scalars(select(AssetValuationConfig)).all()
-    if not rows:
-        return default_asset_valuation_config_map()
-
-    return AssetValuationConfigMap(
+    rules.update(
         {
             (row.asset_type, row.market): AssetValuationRule(
                 realtime_valuable=bool(row.realtime_valuable),
@@ -66,6 +68,7 @@ def load_asset_valuation_config_map(db: Session) -> AssetValuationConfigMap:
             if row.enabled == 1
         }
     )
+    return AssetValuationConfigMap(rules)
 
 
 def seed_default_asset_valuation_configs(db: Session) -> None:

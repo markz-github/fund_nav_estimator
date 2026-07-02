@@ -4,6 +4,8 @@
 
 本文档描述基金当日净值估算系统的整体设计、核心数据流、任务队列、AkShare 缓存与并发控制、接口约定、日志规范和后续演进方向。
 
+设计同步约定：凡是调整系统设计、业务策略、数据流、任务调度、数据库结构、接口契约、估算算法、巡检规则或数据源选择，都必须同步更新本文档或对应专题文档。代码评审时应把“设计文档是否同步”作为检查项，避免实现和文档长期分叉。
+
 系统的核心目标是：
 
 - 管理用户关注的基金。
@@ -44,7 +46,11 @@ backend/app/modules/fund_nav/
 | `models/` | 基金、净值、持仓、行情、估算和任务队列表模型 |
 | `schemas/` | API 入参和出参 |
 | `services/` | 业务编排、数据库读写、任务执行 |
-| `data_sources/akshare_source.py` | 统一收口 AkShare 调用、缓存和接口级锁 |
+| `data_sources/akshare/akshare_source.py` | 收口通用 AkShare 调用、缓存和接口级锁，对服务层提供统一数据源入口 |
+| `data_sources/akshare/` | 通过 AkShare 调用的渠道数据源 |
+| `data_sources/web/` | 直接 requests 公开网页或公开接口的数据源 |
+| `data_sources/composites/` | 组合多个渠道的数据源编排器，例如指数行情优先实时行情、再回退日线行情 |
+| `data_sources/support/` | 测试、空实现或兜底辅助数据源 |
 | `scheduler/jobs.py` | 定时任务入口；只负责提交队列任务 |
 
 运行状态与错误日志位于独立运维模块：
@@ -53,17 +59,81 @@ backend/app/modules/fund_nav/
 backend/app/modules/operations/
 ```
 
+### 2.3 基金分类判断规范
+
+基金类型判断统一收口在：
+
+```text
+backend/app/modules/fund_nav/services/fund_classifier.py
+```
+
+所有业务代码如果需要判断基金类别，必须调用 `FundClassifier`，不要在各自 Service 中重复按 `fund_name`、`fund_type` 或基金代码前缀临时判断。
+
+系统会把统一分类结果保存到 `funds.fund_category` 和 `fund_profiles.fund_category`。业务判断优先读取已保存的分类；字段为空时再由 `FundClassifier` 根据基金名称、原始基金类型和代码规则即时判断。刷新基金资料、新增自选基金、手动初始化分类时会写入分类结果。
+
+分类字段：
+
+| 字段 | 说明 |
+|---|---|
+| `fund_category` | 系统统一分类：`normal`、`index_tracking`、`etf`、`etf_feeder`、`qdii` |
+| `fund_category_source` | 分类来源：`auto`、`manual` |
+| `fund_category_updated_at` | 分类更新时间 |
+
+当前分类语义：
+
+| 方法 | 语义 | 典型用途 |
+|---|---|---|
+| `is_exchange_traded_fund(fund)` | 场内 ETF 基金 | ETF 自身行情、ETF IOPV 估算 |
+| `is_etf_feeder_fund(fund)` | ETF 联接基金 | 目标 ETF 持仓识别、目标 ETF 映射巡检 |
+| `is_index_tracking_fund(fund)` | 需要跟踪指数映射的指数基金，排除 ETF 和 ETF 联接 | 指数法估算、缺少跟踪指数巡检 |
+| `is_index_related_fund(fund)` | 指数相关基金，包含指数基金、ETF、ETF 联接 | 刷新指数映射时扩大覆盖面 |
+| `is_delayed_nav_fund(fund)` | QDII 或海外市场相关基金，官方净值允许滞后 | 净值新鲜度巡检 |
+
+新增基金分类规则时，先更新 `FundClassifier` 和对应单元测试，再让业务服务调用该方法。特别注意：
+
+- “指数跟踪基金”和“指数相关基金”不是同一个概念。
+- ETF 和 ETF 联接基金名称或类型中经常包含“指数”，但不能因此被加入“缺少跟踪指数”的人工维护列表。
+- 巡检、估算、行情刷新、持仓刷新必须共享同一套分类语义，避免页面提示和实际估算策略不一致。
+- 如果某基金已保存人工分类，自动刷新资料不能覆盖人工分类。当前页面先展示统一分类结果，后续如需要人工分类维护，应通过独立维护入口更新 `fund_category_source = manual`。
+
+### 2.4 不同基金类型处理策略
+
+不同类型基金的刷新、估算、巡检策略必须和 `FundClassifier` 的分类语义保持一致。新增或调整某类基金处理方式时，除了修改代码和测试，也要同步更新本节。
+
+| 基金类型 | 分类方法 | 数据/映射维护 | 估算策略 | 巡检策略 |
+|---|---|---|---|---|
+| 普通开放式基金 | 不命中 ETF、ETF 联接、指数跟踪等特殊分类 | 刷新官方净值和公开持仓 | 持仓加权法：按可实时估值持仓的行情涨跌幅加权计算 | 官方净值按标准规则检查；缺持仓或缺行情只在估算日志中体现 |
+| 指数跟踪基金 | `FundClassifier.is_index_tracking_fund()` | 维护 `fund_index_mappings`；可由人工映射、基金页面解析、指数目录反查得到 | 优先指数法：使用跟踪指数当日涨跌幅估算；指数法不可用时按规则回退到持仓加权法 | 若缺少跟踪指数映射，加入“缺少跟踪指数”待维护列表 |
+| 场内 ETF | `FundClassifier.is_exchange_traded_fund()` | 使用 ETF 行情作为自身行情；可刷新指数映射用于展示或后续扩展 | ETF 行情/IOPV 法：优先本地 ETF 行情，缺失时尝试 IOPV | 不加入“缺少跟踪指数”待维护列表；官方净值可用 ETF 行情口径补充 |
+| ETF 联接基金 | `FundClassifier.is_etf_feeder_fund()` | 维护目标 ETF 持仓；来源包括公开页面解析、本地名称匹配和人工 `target_etf` 映射 | 持仓加权法，目标 ETF 按二级市场行情涨跌幅参与估算 | 若缺少目标 ETF 映射，加入“缺少目标 ETF”待维护列表；不加入“缺少跟踪指数”列表 |
+| QDII/海外相关基金 | `FundClassifier.is_delayed_nav_fund()` | 刷新官方净值和持仓；海外行情按已有数据源能力扩展 | 目前仍按可用持仓行情估算；无法获取有效行情时跳过并记录原因 | 官方净值允许比普通基金滞后一个工作日，超过规则才告警 |
+| 指数相关基金集合 | `FundClassifier.is_index_related_fund()` | 仅用于决定哪些基金在持仓刷新时顺带刷新指数映射，包含指数跟踪基金、ETF、ETF 联接 | 不直接决定估算策略 | 不直接决定巡检告警类型 |
+
+策略选择顺序由 `EstimateService` 负责：
+
+```text
+场内 ETF 或已有 ETF 净值来源
+  -> ETF 行情 / IOPV 法
+否则若为指数跟踪基金
+  -> 指数法
+  -> 指数法非基准类失败时可回退持仓加权法
+否则
+  -> 持仓加权法
+```
+
+其中 `missing_nav`、`stale_nav` 属于估算基准不可用，不能继续回退到其他估算方法；必须跳过并记录原因。
+
 ## 3. 核心业务数据
 
 ### 3.1 自选基金
 
-`funds` 保存用户关注的基金。新增基金时优先从本地 `fund_profiles` 查找名称和类型，接口不直接执行耗时的全量资料同步。
+`funds` 保存用户关注的基金。新增基金时优先从本地 `fund_profiles` 查找名称、类型和统一分类，接口不直接执行耗时的全量资料同步。
 
 新增成功后自动提交 `sync_new_fund_data` 队列任务，由后台补齐资料、指数映射、官方净值、持仓、行情和估算结果。
 
 ### 3.2 基金资料
 
-`fund_profiles` 保存从 `ak.fund_name_em()` 同步的全量基金名称和类型。
+`fund_profiles` 保存从 `ak.fund_name_em()` 同步的全量基金名称、类型和系统统一分类。
 
 资料读取遵循数据库优先原则：
 
@@ -93,15 +163,28 @@ backend/app/modules/operations/
 - 使用 `昨收` 时来源标记为 `akshare:etf_spot_prev_close`。
 - 使用实时字段时来源标记为 `akshare:etf_spot`。
 
-### 3.4 基金持仓
+### 3.4 指数目录与指数映射
+
+`market_indexes` 保存本地指数基础目录，低频从指数提供方同步：
+
+- 中证指数目录：`ak.index_csindex_all()`。
+- 国证指数目录：`ak.index_all_cni()`。
+
+基金指数映射保存在 `fund_index_mappings`。刷新映射时优先读取数据库人工维护表 `manual_fund_mappings` 中 `mapping_type = "index"` 的记录；未命中人工记录时，再从基金公司页面或天天基金页面解析 `index_code / index_name / benchmark_text`。当基金页面只给出指数名称而没有指数代码时，会从 `market_indexes` 按指数全称或简称反查指数代码。这样 `006786` 这类页面只有“中证港股通大消费主题港元指数”的基金，也可以通过本地中证指数目录补齐 `931027`。
+
+人工映射通过前端“指数映射”页面维护，不再写在代码常量中。它用于处理自动解析不能严格匹配的特殊情况，例如基金页面名称与指数目录简称不完全一致。
+
+### 3.5 基金持仓
 
 `fund_holdings` 保存基金最近披露的底层资产及持仓比例。
 
 持仓是估算依据，但存在天然滞后。页面应结合 `report_period` 和估算覆盖率理解结果可信度。
 
+持仓刷新任务会同步刷新指数相关基金的 `fund_index_mappings`：是否属于指数相关基金必须通过 `FundClassifier.is_index_related_fund()` 判断。这样指数基金估算、ETF 相关展示和后续行情刷新可以使用同一份映射关系，同时避免 ETF 或 ETF 联接基金被误判为需要人工维护跟踪指数。
+
 资产是否参与实时估算由 `asset_valuation_configs` 控制。刷新行情和运行估值前会加载该表为内存 Map，并按 `asset_type + market` 匹配，未匹配时视为不可实时估值。债券持仓会进入 `fund_holdings`，但当前默认不可实时估值。
 
-### 3.5 行情快照
+### 3.6 行情快照
 
 `market_quotes` 保存底层资产行情快照，包括：
 
@@ -113,7 +196,7 @@ backend/app/modules/operations/
 
 同一个资产在同一个 `quote_time` 只保存一条记录。
 
-### 3.6 估算结果
+### 3.7 估算结果
 
 `fund_estimates` 保存基金估算结果。
 
@@ -144,7 +227,9 @@ coverage_ratio = 有有效行情的持仓比例 / 已披露持仓比例
 
 A 股、港股和场内 ETF 等实时市场行情参与估算前必须校验交易日期。若 `market_quotes.trade_date` 早于估算日期，该行情视为陈旧行情，不参与当天估算。这样即使最新一条 `quote_time` 被写入当前时间，也不会把旧交易日行情误用于当日估算。
 
-当官方净值、持仓或可实时估值资产行情缺失时，基金会被跳过，并在任务摘要中记录原因。
+当官方净值、持仓或可实时估值资产行情缺失时，基金会被跳过，并在任务摘要中记录原因。开放式基金估算前还会校验最新官方净值日期，若早于当前预期净值日期，则跳过估算并返回 `stale_nav`，避免用历史净值作为当日估算基准。
+
+官方净值刷新后还会通过独立定时质量检测兜底。检测任务按运行时间推导预期官方净值日期：交易日 20:00 前以前一工作日为预期日期，20:00 后以当天为预期日期，周末以前一工作日为预期日期。启用基金若没有净值，或最新 `fund_navs.nav_date` 早于预期日期，会写入 `data_fetch_errors` 并在任务日志中汇总，避免数据源拉取失败后长期沿用历史净值。
 
 数据库完整建表 SQL 见 [database.md](./database.md)。
 
@@ -193,7 +278,9 @@ fund_task_queue
 |---|---|---|
 | `refresh_profile` | 刷新基金名称和类型 | 定时任务 |
 | `refresh_nav` | 刷新官方净值 | 单只、批量、定时任务 |
-| `refresh_holding` | 刷新基金持仓 | 单只、定时任务 |
+| `check_nav_quality` | 检查官方净值是否达到预期日期，发现缺失或滞后时记录异常 | 定时任务 |
+| `refresh_index_catalog` | 刷新本地指数目录，用于指数名称反查代码 | 手动、定时任务 |
+| `refresh_holding` | 刷新基金持仓，并同步刷新指数基金/ETF 的指数映射 | 单只、定时任务 |
 | `refresh_quote` | 刷新持仓资产行情 | 手动、定时任务 |
 | `estimate_nav` | 估算基金当日净值 | 手动、定时任务 |
 | `refresh_quote_estimate` | 刷新行情并估算 | 手动组合任务 |
@@ -303,7 +390,7 @@ dedupe_key = task_type + SHA256(规范化参数)
 基金模块所有直接 AkShare 调用必须放在：
 
 ```text
-backend/app/modules/fund_nav/data_sources/akshare_source.py
+backend/app/modules/fund_nav/data_sources/akshare/akshare_source.py
 ```
 
 业务 Service 不直接依赖 AkShare 函数名，便于统一增加缓存、锁、日志和备用源处理。

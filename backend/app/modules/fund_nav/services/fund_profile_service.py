@@ -8,8 +8,10 @@ from time import perf_counter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
+from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource
+from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_profile import FundProfile
+from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.utils.performance import timed
 
 
@@ -92,6 +94,9 @@ class FundProfileService:
                     fund_code=profile.fund_code,
                     fund_name=profile.fund_name,
                     fund_type=profile.fund_type,
+                    fund_category=FundClassifier.classify_from_attributes(profile),
+                    fund_category_source="auto",
+                    fund_category_updated_at=synced_at,
                     source=source_name,
                     synced_at=synced_at,
                 )
@@ -100,6 +105,10 @@ class FundProfileService:
                 existing.is_deleted = 0
                 existing.fund_name = profile.fund_name
                 existing.fund_type = profile.fund_type
+                if existing.fund_category_source != "manual":
+                    existing.fund_category = FundClassifier.classify_from_attributes(existing)
+                    existing.fund_category_source = "auto"
+                    existing.fund_category_updated_at = synced_at
                 existing.source = source_name
                 existing.synced_at = synced_at
             refreshed_count += 1
@@ -111,3 +120,32 @@ class FundProfileService:
             (perf_counter() - started) * 1000,
         )
         return refreshed_count
+
+    @timed()
+    def initialize_fund_categories(self) -> dict[str, int]:
+        now = datetime.now()
+        profile_count = 0
+        fund_count = 0
+
+        profiles = self.db.scalars(select(FundProfile).execution_options(include_deleted=True)).all()
+        for profile in profiles:
+            if profile.fund_category_source == "manual":
+                continue
+            profile.fund_category = FundClassifier.classify_from_attributes(profile)
+            profile.fund_category_source = "auto"
+            profile.fund_category_updated_at = now
+            profile_count += 1
+
+        funds = self.db.scalars(select(Fund).execution_options(include_deleted=True)).all()
+        for fund in funds:
+            if fund.fund_category_source == "manual":
+                continue
+            profile = self.db.scalar(select(FundProfile).where(FundProfile.fund_code == fund.fund_code))
+            source = profile if profile is not None else fund
+            fund.fund_category = FundClassifier.classify_from_attributes(source)
+            fund.fund_category_source = "auto"
+            fund.fund_category_updated_at = now
+            fund_count += 1
+
+        self.db.commit()
+        return {"profiles": profile_count, "funds": fund_count}

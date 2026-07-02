@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import sys
@@ -16,7 +17,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 import app.models  # noqa: F401
 from app.database import Base
-from app.modules.fund_nav.data_sources.akshare_source import FetchDiagnostic
+from app.modules.fund_nav.data_sources.akshare.akshare_source import FetchDiagnostic
+from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.operations.models.task_log import TaskLog
@@ -120,6 +122,91 @@ class FundTaskQueueTests(unittest.TestCase):
         self.assertIn("fund_etf_spot_em", task_log.message)
         fetch_error = self.db.scalar(select(DataFetchError))
         self.assertEqual(fetch_error.source, "akshare")
+
+    def test_check_nav_quality_task_records_partial_when_stale_nav_exists(self) -> None:
+        self.db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))
+        self.db.commit()
+        submitted = self.service.submit("check_nav_quality", "检查基金官方净值新鲜度", origin="scheduled")
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        with patch(
+            "app.modules.fund_nav.services.fund_task_queue_service.FundNavQualityService.expected_nav_date",
+            return_value=date(2026, 6, 8),
+        ):
+            self.service.execute(submitted.task_id)
+
+        task_log = self.db.get(TaskLog, submitted.task_log_id)
+        fetch_error = self.db.scalar(select(DataFetchError))
+        self.assertEqual(task_log.status, "partial")
+        self.assertIn("stale=1", task_log.message)
+        self.assertEqual(fetch_error.source, "quality_check")
+
+    def test_refresh_holding_task_also_refreshes_index_mappings(self) -> None:
+        submitted = self.service.submit(
+            "refresh_holding",
+            "刷新基金持仓",
+            origin="manual",
+            fund_codes=["501009"],
+        )
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        calls: dict[str, list] = {"holdings": [], "mappings": []}
+
+        class FakeHoldingService:
+            def __init__(self, db):
+                pass
+
+            def refresh_holdings(self, fund_code):
+                calls["holdings"].append(fund_code)
+                return [object()]
+
+        class FakeFundIndexMappingService:
+            def __init__(self, db):
+                pass
+
+            def refresh_mappings_for_index_related_funds(self, fund_codes=None):
+                calls["mappings"].append(fund_codes)
+                return [object(), object()]
+
+        with (
+            patch("app.modules.fund_nav.services.fund_task_queue_service.HoldingService", FakeHoldingService),
+            patch(
+                "app.modules.fund_nav.services.fund_task_queue_service.FundIndexMappingService",
+                FakeFundIndexMappingService,
+            ),
+        ):
+            self.service.execute(submitted.task_id)
+
+        task_log = self.db.get(TaskLog, submitted.task_log_id)
+        self.assertEqual(task_log.status, "success")
+        self.assertIn("holdings=1", task_log.message)
+        self.assertIn("index_mappings=2", task_log.message)
+        self.assertEqual(calls["holdings"], ["501009"])
+        self.assertEqual(calls["mappings"], [["501009"]])
+
+    def test_refresh_index_catalog_task_records_count(self) -> None:
+        submitted = self.service.submit("refresh_index_catalog", "刷新指数目录", origin="manual")
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        class FakeIndexCatalogService:
+            def __init__(self, db):
+                pass
+
+            def refresh_indexes(self):
+                return [object(), object(), object()]
+
+        with patch("app.modules.fund_nav.services.fund_task_queue_service.IndexCatalogService", FakeIndexCatalogService):
+            self.service.execute(submitted.task_id)
+
+        task_log = self.db.get(TaskLog, submitted.task_log_id)
+        self.assertEqual(task_log.status, "success")
+        self.assertIn("indexes=3", task_log.message)
 
     def test_concurrent_identical_submissions_reuse_one_pending_task(self) -> None:
         engine = create_engine(

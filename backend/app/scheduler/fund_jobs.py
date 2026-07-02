@@ -13,8 +13,16 @@ def refresh_fund_navs_job() -> None:
     _enqueue("refresh_nav", "刷新基金官方净值")
 
 
+def check_fund_nav_quality_job() -> None:
+    _enqueue("check_nav_quality", "检查基金官方净值新鲜度")
+
+
 def refresh_fund_profiles_job() -> None:
     _enqueue("refresh_profile", "刷新基金名称和类型")
+
+
+def refresh_index_catalog_job() -> None:
+    _enqueue("refresh_index_catalog", "刷新指数目录")
 
 
 def refresh_fund_holdings_job() -> None:

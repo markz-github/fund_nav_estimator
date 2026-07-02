@@ -22,8 +22,9 @@ class FundIndexMappingSource:
 
     def get_mapping(self, fund_code: str) -> FundIndexMappingSnapshot | None:
         normalized_code = str(fund_code).strip().zfill(6)
-        return self._get_99fund_mapping(normalized_code) or self._get_eastmoney_mapping(
-            normalized_code
+        return (
+            self._get_99fund_mapping(normalized_code)
+            or self._get_eastmoney_mapping(normalized_code)
         )
 
     def _get_99fund_mapping(self, fund_code: str) -> FundIndexMappingSnapshot | None:
@@ -63,11 +64,11 @@ class FundIndexMappingSource:
         stripped = self._strip_tags(text)
         benchmark_text = self._match_value(
             stripped,
-            r"业绩比较基准[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()×+%\.，,\-\s]+?)(?:\s+跟踪标的|\s+风险收益|$)",
+            r"业绩比较基准[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()×+*%\.，,\-\s]+?)(?:\s+跟踪标的|\s+风险收益|$)",
         )
         index_name = self._match_value(
             stripped,
-            r"跟踪标的[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()·\-\s]+?)(?:\s+跟踪方式|\s+基金经理|$)",
+            r"跟踪标的[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9（）()·\-\s]+?指数)(?:\s+跟踪方式|\s+基金经理|\s+投资目标|\s+投资理念|\s+投资范围|$)",
         )
         if not index_name and benchmark_text:
             index_name = self._extract_index_name_from_benchmark(benchmark_text)

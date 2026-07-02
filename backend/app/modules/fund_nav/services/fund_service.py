@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import logging
 
 from sqlalchemy import Select, asc, desc, func, select
 from sqlalchemy.orm import Session
 
-from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, FundNavSnapshot
+from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource, FundNavSnapshot
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
+from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.schemas.fund import FundCreate
+from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
 
@@ -88,12 +90,16 @@ class FundService:
             fund.enabled = 1
             fund.fund_name = profile.fund_name if profile else fund_code
             fund.fund_type = profile.fund_type if profile else None
+            self._sync_fund_category(fund, profile)
             fund.remark = payload.remark
         else:
             fund = Fund(
                 fund_code=fund_code,
                 fund_name=profile.fund_name if profile else fund_code,
                 fund_type=profile.fund_type if profile else None,
+                fund_category=FundClassifier.classify_from_attributes(profile) if profile else None,
+                fund_category_source="auto" if profile else None,
+                fund_category_updated_at=datetime.now() if profile else None,
                 remark=payload.remark,
             )
             self.db.add(fund)
@@ -113,6 +119,7 @@ class FundService:
             return fund
         fund.fund_name = profile.fund_name
         fund.fund_type = profile.fund_type
+        self._sync_fund_category(fund, profile)
         self.db.commit()
         self.db.refresh(fund)
         return fund
@@ -274,17 +281,25 @@ class FundService:
         latest_nav = self.db.scalar(self._latest_nav_query(fund.fund_code))
         latest_estimate = self.db.scalar(self._latest_estimate_query(fund.fund_code))
         index_mapping = self.db.scalar(self._index_mapping_query(fund.fund_code))
+        target_etf = self.db.scalar(self._target_etf_query(fund.fund_code))
         return {
             "id": fund.id,
             "fund_code": fund.fund_code,
             "fund_name": fund.fund_name,
             "fund_type": fund.fund_type,
+            "fund_category": FundClassifier.category_for(fund),
+            "fund_category_label": FundClassifier.category_label(FundClassifier.category_for(fund)),
+            "fund_category_source": fund.fund_category_source,
+            "fund_category_updated_at": fund.fund_category_updated_at,
             "enabled": fund.enabled,
             "remark": fund.remark,
             "tracked_index_code": index_mapping.index_code if index_mapping else None,
             "tracked_index_name": index_mapping.index_name if index_mapping else None,
             "tracked_index_source": index_mapping.source if index_mapping else None,
             "tracked_index_confidence": index_mapping.confidence if index_mapping else None,
+            "target_etf_code": target_etf.asset_code if target_etf else None,
+            "target_etf_name": target_etf.asset_name if target_etf else None,
+            "target_etf_source": target_etf.source if target_etf else None,
             "latest_unit_nav": latest_nav.unit_nav if latest_nav else None,
             "latest_nav_date": latest_nav.nav_date if latest_nav else None,
             "latest_daily_growth_rate": latest_nav.daily_growth_rate if latest_nav else None,
@@ -333,6 +348,19 @@ class FundService:
         )
 
     @staticmethod
+    def _target_etf_query(fund_code: str) -> Select[tuple[FundHolding]]:
+        return (
+            select(FundHolding)
+            .where(
+                FundHolding.fund_code == fund_code,
+                FundHolding.asset_type == "etf",
+                FundHolding.source.in_(("fund_company", "local:fund_name_match", "manual:target_etf")),
+            )
+            .order_by(FundHolding.report_period.desc(), FundHolding.holding_ratio.desc())
+            .limit(1)
+        )
+
+    @staticmethod
     def _is_fresh_local_nav(nav: FundNav) -> bool:
         if nav.daily_growth_rate is None:
             return False
@@ -357,3 +385,12 @@ class FundService:
         if next_source == "akshare:eastmoney_fund_page":
             return nav.source in {"akshare:etf_spot", "akshare:etf_spot_prev_close"}
         return nav.source == "akshare:etf_spot" and next_source == "akshare:etf_spot_prev_close"
+
+    @staticmethod
+    def _sync_fund_category(fund: Fund, profile) -> None:
+        if fund.fund_category_source == "manual":
+            return
+        source = profile if profile is not None else fund
+        fund.fund_category = FundClassifier.classify_from_attributes(source)
+        fund.fund_category_source = "auto"
+        fund.fund_category_updated_at = datetime.now()

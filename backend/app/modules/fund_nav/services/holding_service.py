@@ -6,16 +6,18 @@ import re
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
-from app.modules.fund_nav.data_sources.eastmoney_source import EastmoneySource
-from app.modules.fund_nav.data_sources.etf88_source import Etf88Source
-from app.modules.fund_nav.data_sources.fund_company_source import FundCompanySource
-from app.modules.fund_nav.data_sources.public_web_source import PublicWebFundSource
-from app.modules.fund_nav.data_sources.sina_source import SinaFundSource
+from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource
+from app.modules.fund_nav.data_sources.web.eastmoney_source import EastmoneySource
+from app.modules.fund_nav.data_sources.web.etf88_source import Etf88Source
+from app.modules.fund_nav.data_sources.web.fund_company_source import FundCompanySource
+from app.modules.fund_nav.data_sources.web.public_fund_source import PublicWebFundSource
+from app.modules.fund_nav.data_sources.web.sina_fund_source import SinaFundSource
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
+from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
+from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
 from app.utils.performance import timed
 
 
@@ -64,7 +66,9 @@ class HoldingService:
                 snapshots = target_fund_snapshots
                 replace_all_periods = True
             else:
-                inferred_target = self._infer_target_fund_holding(normalized_code)
+                inferred_target = ManualIndexMappingService(self.db).get_target_etf_holding(normalized_code)
+                if inferred_target is None:
+                    inferred_target = self._infer_target_fund_holding(normalized_code)
                 if inferred_target is not None:
                     snapshots = [inferred_target]
                     replace_all_periods = True
@@ -223,6 +227,10 @@ class HoldingService:
             profile = None
         if not fund_name and profile is not None:
             fund_name = profile.fund_name or ""
+        if local_fund is not None:
+            return FundClassifier.is_etf_feeder_fund(local_fund)
+        if profile is not None:
+            return FundClassifier.is_etf_feeder_fund(profile)
         return "ETF联接" in fund_name or "联接" in fund_name
 
     def _infer_target_fund_holding(self, fund_code: str) -> dict | None:
@@ -230,7 +238,7 @@ class HoldingService:
         if profile is None or not profile.fund_name:
             return None
         fund_name = profile.fund_name
-        if "联接" not in fund_name:
+        if not FundClassifier.is_etf_feeder_fund(profile):
             return None
 
         candidates = self.db.scalars(

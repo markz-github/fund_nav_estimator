@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Index, Numeric, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, DateTime, Index, Integer, Numeric, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -16,7 +16,7 @@ class FundHolding(Base):
         Index("idx_fund_holding_asset", "asset_code"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     fund_code: Mapped[str] = mapped_column(String(20), nullable=False)
     report_period: Mapped[str] = mapped_column(String(20), nullable=False)
     asset_code: Mapped[str] = mapped_column(String(30), nullable=False)

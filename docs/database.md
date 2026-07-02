@@ -12,6 +12,9 @@ CREATE TABLE funds (
     fund_code VARCHAR(20) NOT NULL UNIQUE COMMENT '基金代码',
     fund_name VARCHAR(100) NOT NULL COMMENT '基金名称',
     fund_type VARCHAR(50) NULL COMMENT '基金类型，如股票型、混合型、债券型、指数型',
+    fund_category VARCHAR(30) NULL COMMENT '系统统一基金分类，如 normal、index_tracking、etf、etf_feeder、qdii',
+    fund_category_source VARCHAR(30) NULL COMMENT '分类来源，如 auto、manual',
+    fund_category_updated_at DATETIME NULL COMMENT '分类更新时间',
     enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用估算',
     remark VARCHAR(255) NULL COMMENT '备注',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -29,6 +32,9 @@ CREATE TABLE fund_profiles (
     fund_code VARCHAR(20) NOT NULL COMMENT '基金代码',
     fund_name VARCHAR(100) NOT NULL COMMENT '基金名称',
     fund_type VARCHAR(50) NULL COMMENT '基金类型',
+    fund_category VARCHAR(30) NULL COMMENT '系统统一基金分类，如 normal、index_tracking、etf、etf_feeder、qdii',
+    fund_category_source VARCHAR(30) NULL COMMENT '分类来源，如 auto、manual',
+    fund_category_updated_at DATETIME NULL COMMENT '分类更新时间',
     source VARCHAR(50) NOT NULL DEFAULT 'akshare' COMMENT '数据来源',
     synced_at DATETIME NOT NULL COMMENT '最近同步时间',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -36,8 +42,27 @@ CREATE TABLE fund_profiles (
     UNIQUE KEY uk_fund_profiles_code (fund_code),
     INDEX idx_fund_profiles_name (fund_name),
     INDEX idx_fund_profiles_type (fund_type),
+    INDEX idx_fund_profiles_category (fund_category),
     INDEX idx_fund_profiles_synced_at (synced_at)
 );
+```
+
+已有数据库需要补充统一分类字段：
+
+```sql
+ALTER TABLE funds
+    ADD COLUMN fund_category VARCHAR(30) NULL COMMENT '系统统一基金分类' AFTER fund_type,
+    ADD COLUMN fund_category_source VARCHAR(30) NULL COMMENT '分类来源，如 auto、manual' AFTER fund_category,
+    ADD COLUMN fund_category_updated_at DATETIME NULL COMMENT '分类更新时间' AFTER fund_category_source;
+
+CREATE INDEX idx_funds_category ON funds (fund_category);
+
+ALTER TABLE fund_profiles
+    ADD COLUMN fund_category VARCHAR(30) NULL COMMENT '系统统一基金分类' AFTER fund_type,
+    ADD COLUMN fund_category_source VARCHAR(30) NULL COMMENT '分类来源，如 auto、manual' AFTER fund_category,
+    ADD COLUMN fund_category_updated_at DATETIME NULL COMMENT '分类更新时间' AFTER fund_category_source;
+
+CREATE INDEX idx_fund_profiles_category ON fund_profiles (fund_category);
 ```
 
 ## fund_navs
@@ -77,6 +102,52 @@ CREATE TABLE fund_index_mappings (
     UNIQUE KEY uk_fund_index_mapping_code (fund_code),
     INDEX idx_fund_index_mapping_index_code (index_code),
     INDEX idx_fund_index_mapping_updated_at (updated_at)
+);
+```
+
+## manual_fund_index_mappings
+
+人工维护的基金跟踪指数映射表。用于自动解析无法稳定识别的特殊基金；刷新 `fund_index_mappings` 时该表优先级最高。
+
+```sql
+CREATE TABLE manual_fund_index_mappings (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    fund_code VARCHAR(20) NOT NULL COMMENT '基金代码',
+    fund_name VARCHAR(100) NULL COMMENT '基金名称快照',
+    index_code VARCHAR(30) NOT NULL COMMENT '指数代码',
+    index_name VARCHAR(150) NOT NULL COMMENT '指数名称',
+    benchmark_text TEXT NULL COMMENT '业绩比较基准原文',
+    remark VARCHAR(255) NULL COMMENT '备注',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_manual_fund_index_mapping_code (fund_code),
+    INDEX idx_manual_fund_index_mapping_index_code (index_code),
+    INDEX idx_manual_fund_index_mapping_updated_at (updated_at)
+);
+```
+
+## market_indexes
+
+指数基础目录表，低频从指数提供方同步，用于将基金页面解析到的指数名称反查为稳定指数代码。
+
+```sql
+CREATE TABLE market_indexes (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    index_code VARCHAR(30) NOT NULL COMMENT '指数代码',
+    index_name VARCHAR(150) NOT NULL COMMENT '指数全称',
+    index_short_name VARCHAR(100) NULL COMMENT '指数简称',
+    provider VARCHAR(30) NOT NULL COMMENT '指数提供方，如 csindex、cni',
+    currency VARCHAR(20) NULL COMMENT '指数币种',
+    asset_class VARCHAR(50) NULL COMMENT '资产类别',
+    source VARCHAR(50) NOT NULL COMMENT '数据来源接口',
+    raw_snapshot TEXT NULL COMMENT '原始快照摘要',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_market_index_provider_code (provider, index_code),
+    INDEX idx_market_index_code (index_code),
+    INDEX idx_market_index_name (index_name),
+    INDEX idx_market_index_short_name (index_short_name),
+    INDEX idx_market_index_updated_at (updated_at)
 );
 ```
 
@@ -227,6 +298,34 @@ ALTER TABLE task_logs
     ADD COLUMN target_type VARCHAR(50) NULL COMMENT '目标类型，如 fund' AFTER task_type,
     ADD COLUMN target_id VARCHAR(100) NULL COMMENT '目标 ID，如基金代码' AFTER target_type,
     ADD COLUMN external_task_id VARCHAR(100) NULL COMMENT '外部任务 ID' AFTER target_id;
+```
+
+## fund_task_detail_logs
+
+基金级估算执行日志表。用于挂在基金详情页下展示当天该基金最近一次估算过程；手动估算和自动估算写同一条基金日志，`task_type` 仅表示最近一次写入来源。
+
+```sql
+CREATE TABLE fund_task_detail_logs (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    task_log_id BIGINT NULL COMMENT '关联 task_logs.id',
+    task_type VARCHAR(50) NOT NULL COMMENT '最近一次来源任务类型，如 estimate_nav、refresh_quote_estimate',
+    fund_code VARCHAR(20) NOT NULL COMMENT '基金代码',
+    fund_name VARCHAR(100) NULL COMMENT '基金名称',
+    status VARCHAR(20) NOT NULL COMMENT 'success、skipped、failed',
+    strategy VARCHAR(50) NULL COMMENT '最终采用的估算策略',
+    reason VARCHAR(100) NULL COMMENT '跳过或失败原因',
+    estimate_date DATE NOT NULL COMMENT '估算日期',
+    estimate_time DATETIME NULL COMMENT '估算时间',
+    estimated_nav DECIMAL(12, 6) NULL COMMENT '估算单位净值',
+    estimated_growth_rate DECIMAL(10, 6) NULL COMMENT '估算涨跌幅',
+    coverage_ratio DECIMAL(10, 6) NULL COMMENT '覆盖率',
+    source_snapshot VARCHAR(255) NULL COMMENT '数据快照说明',
+    message TEXT NULL COMMENT '各估算策略尝试结果',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_fund_task_detail_daily (fund_code, estimate_date),
+    INDEX idx_fund_task_detail_task (task_log_id),
+    INDEX idx_fund_task_detail_fund_time (fund_code, created_at)
+);
 ```
 
 ## fund_task_queue

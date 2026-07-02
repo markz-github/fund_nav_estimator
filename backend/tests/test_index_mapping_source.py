@@ -32,6 +32,32 @@ class FundIndexMappingSourceTests(unittest.TestCase):
         self.assertEqual(mapping.source, "99fund")
         self.assertEqual(mapping.confidence, "high")
 
+    def test_get_mapping_does_not_use_code_level_manual_mapping(self) -> None:
+        with patch.object(FundIndexMappingSource, "_fetch_text", return_value=""):
+            mapping = FundIndexMappingSource().get_mapping("160221")
+
+        self.assertIsNone(mapping)
+
+    def test_get_eastmoney_mapping_extracts_tracking_target_without_colon(self) -> None:
+        html = """
+        <html><body>
+        业绩比较基准 中证港股通大消费主题指数收益率*95%+金融机构人民币活期存款利率(税后)*5%
+        跟踪标的 中证港股通大消费主题港元指数 投资目标 本基金采用指数化投资策略
+        </body></html>
+        """
+
+        def fake_fetch(url: str) -> str:
+            return "" if "99fund" in url else html
+
+        with patch.object(FundIndexMappingSource, "_fetch_text", side_effect=fake_fetch):
+            mapping = FundIndexMappingSource().get_mapping("006786")
+
+        self.assertIsNotNone(mapping)
+        self.assertEqual(mapping.index_code, None)
+        self.assertEqual(mapping.index_name, "中证港股通大消费主题港元指数")
+        self.assertIn("中证港股通大消费主题指数收益率", mapping.benchmark_text)
+        self.assertEqual(mapping.source, "eastmoney")
+
 
 if __name__ == "__main__":
     unittest.main()

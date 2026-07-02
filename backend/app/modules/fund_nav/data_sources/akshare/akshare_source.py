@@ -563,6 +563,12 @@ class AkshareSource:
 
         return list(snapshots.values())
 
+    @timed()
+    def get_index_quotes(self, index_codes: list[str]) -> list[MarketQuoteSnapshot]:
+        from app.modules.fund_nav.data_sources.composites.index_quote_source import CompositeIndexQuoteSource
+
+        return CompositeIndexQuoteSource(self).get_quotes(index_codes)
+
     @classmethod
     def _get_etf_spot_dataframe(cls):
         return cls._load_dataframe(
@@ -1155,6 +1161,18 @@ class AkshareSource:
         if asset_code.startswith(("0", "1", "2", "3")):
             return f"sz{asset_code}"
         return None
+
+    @staticmethod
+    def _normalize_index_code(index_code: str) -> str:
+        code = str(index_code or "").strip().upper()
+        code = re.sub(r"^(SH|SZ|BJ)", "", code)
+        return re.sub(r"\.(CSI|CSINDEX|CNI|SH|SZ)$", "", code)
+
+    @staticmethod
+    def _date_from_value(value) -> date:
+        if hasattr(value, "date"):
+            return value.date()
+        return date.fromisoformat(str(value).split(" ")[0])
 
     @staticmethod
     def _previous_close(

@@ -77,6 +77,10 @@ function statusClass(fund: Fund) {
   return commonStatusClass(statusText(fund))
 }
 
+function categoryLabel(fund: Fund) {
+  return fund.fund_category_label || fund.fund_category || '未分类'
+}
+
 function sortIndicator(sortBy: FundSortBy) {
   if (props.sortBy !== sortBy) return '↕'
   return props.sortOrder === 'asc' ? '↑' : '↓'
@@ -128,6 +132,7 @@ function sortIndicator(sortBy: FundSortBy) {
           <td class="fund-cell" data-label="基金资产">
             <RouterLink class="fund-name" :to="{ name: routeNames.fundDetail, params: { fundCode: fund.fund_code } }">{{ fund.fund_name }}</RouterLink>
             <span class="muted mono">{{ fund.fund_code }}</span>
+            <span class="status-pill status-muted">{{ categoryLabel(fund) }}</span>
           </td>
           <td class="mobile-hidden-cell" data-label="最新估算数据">
             <strong class="metric">{{ fund.latest_estimated_nav ?? '-' }}</strong>

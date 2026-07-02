@@ -9,11 +9,21 @@
 - 基金持仓：股票、债券、ETF、指数等底层资产及持仓比例。
 - 市场行情：底层资产的最新价、昨收价和当日涨跌幅。
 
-所有 AkShare 调用都应集中在 `backend/app/modules/fund_nav/data_sources/akshare_source.py`，避免业务服务直接依赖具体接口名称。
+所有 AkShare 调用都应集中在 `backend/app/modules/fund_nav/data_sources/akshare/` 下的数据源 adapter 中，避免业务服务直接依赖具体接口名称。通用基金、持仓、股票和 ETF 行情仍由 `akshare/akshare_source.py` 收口；指数行情按渠道拆分为独立文件，并由 `composites/index_quote_source.py` 统一编排。
 
 高耗时全量行情接口使用进程内 DataFrame 缓存和接口级锁。行情缓存 TTL 为 5 分钟，开放式基金净值表缓存 TTL 为 10 分钟。缓存未命中时只有获得锁的线程请求 AkShare；等待线程获得锁后会再次查询缓存。实时行情刷新失败且存在 15 分钟内旧缓存时允许短暂使用旧缓存并记录 warning，超过 15 分钟的旧缓存会被拒绝，避免旧行情被反复写成新行情。
 
 基金名称和类型优先查询 `fund_profiles`。目标基金不存在时，单个线程调用 `fund_name_em()` 全量同步数据库；同步后仍不存在则停止，不循环重试。
+
+## 数据源目录约定
+
+```text
+data_sources/
+  akshare/       # 通过 AkShare 调用的渠道 adapter
+  web/           # 直接 requests 公开网页或公开接口的 adapter
+  composites/    # 组合多个渠道的数据源编排器
+  support/       # 测试、空实现或兜底辅助数据源
+```
 
 ## akshare 接口使用结论
 
@@ -46,6 +56,28 @@
 - 部分行情接口可能返回重复 quote_time，写入 `market_quotes` 时需要处理唯一键冲突。
 - ETF 作为基金持仓参与联接基金估算时，采用目标 ETF 二级市场行情涨跌幅；估算前需要校验行情交易日期，避免外部数据源返回的旧行情被当成当日行情。
 
+### 指数行情
+
+指数行情通过 `AkshareSource.get_index_quotes()` 对外提供，内部由 `CompositeIndexQuoteSource` 按渠道顺序尝试：
+
+1. 东方财富实时指数：`ak.stock_zh_index_spot_em()`，按“深证系列指数 / 中证系列指数 / 沪深重要指数 / 上证系列指数”分组查询。
+2. 新浪实时指数：`ak.stock_zh_index_spot_sina()`，用于东方财富实时接口失败或未命中时兜底。
+3. 东方财富指数日线：`ak.index_zh_a_hist()`。
+4. 新浪指数日线：`ak.stock_zh_index_daily()`。
+5. 腾讯指数日线：`ak.stock_zh_index_daily_tx()`。
+6. 中证指数日线：`ak.stock_zh_index_hist_csindex()`。
+7. 国证指数日线：`ak.index_hist_cni()`。
+
+指数法估算应优先使用实时源。日线源只能作为缺少实时行情时的保底数据；估算前仍要校验 `market_quotes.trade_date`，若日线源只返回上一交易日，应记录为 `stale_index_quote`，不能当成当日指数涨跌幅使用。
+
+指数行情渠道文件：
+
+- `akshare/eastmoney_index_source.py`：通过 AkShare 调用东方财富实时和日线。
+- `akshare/sina_index_source.py`：通过 AkShare 调用新浪实时、指数日线和腾讯指数日线。
+- `akshare/csindex_index_source.py`：通过 AkShare 调用中证指数日线。
+- `akshare/cni_index_source.py`：通过 AkShare 调用国证指数日线。
+- `composites/index_quote_source.py`：按优先级组合各渠道。
+
 ### 债券持仓
 
 - 债券持仓通过 `ak.fund_portfolio_bond_hold_em(symbol, date)` 获取。
@@ -70,7 +102,7 @@
 - 普通持仓：`akshare` -> 天天基金 / 东方财富 `FundArchivesDatas.aspx` -> 新浪基金公开接口。
 - ETF 联接 / QDII 目标 ETF：易天富 ETF88 移动/PC 持基页 -> 东方财富基金页文本 -> 基金公司官网产品页 -> 新浪基金 -> 基金速查网 / 理杏仁 / Investing 等公开网页文本。
 
-这些来源都不是正式付费 API，页面结构可能变化。各站点解析逻辑应放在 `backend/app/data_sources/` 下的独立 adapter 中，业务服务只负责按优先级尝试和入库。
+这些来源都不是正式付费 API，页面结构可能变化。各站点解析逻辑应放在 `backend/app/modules/fund_nav/data_sources/web/` 下的独立 adapter 中，业务服务只负责按优先级尝试和入库。
 
 ## 已发现的典型问题
 

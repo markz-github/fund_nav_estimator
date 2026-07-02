@@ -21,7 +21,9 @@ TASK_STATUSES = (
 FUND_NAV_TASK_TYPES = (
     StatusOption("create_fund", "新增自选基金"),
     StatusOption("refresh_nav", "刷新基金官方净值"),
+    StatusOption("check_nav_quality", "检查基金官方净值新鲜度"),
     StatusOption("refresh_profile", "刷新基金名称和类型"),
+    StatusOption("refresh_index_catalog", "刷新指数目录"),
     StatusOption("refresh_holding", "刷新基金持仓"),
     StatusOption("refresh_quote", "刷新持仓资产行情"),
     StatusOption("estimate_nav", "估算基金当日净值"),
