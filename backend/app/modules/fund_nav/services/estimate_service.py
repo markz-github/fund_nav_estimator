@@ -9,7 +9,7 @@ from time import perf_counter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
+from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding

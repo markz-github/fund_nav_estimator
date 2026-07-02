@@ -565,89 +565,9 @@ class AkshareSource:
 
     @timed()
     def get_index_quotes(self, index_codes: list[str]) -> list[MarketQuoteSnapshot]:
-        quote_time = datetime.now()
-        target_codes = {
-            self._normalize_index_code(raw_code)
-            for raw_code in index_codes
-            if self._normalize_index_code(raw_code)
-        }
-        snapshots = self._get_eastmoney_index_spot_quotes(target_codes, quote_time)
+        from app.modules.fund_nav.data_sources.composites.index_quote_source import CompositeIndexQuoteSource
 
-        for index_code in sorted(target_codes - set(snapshots)):
-            snapshot = self._get_eastmoney_index_daily_quote(index_code, quote_time)
-            if snapshot is None:
-                snapshot = self._get_csindex_quote(index_code, quote_time)
-            if snapshot is None:
-                snapshot = self._get_cni_index_quote(index_code, quote_time)
-            if snapshot is not None:
-                snapshots[index_code] = snapshot
-        return list(snapshots.values())
-
-    def _get_eastmoney_index_spot_quotes(
-        self,
-        index_codes: set[str],
-        quote_time: datetime,
-    ) -> dict[str, MarketQuoteSnapshot]:
-        snapshots: dict[str, MarketQuoteSnapshot] = {}
-        if not index_codes:
-            return snapshots
-
-        for group in ("深证系列指数", "中证系列指数", "沪深重要指数", "上证系列指数"):
-            missing_codes = index_codes - set(snapshots)
-            if not missing_codes:
-                break
-            try:
-                market_df = self._get_index_spot_em_dataframe(group)
-            except Exception:
-                continue
-            matched_rows = self._rows_by_normalized_codes(
-                market_df,
-                missing_codes,
-                code_column="代码",
-                normalizer=self._normalize_index_code,
-            )
-            for normalized_code, row in matched_rows:
-                snapshot = self._index_spot_snapshot(normalized_code, row, quote_time)
-                if snapshot is not None:
-                    snapshots[normalized_code] = snapshot
-        return snapshots
-
-    @classmethod
-    def _get_index_spot_em_dataframe(cls, symbol: str):
-        return cls._load_dataframe(
-            f"stock_zh_index_spot_em:{symbol}",
-            lambda: ak.stock_zh_index_spot_em(symbol=symbol),
-            cls._realtime_cache_ttl_seconds,
-            code_column="代码",
-            normalizer=cls._normalize_index_code,
-            max_stale_age_seconds=cls._realtime_stale_cache_max_age_seconds,
-        )
-
-    def _index_spot_snapshot(
-        self,
-        index_code: str,
-        row,
-        quote_time: datetime,
-    ) -> MarketQuoteSnapshot | None:
-        latest_price = self._optional_decimal(row.get("最新价"))
-        change_rate = self._percent(row.get("涨跌幅"))
-        prev_close = self._optional_decimal(row.get("昨收"))
-        if latest_price is None or change_rate is None:
-            return None
-        if prev_close is None:
-            prev_close = self._previous_close(latest_price, change_rate)
-
-        return MarketQuoteSnapshot(
-            asset_code=index_code,
-            asset_name=self._none_if_nan(row.get("名称")),
-            asset_type="index",
-            market="CN",
-            trade_date=quote_time.date(),
-            quote_time=quote_time,
-            latest_price=latest_price,
-            prev_close=prev_close,
-            change_rate=change_rate,
-        )
+        return CompositeIndexQuoteSource(self).get_quotes(index_codes)
 
     @classmethod
     def _get_etf_spot_dataframe(cls):
@@ -1087,118 +1007,6 @@ class AkshareSource:
             change_rate=change_rate,
         )
 
-    def _get_csindex_quote(
-        self,
-        index_code: str,
-        quote_time: datetime,
-    ) -> MarketQuoteSnapshot | None:
-        end_date = quote_time.strftime("%Y%m%d")
-        start_date = (quote_time - timedelta(days=45)).strftime("%Y%m%d")
-        try:
-            history_df = ak.stock_zh_index_hist_csindex(
-                symbol=index_code,
-                start_date=start_date,
-                end_date=end_date,
-            )
-        except Exception:
-            return None
-        if history_df.empty:
-            return None
-
-        row = history_df.iloc[-1]
-        trade_date = self._date_from_value(row.get("日期"))
-        latest_price = self._optional_decimal(row.get("收盘"))
-        change_rate = self._percent(row.get("涨跌幅"))
-        prev_close = self._previous_close(latest_price, change_rate)
-        return MarketQuoteSnapshot(
-            asset_code=index_code,
-            asset_name=self._none_if_nan(row.get("指数中文简称") or row.get("指数中文全称")),
-            asset_type="index",
-            market="CN",
-            trade_date=trade_date,
-            quote_time=quote_time,
-            latest_price=latest_price,
-            prev_close=prev_close,
-            change_rate=change_rate,
-        )
-
-    def _get_eastmoney_index_daily_quote(
-        self,
-        index_code: str,
-        quote_time: datetime,
-    ) -> MarketQuoteSnapshot | None:
-        end_date = quote_time.strftime("%Y%m%d")
-        start_date = (quote_time - timedelta(days=45)).strftime("%Y%m%d")
-        try:
-            history_df = ak.index_zh_a_hist(
-                symbol=index_code,
-                period="daily",
-                start_date=start_date,
-                end_date=end_date,
-            )
-        except Exception as exc:
-            self._record_fetch_diagnostic(
-                "error",
-                "akshare",
-                "index_zh_a_hist",
-                f"fetch failed: {index_code};{exc!r}",
-            )
-            return None
-        if history_df.empty:
-            return None
-
-        row = history_df.iloc[-1]
-        trade_date = self._date_from_value(row.get("日期"))
-        latest_price = self._optional_decimal(row.get("收盘"))
-        change_rate = self._percent(row.get("涨跌幅"))
-        prev_close = self._previous_close(latest_price, change_rate)
-        return MarketQuoteSnapshot(
-            asset_code=index_code,
-            asset_name=None,
-            asset_type="index",
-            market="CN",
-            trade_date=trade_date,
-            quote_time=quote_time,
-            latest_price=latest_price,
-            prev_close=prev_close,
-            change_rate=change_rate,
-        )
-
-    def _get_cni_index_quote(
-        self,
-        index_code: str,
-        quote_time: datetime,
-    ) -> MarketQuoteSnapshot | None:
-        end_date = quote_time.strftime("%Y%m%d")
-        start_date = (quote_time - timedelta(days=45)).strftime("%Y%m%d")
-        try:
-            history_df = ak.index_hist_cni(
-                symbol=index_code,
-                start_date=start_date,
-                end_date=end_date,
-            )
-        except Exception:
-            return None
-        if history_df.empty:
-            return None
-
-        row = history_df.iloc[-1]
-        trade_date = self._date_from_value(row.get("日期"))
-        latest_price = self._optional_decimal(row.get("收盘价"))
-        change_rate = self._optional_decimal(row.get("涨跌幅"))
-        prev_close = self._previous_close(latest_price, change_rate)
-        return MarketQuoteSnapshot(
-            asset_code=index_code,
-            asset_name=None,
-            asset_type="index",
-            market="CN",
-            trade_date=trade_date,
-            quote_time=quote_time,
-            latest_price=latest_price,
-            prev_close=prev_close,
-            change_rate=change_rate,
-        )
-
     def _get_sina_quote(
         self, asset_code: str, quote_time: datetime
     ) -> MarketQuoteSnapshot | None:
@@ -1357,6 +1165,7 @@ class AkshareSource:
     @staticmethod
     def _normalize_index_code(index_code: str) -> str:
         code = str(index_code or "").strip().upper()
+        code = re.sub(r"^(SH|SZ|BJ)", "", code)
         return re.sub(r"\.(CSI|CSINDEX|CNI|SH|SZ)$", "", code)
 
     @staticmethod

@@ -5,7 +5,7 @@ import re
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.modules.fund_nav.data_sources.index_catalog_source import IndexCatalogSource, MarketIndexSnapshot
+from app.modules.fund_nav.data_sources.akshare.index_catalog_source import IndexCatalogSource, MarketIndexSnapshot
 from app.modules.fund_nav.models.market_index import MarketIndex
 from app.utils.performance import timed
 

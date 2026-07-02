@@ -17,7 +17,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 import app.models  # noqa: F401
 from app.database import Base
-from app.modules.fund_nav.data_sources.akshare_source import FetchDiagnostic
+from app.modules.fund_nav.data_sources.akshare.akshare_source import FetchDiagnostic
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService

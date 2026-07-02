@@ -46,7 +46,11 @@ backend/app/modules/fund_nav/
 | `models/` | 基金、净值、持仓、行情、估算和任务队列表模型 |
 | `schemas/` | API 入参和出参 |
 | `services/` | 业务编排、数据库读写、任务执行 |
-| `data_sources/akshare_source.py` | 统一收口 AkShare 调用、缓存和接口级锁 |
+| `data_sources/akshare/akshare_source.py` | 收口通用 AkShare 调用、缓存和接口级锁，对服务层提供统一数据源入口 |
+| `data_sources/akshare/` | 通过 AkShare 调用的渠道数据源 |
+| `data_sources/web/` | 直接 requests 公开网页或公开接口的数据源 |
+| `data_sources/composites/` | 组合多个渠道的数据源编排器，例如指数行情优先实时行情、再回退日线行情 |
+| `data_sources/support/` | 测试、空实现或兜底辅助数据源 |
 | `scheduler/jobs.py` | 定时任务入口；只负责提交队列任务 |
 
 运行状态与错误日志位于独立运维模块：
@@ -386,7 +390,7 @@ dedupe_key = task_type + SHA256(规范化参数)
 基金模块所有直接 AkShare 调用必须放在：
 
 ```text
-backend/app/modules/fund_nav/data_sources/akshare_source.py
+backend/app/modules/fund_nav/data_sources/akshare/akshare_source.py
 ```
 
 业务 Service 不直接依赖 AkShare 函数名，便于统一增加缓存、锁、日志和备用源处理。

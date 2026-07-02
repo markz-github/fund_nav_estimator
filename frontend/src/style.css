@@ -906,6 +906,12 @@ tbody tr {
   font-weight: 700;
 }
 
+.task-log-warning {
+  margin-bottom: 8px;
+  color: #7a5200;
+  font-weight: 700;
+}
+
 .task-log-attempts {
   display: flex;
   flex-wrap: wrap;
