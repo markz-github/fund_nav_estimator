@@ -17,9 +17,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.modules.fund_nav.data_sources.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot, MarketQuoteSnapshot
-from app.modules.fund_nav.data_sources.eastmoney_source import EastmoneySource
-from app.modules.fund_nav.data_sources.index_catalog_source import MarketIndexSnapshot
+from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot, MarketQuoteSnapshot
+from app.modules.fund_nav.data_sources.web.eastmoney_source import EastmoneySource
+from app.modules.fund_nav.data_sources.akshare.index_catalog_source import MarketIndexSnapshot
 from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMappingSnapshot
 from app.database import Base
 from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
@@ -401,7 +401,7 @@ class FundNavRefreshTests(unittest.TestCase):
             ]
         )
 
-        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_info_em", return_value=dataframe) as fetcher:
+        with patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_open_fund_info_em", return_value=dataframe) as fetcher:
             snapshots = AkshareSource().get_fund_nav_history("18125")
 
         fetcher.assert_called_once_with(symbol="018125", indicator="单位净值走势", period="成立来")
@@ -499,9 +499,9 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with (
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_etf_spot_em", return_value=etf_df),
             patch(
-                "app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em",
+                "app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_open_fund_daily_em",
                 side_effect=AssertionError("open fund daily table should not be loaded for 5-prefix ETFs"),
             ),
         ):
@@ -1107,7 +1107,10 @@ class FundNavRefreshTests(unittest.TestCase):
                 )
             return pd.DataFrame(columns=columns)
 
-        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.stock_zh_index_spot_em", side_effect=fake_spot):
+        with patch(
+            "app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.stock_zh_index_spot_em",
+            side_effect=fake_spot,
+        ):
             quotes = AkshareSource().get_index_quotes(["399395"])
 
         self.assertEqual(len(quotes), 1)
@@ -1116,6 +1119,40 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(quotes[0].trade_date, quotes[0].quote_time.date())
         self.assertEqual(quotes[0].latest_price, Decimal("9352.43"))
         self.assertEqual(quotes[0].change_rate, Decimal("0.001"))
+
+    def test_index_quotes_fall_back_to_sina_realtime_when_eastmoney_spot_missing(self) -> None:
+        empty_spot = pd.DataFrame(columns=["代码", "名称", "最新价", "涨跌幅", "昨收"])
+        sina_spot = pd.DataFrame(
+            [
+                {
+                    "代码": "sz399395",
+                    "名称": "国证有色",
+                    "最新价": 9409.938,
+                    "涨跌幅": 0.615,
+                    "昨收": 9352.435,
+                }
+            ]
+        )
+
+        with (
+            patch(
+                "app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.stock_zh_index_spot_em",
+                return_value=empty_spot,
+            ),
+            patch(
+                "app.modules.fund_nav.data_sources.akshare.sina_index_source.ak.stock_zh_index_spot_sina",
+                return_value=sina_spot,
+            ),
+        ):
+            quotes = AkshareSource().get_index_quotes(["399395"])
+
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(quotes[0].asset_code, "399395")
+        self.assertEqual(quotes[0].asset_name, "国证有色")
+        self.assertEqual(quotes[0].trade_date, quotes[0].quote_time.date())
+        self.assertEqual(quotes[0].latest_price, Decimal("9409.938"))
+        self.assertEqual(quotes[0].prev_close, Decimal("9352.435"))
+        self.assertEqual(quotes[0].change_rate, Decimal("0.00615"))
 
     def test_index_quotes_fall_back_to_eastmoney_daily_when_spot_missing(self) -> None:
         empty_spot = pd.DataFrame(columns=["代码", "名称", "最新价", "涨跌幅", "昨收"])
@@ -1127,8 +1164,15 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with (
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.stock_zh_index_spot_em", return_value=empty_spot),
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.index_zh_a_hist", return_value=daily),
+            patch(
+                "app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.stock_zh_index_spot_em",
+                return_value=empty_spot,
+            ),
+            patch(
+                "app.modules.fund_nav.data_sources.akshare.sina_index_source.ak.stock_zh_index_spot_sina",
+                return_value=empty_spot,
+            ),
+            patch("app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.index_zh_a_hist", return_value=daily),
         ):
             quotes = AkshareSource().get_index_quotes(["930997.CSI"])
 
@@ -2029,7 +2073,7 @@ class FundNavRefreshTests(unittest.TestCase):
             ]
         )
 
-        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df) as daily:
+        with patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df) as daily:
             source = AkshareSource()
             first = source.get_latest_fund_nav("000001")
             second = source.get_latest_fund_nav("000002")
@@ -2041,7 +2085,7 @@ class FundNavRefreshTests(unittest.TestCase):
     def test_etf_spot_table_is_cached_for_repeated_refreshes(self) -> None:
         etf_df = pd.DataFrame([{"代码": "515450", "昨收": "1.098", "涨跌幅": "0.25"}])
 
-        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df) as etf:
+        with patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_etf_spot_em", return_value=etf_df) as etf:
             source = AkshareSource()
             source.get_latest_fund_nav("515450")
             source.get_latest_fund_nav("515450")
@@ -2067,9 +2111,9 @@ class FundNavRefreshTests(unittest.TestCase):
         response.text = "单位净值 (2026-06-03) 2.5043-0.86% 累计净值 2.5043"
 
         with (
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df),
-            patch("app.modules.fund_nav.data_sources.akshare_source.requests.get", return_value=response),
-            patch("app.modules.fund_nav.data_sources.akshare_source.date") as mocked_date,
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.requests.get", return_value=response),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.date") as mocked_date,
         ):
             mocked_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
             mocked_date.today.return_value = date(2026, 6, 5)
@@ -2098,9 +2142,9 @@ class FundNavRefreshTests(unittest.TestCase):
         response.text = "单位净值 (2026-06-04) 2.5059+0.06% 累计净值 2.5059"
 
         with (
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df),
-            patch("app.modules.fund_nav.data_sources.akshare_source.requests.get", return_value=response),
-            patch("app.modules.fund_nav.data_sources.akshare_source.date") as mocked_date,
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.requests.get", return_value=response),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.date") as mocked_date,
         ):
             mocked_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
             mocked_date.today.return_value = date(2026, 6, 7)
@@ -2122,10 +2166,10 @@ class FundNavRefreshTests(unittest.TestCase):
         response.text = "<table><tr><td>06-04</td><td>1.3721</td><td>1.3721</td><td>2.14%</td></tr></table>"
 
         with (
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df),
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df),
-            patch("app.modules.fund_nav.data_sources.akshare_source.requests.get", return_value=response),
-            patch("app.modules.fund_nav.data_sources.akshare_source.date") as mocked_date,
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_etf_spot_em", return_value=etf_df),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_open_fund_daily_em", return_value=daily_df),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.requests.get", return_value=response),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.date") as mocked_date,
         ):
             mocked_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
             mocked_date.today.return_value = date(2026, 6, 5)
@@ -2144,7 +2188,7 @@ class FundNavRefreshTests(unittest.TestCase):
             sleep(0.05)
             return etf_df
 
-        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", side_effect=slow_fetch) as etf:
+        with patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_etf_spot_em", side_effect=slow_fetch) as etf:
             with ThreadPoolExecutor(max_workers=2) as executor:
                 results = list(executor.map(lambda _: AkshareSource._get_etf_spot_dataframe(), range(2)))
 
@@ -2159,7 +2203,7 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em",
+            "app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_etf_spot_em",
             side_effect=RuntimeError("network down"),
         ):
             result = AkshareSource._get_etf_spot_dataframe()
@@ -2174,7 +2218,7 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with patch(
-            "app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em",
+            "app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_etf_spot_em",
             side_effect=RuntimeError("network down"),
         ):
             with self.assertRaises(RuntimeError):
@@ -2186,8 +2230,8 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with (
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.stock_zh_a_spot", return_value=primary_df),
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.stock_zh_a_spot_em") as backup,
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.stock_zh_a_spot", return_value=primary_df),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.stock_zh_a_spot_em") as backup,
             patch.object(AkshareSource, "_get_sina_quote", return_value=None),
             patch.object(AkshareSource, "_get_latest_history_quote", return_value=None),
         ):
@@ -2205,7 +2249,7 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with (
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df) as etf,
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_etf_spot_em", return_value=etf_df) as etf,
             patch.object(AkshareSource, "_get_sina_quote", return_value=None),
             patch.object(AkshareSource, "_get_latest_history_quote", return_value=None),
         ):
@@ -2223,7 +2267,7 @@ class FundNavRefreshTests(unittest.TestCase):
             [{"代码": "561560", "名称": "电力ETF华泰柏瑞", "最新价": "1.464", "涨跌幅": "-1.81"}]
         )
 
-        with patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em", return_value=etf_df):
+        with patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_etf_spot_em", return_value=etf_df):
             snapshot = AkshareSource().get_etf_iopv_snapshot("561560")
 
         self.assertIsNotNone(snapshot)
@@ -2246,10 +2290,10 @@ class FundNavRefreshTests(unittest.TestCase):
 
         with (
             patch(
-                "app.modules.fund_nav.data_sources.akshare_source.ak.fund_etf_spot_em",
+                "app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_etf_spot_em",
                 side_effect=RuntimeError("remote disconnected"),
             ),
-            patch("app.modules.fund_nav.data_sources.akshare_source.requests.get", return_value=response),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.requests.get", return_value=response),
             patch.object(AkshareSource, "_get_sina_quote", return_value=None),
             patch.object(AkshareSource, "_get_latest_history_quote", return_value=None),
         ):
@@ -2277,9 +2321,9 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with (
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_portfolio_hold_em", return_value=holding_df),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_portfolio_hold_em", return_value=holding_df),
             patch(
-                "app.modules.fund_nav.data_sources.akshare_source.ak.fund_portfolio_bond_hold_em",
+                "app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_portfolio_bond_hold_em",
                 return_value=pd.DataFrame(),
             ),
         ):
@@ -2316,8 +2360,8 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with (
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_portfolio_hold_em", return_value=stock_df),
-            patch("app.modules.fund_nav.data_sources.akshare_source.ak.fund_portfolio_bond_hold_em", return_value=bond_df),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_portfolio_hold_em", return_value=stock_df),
+            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_portfolio_bond_hold_em", return_value=bond_df),
         ):
             holdings = AkshareSource().get_fund_holdings("018125")
 

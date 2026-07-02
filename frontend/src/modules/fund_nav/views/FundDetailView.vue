@@ -157,7 +157,18 @@ function strategyLabel(strategy?: string | null) {
 
 function resultClass(result?: string | null) {
   if (result === 'success') return 'status-ok'
+  if (result === 'stale_index_quote') return 'status-warn'
   return 'status-muted'
+}
+
+function indexQuoteWarning(log: FundTaskDetailLog) {
+  const staleAttempt = log.attempts?.find(
+    (attempt) => attempt.strategy === 'index_tracking' && attempt.result === 'stale_index_quote',
+  )
+  if (!staleAttempt) return ''
+  return log.status === 'success'
+    ? '指数法行情滞后，已回退到其他算法估算。'
+    : '指数法行情滞后，未能使用跟踪指数估算。'
 }
 
 async function loadDetail() {
@@ -594,6 +605,9 @@ onBeforeUnmount(disposeNavChart)
             <td class="quality-message task-log-message" data-label="原因/过程">
               <div v-if="log.reason_label && log.status !== 'success'" class="task-log-final-reason">
                 最终原因：{{ log.reason_label }}
+              </div>
+              <div v-if="indexQuoteWarning(log)" class="task-log-warning">
+                {{ indexQuoteWarning(log) }}
               </div>
               <div v-if="log.attempts?.length" class="task-log-attempts">
                 <span

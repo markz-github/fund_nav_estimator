@@ -24,7 +24,7 @@ from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.index_catalog_service import IndexCatalogService
 from app.modules.fund_nav.services.market_service import MarketService
 from app.modules.fund_nav.services.nav_quality_service import FundNavQualityService
-from app.modules.fund_nav.data_sources.akshare_source import FetchDiagnostic
+from app.modules.fund_nav.data_sources.akshare.akshare_source import FetchDiagnostic
 from app.modules.operations.models.task_log import TaskLog
 from app.modules.operations.services.operation_log_service import log_fetch_error
 

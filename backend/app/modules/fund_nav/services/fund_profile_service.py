@@ -8,7 +8,7 @@ from time import perf_counter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.modules.fund_nav.data_sources.akshare_source import AkshareSource
+from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_profile import FundProfile
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
