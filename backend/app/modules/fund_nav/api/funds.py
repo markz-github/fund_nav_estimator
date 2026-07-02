@@ -17,6 +17,7 @@ from app.modules.fund_nav.schemas.manual_index_mapping import (
     PendingManualFundMappingOut,
 )
 from app.modules.fund_nav.services.fund_service import FundService
+from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
 from app.modules.fund_nav.schemas.task_detail import FundTaskDetailLogOut
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
@@ -81,6 +82,11 @@ def refresh_index_catalog(db: Session = Depends(get_db)) -> dict:
     )
 
 
+@router.post("/actions/initialize-categories")
+def initialize_fund_categories(db: Session = Depends(get_db)) -> dict:
+    return FundProfileService(db).initialize_fund_categories()
+
+
 @router.get("/index-mappings/manual", response_model=list[ManualFundIndexMappingOut])
 def list_manual_index_mappings(db: Session = Depends(get_db)):
     return ManualIndexMappingService(db).list_mappings()
@@ -89,6 +95,14 @@ def list_manual_index_mappings(db: Session = Depends(get_db)):
 @router.get("/index-mappings/manual/pending", response_model=list[PendingManualFundMappingOut])
 def list_pending_manual_index_mappings(db: Session = Depends(get_db)):
     return ManualIndexMappingService(db).list_pending_mappings()
+
+
+@router.delete("/index-mappings/manual/pending/{issue_id}", status_code=status.HTTP_204_NO_CONTENT)
+def resolve_pending_manual_index_mapping(issue_id: int, db: Session = Depends(get_db)) -> Response:
+    resolved = ManualIndexMappingService(db).resolve_pending_mapping(issue_id)
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Pending mapping issue not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

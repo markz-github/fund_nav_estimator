@@ -5,6 +5,10 @@ export interface Fund {
   fund_code: string
   fund_name: string
   fund_type?: string | null
+  fund_category?: string | null
+  fund_category_label?: string | null
+  fund_category_source?: string | null
+  fund_category_updated_at?: string | null
   enabled: number
   remark?: string | null
   tracked_index_code?: string | null

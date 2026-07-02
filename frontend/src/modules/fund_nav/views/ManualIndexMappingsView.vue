@@ -5,6 +5,7 @@ import { apiErrorMessage } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
 import { formatDateTime } from '../../../utils/datetime'
 import {
+  deletePendingManualIndexMapping,
   deleteManualIndexMapping,
   listManualIndexMappings,
   listPendingManualIndexMappings,
@@ -170,6 +171,17 @@ async function removeMapping(mapping: ManualFundIndexMapping) {
   }
 }
 
+async function removePending(issue: PendingManualFundMapping) {
+  message.value = ''
+  try {
+    await deletePendingManualIndexMapping(issue.id)
+    message.value = '待维护提示已删除。'
+    await loadMappings()
+  } catch (error) {
+    message.value = apiErrorMessage(error, '待维护提示删除失败。')
+  }
+}
+
 onMounted(loadMappings)
 </script>
 
@@ -231,7 +243,10 @@ onMounted(loadMappings)
             </td>
             <td data-label="发现时间">{{ formatDateTime(issue.occurred_at) }}</td>
             <td data-label="操作">
-              <button class="ghost" type="button" @click="maintainPending(issue)">维护</button>
+              <div class="quick-actions">
+                <button class="ghost" type="button" @click="maintainPending(issue)">维护</button>
+                <button class="danger" type="button" @click="removePending(issue)">删除</button>
+              </div>
             </td>
           </tr>
         </tbody>

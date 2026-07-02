@@ -13,6 +13,7 @@ class FundProfile(Base):
         UniqueConstraint("fund_code", name="uk_fund_profiles_code"),
         Index("idx_fund_profiles_name", "fund_name"),
         Index("idx_fund_profiles_type", "fund_type"),
+        Index("idx_fund_profiles_category", "fund_category"),
         Index("idx_fund_profiles_synced_at", "synced_at"),
     )
 
@@ -20,6 +21,9 @@ class FundProfile(Base):
     fund_code: Mapped[str] = mapped_column(String(20), nullable=False)
     fund_name: Mapped[str] = mapped_column(String(100), nullable=False)
     fund_type: Mapped[Optional[str]] = mapped_column(String(50))
+    fund_category: Mapped[Optional[str]] = mapped_column(String(30))
+    fund_category_source: Mapped[Optional[str]] = mapped_column(String(30))
+    fund_category_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     source: Mapped[str] = mapped_column(String(50), nullable=False, default="akshare")
     synced_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)

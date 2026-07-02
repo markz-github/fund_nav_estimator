@@ -12,6 +12,9 @@ CREATE TABLE funds (
     fund_code VARCHAR(20) NOT NULL UNIQUE COMMENT '基金代码',
     fund_name VARCHAR(100) NOT NULL COMMENT '基金名称',
     fund_type VARCHAR(50) NULL COMMENT '基金类型，如股票型、混合型、债券型、指数型',
+    fund_category VARCHAR(30) NULL COMMENT '系统统一基金分类，如 normal、index_tracking、etf、etf_feeder、qdii',
+    fund_category_source VARCHAR(30) NULL COMMENT '分类来源，如 auto、manual',
+    fund_category_updated_at DATETIME NULL COMMENT '分类更新时间',
     enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用估算',
     remark VARCHAR(255) NULL COMMENT '备注',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -29,6 +32,9 @@ CREATE TABLE fund_profiles (
     fund_code VARCHAR(20) NOT NULL COMMENT '基金代码',
     fund_name VARCHAR(100) NOT NULL COMMENT '基金名称',
     fund_type VARCHAR(50) NULL COMMENT '基金类型',
+    fund_category VARCHAR(30) NULL COMMENT '系统统一基金分类，如 normal、index_tracking、etf、etf_feeder、qdii',
+    fund_category_source VARCHAR(30) NULL COMMENT '分类来源，如 auto、manual',
+    fund_category_updated_at DATETIME NULL COMMENT '分类更新时间',
     source VARCHAR(50) NOT NULL DEFAULT 'akshare' COMMENT '数据来源',
     synced_at DATETIME NOT NULL COMMENT '最近同步时间',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -36,8 +42,27 @@ CREATE TABLE fund_profiles (
     UNIQUE KEY uk_fund_profiles_code (fund_code),
     INDEX idx_fund_profiles_name (fund_name),
     INDEX idx_fund_profiles_type (fund_type),
+    INDEX idx_fund_profiles_category (fund_category),
     INDEX idx_fund_profiles_synced_at (synced_at)
 );
+```
+
+已有数据库需要补充统一分类字段：
+
+```sql
+ALTER TABLE funds
+    ADD COLUMN fund_category VARCHAR(30) NULL COMMENT '系统统一基金分类' AFTER fund_type,
+    ADD COLUMN fund_category_source VARCHAR(30) NULL COMMENT '分类来源，如 auto、manual' AFTER fund_category,
+    ADD COLUMN fund_category_updated_at DATETIME NULL COMMENT '分类更新时间' AFTER fund_category_source;
+
+CREATE INDEX idx_funds_category ON funds (fund_category);
+
+ALTER TABLE fund_profiles
+    ADD COLUMN fund_category VARCHAR(30) NULL COMMENT '系统统一基金分类' AFTER fund_type,
+    ADD COLUMN fund_category_source VARCHAR(30) NULL COMMENT '分类来源，如 auto、manual' AFTER fund_category,
+    ADD COLUMN fund_category_updated_at DATETIME NULL COMMENT '分类更新时间' AFTER fund_category_source;
+
+CREATE INDEX idx_fund_profiles_category ON fund_profiles (fund_category);
 ```
 
 ## fund_navs

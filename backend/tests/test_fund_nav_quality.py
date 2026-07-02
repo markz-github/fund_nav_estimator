@@ -291,6 +291,26 @@ class FundNavQualityTests(unittest.TestCase):
         self.assertEqual(pending[0]["mapping_type"], "index")
         self.assertEqual(resolved.resolved, 1)
 
+    def test_manual_mapping_page_can_resolve_pending_issue_without_mapping(self) -> None:
+        self.db.add(
+            DataFetchError(
+                id=1,
+                source="quality_check",
+                data_type="fund_mapping",
+                target_code="501009",
+                error_message="mapping_type=index;reason=missing_index_mapping;action=manual_index_mapping_required",
+                occurred_at=datetime(2026, 6, 8, 21, 31),
+                resolved=0,
+            )
+        )
+        self.db.commit()
+
+        resolved = ManualIndexMappingService(self.db).resolve_pending_mapping(1)
+        error = self.db.get(DataFetchError, 1)
+
+        self.assertTrue(resolved)
+        self.assertEqual(error.resolved, 1)
+
     def test_estimate_drift_only_compares_dates_with_official_nav_and_uses_latest_estimate(self) -> None:
         self.db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))
         self.db.add_all(

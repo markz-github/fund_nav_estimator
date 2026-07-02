@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import logging
 
 from sqlalchemy import Select, asc, desc, func, select
@@ -13,6 +13,7 @@ from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.schemas.fund import FundCreate
+from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
 
@@ -89,12 +90,16 @@ class FundService:
             fund.enabled = 1
             fund.fund_name = profile.fund_name if profile else fund_code
             fund.fund_type = profile.fund_type if profile else None
+            self._sync_fund_category(fund, profile)
             fund.remark = payload.remark
         else:
             fund = Fund(
                 fund_code=fund_code,
                 fund_name=profile.fund_name if profile else fund_code,
                 fund_type=profile.fund_type if profile else None,
+                fund_category=FundClassifier.classify_from_attributes(profile) if profile else None,
+                fund_category_source="auto" if profile else None,
+                fund_category_updated_at=datetime.now() if profile else None,
                 remark=payload.remark,
             )
             self.db.add(fund)
@@ -114,6 +119,7 @@ class FundService:
             return fund
         fund.fund_name = profile.fund_name
         fund.fund_type = profile.fund_type
+        self._sync_fund_category(fund, profile)
         self.db.commit()
         self.db.refresh(fund)
         return fund
@@ -281,6 +287,10 @@ class FundService:
             "fund_code": fund.fund_code,
             "fund_name": fund.fund_name,
             "fund_type": fund.fund_type,
+            "fund_category": FundClassifier.category_for(fund),
+            "fund_category_label": FundClassifier.category_label(FundClassifier.category_for(fund)),
+            "fund_category_source": fund.fund_category_source,
+            "fund_category_updated_at": fund.fund_category_updated_at,
             "enabled": fund.enabled,
             "remark": fund.remark,
             "tracked_index_code": index_mapping.index_code if index_mapping else None,
@@ -375,3 +385,12 @@ class FundService:
         if next_source == "akshare:eastmoney_fund_page":
             return nav.source in {"akshare:etf_spot", "akshare:etf_spot_prev_close"}
         return nav.source == "akshare:etf_spot" and next_source == "akshare:etf_spot_prev_close"
+
+    @staticmethod
+    def _sync_fund_category(fund: Fund, profile) -> None:
+        if fund.fund_category_source == "manual":
+            return
+        source = profile if profile is not None else fund
+        fund.fund_category = FundClassifier.classify_from_attributes(source)
+        fund.fund_category_source = "auto"
+        fund.fund_category_updated_at = datetime.now()
