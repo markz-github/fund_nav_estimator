@@ -28,6 +28,7 @@ from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.models.fund_profile import FundProfile
 from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
 from app.modules.fund_nav.models.manual_fund_index_mapping import ManualFundIndexMapping
 from app.modules.fund_nav.models.market_index import MarketIndex
@@ -37,7 +38,9 @@ from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.schemas.manual_index_mapping import ManualFundIndexMappingIn
 from app.modules.fund_nav.schemas.task_detail import FundTaskDetailLogOut
 from app.modules.fund_nav.services.fund_service import FundService
+from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
+from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.index_catalog_service import IndexCatalogService
 from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
@@ -149,6 +152,89 @@ class FundNavRefreshTests(unittest.TestCase):
             db.close()
 
         self.assertEqual(funds[0]["latest_estimate_date"], date(2026, 6, 8))
+
+    def test_fund_category_is_saved_from_profile_and_returned_in_list(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        db.add_all(
+            [
+                FundProfile(
+                    id=1,
+                    fund_code="501009",
+                    fund_name="汇添富中证生物科技指数(LOF)A",
+                    fund_type="指数型-股票",
+                    fund_category="index_tracking",
+                    fund_category_source="auto",
+                    fund_category_updated_at=datetime(2026, 6, 8, 21, 0),
+                    source="test",
+                    synced_at=datetime(2026, 6, 8, 21, 0),
+                ),
+                Fund(
+                    id=100,
+                    fund_code="501009",
+                    fund_name="501009",
+                    is_deleted=1,
+                ),
+            ]
+        )
+        db.commit()
+
+        try:
+            fund = FundService(db, source).create_fund(FundCreate(fund_code="501009"))
+            rows = FundService(db, source).list_funds()
+        finally:
+            db.close()
+
+        self.assertEqual(fund.fund_category, "index_tracking")
+        self.assertEqual(rows[0]["fund_category"], "index_tracking")
+        self.assertEqual(rows[0]["fund_category_label"], "指数跟踪基金")
+
+    def test_fund_classifier_prefers_saved_category(self) -> None:
+        fund = Fund(
+            id=1,
+            fund_code="501009",
+            fund_name="普通基金",
+            fund_type="混合型",
+            fund_category="index_tracking",
+            fund_category_source="auto",
+        )
+
+        self.assertTrue(FundClassifier.is_index_tracking_fund(fund))
+
+    def test_initialize_fund_categories_backfills_profiles_and_funds(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add_all(
+            [
+                FundProfile(
+                    id=1,
+                    fund_code="501009",
+                    fund_name="汇添富中证生物科技指数(LOF)A",
+                    fund_type="指数型-股票",
+                    source="test",
+                    synced_at=datetime(2026, 6, 8, 21, 0),
+                ),
+                Fund(id=1, fund_code="012805", fund_name="广发恒生科技ETF联接(QDII)A"),
+            ]
+        )
+        db.commit()
+
+        try:
+            result = FundProfileService(db).initialize_fund_categories()
+            profile = db.scalar(select(FundProfile).where(FundProfile.fund_code == "501009"))
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "012805"))
+        finally:
+            db.close()
+
+        self.assertEqual(result, {"profiles": 1, "funds": 1})
+        self.assertEqual(profile.fund_category, "index_tracking")
+        self.assertEqual(fund.fund_category, "etf_feeder")
 
     def test_refresh_nav_replaces_legacy_today_etf_spot_cache(self) -> None:
         engine = create_engine("sqlite:///:memory:")

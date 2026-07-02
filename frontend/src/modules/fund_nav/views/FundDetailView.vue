@@ -141,6 +141,12 @@ function statusClass(status?: string | null) {
   return 'status-warn'
 }
 
+function categorySourceLabel(source?: string | null) {
+  if (source === 'auto') return '自动识别'
+  if (source === 'manual') return '人工维护'
+  return '-'
+}
+
 function strategyLabel(strategy?: string | null) {
   if (strategy === 'index_tracking') return '指数法'
   if (strategy === 'holding_weighted') return '持仓法'
@@ -440,6 +446,11 @@ onBeforeUnmount(disposeNavChart)
     <p v-if="loading" class="message">正在加载详情...</p>
 
     <section v-if="fund" class="info-grid">
+      <article class="info-card">
+        <span>统一分类</span>
+        <strong>{{ fund.fund_category_label ?? fund.fund_category ?? '未分类' }}</strong>
+        <small class="muted">{{ categorySourceLabel(fund.fund_category_source) }}</small>
+      </article>
       <article class="info-card">
         <span>基金类型</span>
         <strong>{{ fund.fund_type ?? '-' }}</strong>

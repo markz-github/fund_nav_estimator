@@ -37,6 +37,10 @@ class FundOut(BaseModel):
     fund_code: str
     fund_name: str
     fund_type: str | None = None
+    fund_category: str | None = None
+    fund_category_label: str | None = None
+    fund_category_source: str | None = None
+    fund_category_updated_at: datetime | None = None
     enabled: int
     remark: str | None = None
     tracked_index_code: str | None = None

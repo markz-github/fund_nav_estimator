@@ -65,6 +65,16 @@ backend/app/modules/fund_nav/services/fund_classifier.py
 
 所有业务代码如果需要判断基金类别，必须调用 `FundClassifier`，不要在各自 Service 中重复按 `fund_name`、`fund_type` 或基金代码前缀临时判断。
 
+系统会把统一分类结果保存到 `funds.fund_category` 和 `fund_profiles.fund_category`。业务判断优先读取已保存的分类；字段为空时再由 `FundClassifier` 根据基金名称、原始基金类型和代码规则即时判断。刷新基金资料、新增自选基金、手动初始化分类时会写入分类结果。
+
+分类字段：
+
+| 字段 | 说明 |
+|---|---|
+| `fund_category` | 系统统一分类：`normal`、`index_tracking`、`etf`、`etf_feeder`、`qdii` |
+| `fund_category_source` | 分类来源：`auto`、`manual` |
+| `fund_category_updated_at` | 分类更新时间 |
+
 当前分类语义：
 
 | 方法 | 语义 | 典型用途 |
@@ -80,6 +90,7 @@ backend/app/modules/fund_nav/services/fund_classifier.py
 - “指数跟踪基金”和“指数相关基金”不是同一个概念。
 - ETF 和 ETF 联接基金名称或类型中经常包含“指数”，但不能因此被加入“缺少跟踪指数”的人工维护列表。
 - 巡检、估算、行情刷新、持仓刷新必须共享同一套分类语义，避免页面提示和实际估算策略不一致。
+- 如果某基金已保存人工分类，自动刷新资料不能覆盖人工分类。当前页面先展示统一分类结果，后续如需要人工分类维护，应通过独立维护入口更新 `fund_category_source = manual`。
 
 ### 2.4 不同基金类型处理策略
 
@@ -112,13 +123,13 @@ backend/app/modules/fund_nav/services/fund_classifier.py
 
 ### 3.1 自选基金
 
-`funds` 保存用户关注的基金。新增基金时优先从本地 `fund_profiles` 查找名称和类型，接口不直接执行耗时的全量资料同步。
+`funds` 保存用户关注的基金。新增基金时优先从本地 `fund_profiles` 查找名称、类型和统一分类，接口不直接执行耗时的全量资料同步。
 
 新增成功后自动提交 `sync_new_fund_data` 队列任务，由后台补齐资料、指数映射、官方净值、持仓、行情和估算结果。
 
 ### 3.2 基金资料
 
-`fund_profiles` 保存从 `ak.fund_name_em()` 同步的全量基金名称和类型。
+`fund_profiles` 保存从 `ak.fund_name_em()` 同步的全量基金名称、类型和系统统一分类。
 
 资料读取遵循数据库优先原则：
 

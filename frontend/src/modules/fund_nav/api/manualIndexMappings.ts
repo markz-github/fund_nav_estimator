@@ -67,3 +67,7 @@ export async function deleteManualIndexMapping(
     params: { mapping_type: mappingType },
   })
 }
+
+export async function deletePendingManualIndexMapping(issueId: number): Promise<void> {
+  await apiClient.delete(`/funds/index-mappings/manual/pending/${issueId}`)
+}

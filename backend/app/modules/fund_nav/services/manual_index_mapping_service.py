@@ -94,6 +94,16 @@ class ManualIndexMappingService:
         self.db.commit()
         return True
 
+    def resolve_pending_mapping(self, issue_id: int) -> bool:
+        error = self.db.get(DataFetchError, issue_id)
+        if error is None:
+            return False
+        if error.source != "quality_check" or error.data_type != "fund_mapping" or error.resolved == 1:
+            return False
+        error.resolved = 1
+        self.db.commit()
+        return True
+
     def get_target_etf_holding(self, fund_code: str) -> dict | None:
         mapping = self.get_mapping(fund_code, "target_etf")
         if mapping is None:
