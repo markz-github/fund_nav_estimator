@@ -138,7 +138,6 @@ jobs:
               "$@" 2>&1 | tee -a .deploy.log
             }
 
-            docker logout 192.168.50.50:16060 2>&1 | tee -a .deploy.log || true
             run_with_retry "Pull backend test image" docker pull "$BACKEND_TEST_IMAGE"
             run_with_retry "Run backend tests" docker run --rm \
               -v "$PWD:/workspace" \
