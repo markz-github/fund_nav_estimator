@@ -164,7 +164,7 @@ http://127.0.0.1:5173/fund-nav
 
 本地 Docker 仓库地址为 `http://192.168.50.50:16060/repository/docker-group/`。在 Dockerfile、Compose 和部署脚本中引用镜像时使用 Docker registry 前缀 `192.168.50.50:16060`，不要带 `http://` 或 `/repository/docker-group/` 路径。
 
-测试基础镜像推送到 hosted 仓库 `192.168.50.50:16061`，自动部署拉取时使用 group 仓库 `192.168.50.50:16060`。`docker-group` 配置为匿名拉取，Gitea 自动部署不需要 Docker 仓库账号密码。
+测试基础镜像推送到 hosted 仓库 `192.168.50.50:16061`，自动部署运行测试镜像时使用 group 仓库地址 `192.168.50.50:16060`。部署脚本不显式执行 `docker pull`，Docker 会优先使用 runner 本地缓存；本地没有该镜像时再隐式从 group 仓库拉取。
 
 ```powershell
 docker build -f backend/Dockerfile.base `
