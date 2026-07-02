@@ -42,6 +42,7 @@ class EstimateDriftFundSummaryOut(BaseModel):
     comparable_count: int
     max_difference_rate: Decimal | None = None
     avg_difference_rate: Decimal | None = None
+    recent_7_trading_day_difference_rate: Decimal | None = None
     latest_date: date | None = None
     latest_difference_rate: Decimal | None = None
     threshold_exceeded_count: int = 0

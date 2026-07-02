@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMappingSnapshot, FundIndexMappingSource
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
+from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.index_catalog_service import IndexCatalogService
 from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
 from app.utils.performance import timed
@@ -119,6 +120,4 @@ class FundIndexMappingService:
 
     @staticmethod
     def _is_index_related_fund(fund: Fund) -> bool:
-        fund_name = (fund.fund_name or "").upper()
-        fund_type = (fund.fund_type or "").upper()
-        return "指数" in (fund.fund_type or "") or "ETF" in fund_name or "ETF" in fund_type
+        return FundClassifier.is_index_related_fund(fund)

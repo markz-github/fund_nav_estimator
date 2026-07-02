@@ -15,6 +15,7 @@ from app.modules.fund_nav.data_sources.sina_source import SinaFundSource
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
+from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
 from app.utils.performance import timed
@@ -226,6 +227,10 @@ class HoldingService:
             profile = None
         if not fund_name and profile is not None:
             fund_name = profile.fund_name or ""
+        if local_fund is not None:
+            return FundClassifier.is_etf_feeder_fund(local_fund)
+        if profile is not None:
+            return FundClassifier.is_etf_feeder_fund(profile)
         return "ETF联接" in fund_name or "联接" in fund_name
 
     def _infer_target_fund_holding(self, fund_code: str) -> dict | None:
@@ -233,7 +238,7 @@ class HoldingService:
         if profile is None or not profile.fund_name:
             return None
         fund_name = profile.fund_name
-        if "联接" not in fund_name:
+        if not FundClassifier.is_etf_feeder_fund(profile):
             return None
 
         candidates = self.db.scalars(

@@ -21,6 +21,7 @@ from app.modules.fund_nav.services.asset_valuation_config_service import (
     AssetValuationConfigMap,
     load_asset_valuation_config_map,
 )
+from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.nav_quality_service import FundNavQualityService
 from app.utils.performance import timed
 
@@ -386,16 +387,11 @@ class EstimateService:
 
     @staticmethod
     def is_exchange_traded_fund(fund: Fund) -> bool:
-        fund_code = str(fund.fund_code or "").strip()
-        fund_name = fund.fund_name or ""
-        fund_type = fund.fund_type or ""
-        return fund_code.startswith(("5", "1")) and ("ETF" in fund_name.upper() or "ETF" in fund_type.upper())
+        return FundClassifier.is_exchange_traded_fund(fund)
 
     @staticmethod
     def is_index_tracking_fund(fund: Fund) -> bool:
-        fund_name = fund.fund_name or ""
-        fund_type = fund.fund_type or ""
-        return "指数" in fund_type and "ETF" not in fund_name.upper() and "ETF" not in fund_type.upper()
+        return FundClassifier.is_index_tracking_fund(fund)
 
     def _has_etf_nav_source(self, fund_code: str) -> bool:
         fund_code = str(fund_code or "").strip()

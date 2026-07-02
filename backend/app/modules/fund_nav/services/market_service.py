@@ -12,6 +12,7 @@ from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.fund_nav.services.asset_valuation_config_service import load_asset_valuation_config_map
+from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.utils.performance import timed
 
 
@@ -156,10 +157,7 @@ class MarketService:
         for fund in funds:
             fund_code = str(fund.fund_code or "").strip()
             fund_name = fund.fund_name or ""
-            fund_type = fund.fund_type or ""
-            if not fund_code.startswith(("5", "1")):
-                continue
-            if "ETF" not in fund_name.upper() and "ETF" not in fund_type.upper():
+            if not FundClassifier.is_exchange_traded_fund(fund):
                 continue
             assets[fund_code] = {
                 "asset_name": fund_name,
@@ -169,20 +167,23 @@ class MarketService:
         return assets
 
     def _index_assets_from_mappings(self, fund_codes: list[str] | None = None) -> dict[str, dict[str, str | None]]:
-        fund_statement = select(Fund.fund_code).where(
-            Fund.enabled == 1,
-            Fund.fund_type.like("%指数%"),
-            ~Fund.fund_name.like("%ETF%"),
-            ~Fund.fund_type.like("%ETF%"),
-        )
+        fund_statement = select(Fund).where(Fund.enabled == 1)
         if fund_codes:
             fund_statement = fund_statement.where(Fund.fund_code.in_(fund_codes))
-        eligible_funds = fund_statement.subquery()
+        eligible_fund_codes = [
+            fund.fund_code
+            for fund in self.db.scalars(fund_statement).all()
+            if FundClassifier.is_index_tracking_fund(fund)
+        ]
+        if not eligible_fund_codes:
+            return {}
 
         rows = self.db.execute(
             select(FundIndexMapping.index_code, FundIndexMapping.index_name)
-            .join(eligible_funds, FundIndexMapping.fund_code == eligible_funds.c.fund_code)
-            .where(FundIndexMapping.index_code.is_not(None))
+            .where(
+                FundIndexMapping.fund_code.in_(eligible_fund_codes),
+                FundIndexMapping.index_code.is_not(None),
+            )
             .distinct()
         ).all()
         return {

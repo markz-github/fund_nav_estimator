@@ -38,6 +38,7 @@ class EstimateDriftService:
             points = points_by_fund.get(fund.fund_code, [])
             comparable_count = len(points)
             difference_rates = [point["difference_rate"] for point in points]
+            recent_7_difference_rates = difference_rates[-7:]
             exceeded_count = (
                 sum(1 for value in difference_rates if threshold is not None and value >= threshold)
                 if threshold is not None
@@ -53,6 +54,11 @@ class EstimateDriftService:
                     "avg_difference_rate": (
                         sum(difference_rates, Decimal("0")) / Decimal(comparable_count)
                         if comparable_count
+                        else None
+                    ),
+                    "recent_7_trading_day_difference_rate": (
+                        sum(recent_7_difference_rates, Decimal("0")) / Decimal(len(recent_7_difference_rates))
+                        if recent_7_difference_rates
                         else None
                     ),
                     "latest_date": latest_point["estimate_date"] if latest_point else None,
