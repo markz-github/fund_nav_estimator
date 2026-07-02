@@ -125,11 +125,13 @@ jobs:
           if [[ "$DEPLOY_BACKEND" == "true" ]]; then
             echo "Testing backend before deployment." | tee -a .deploy.log
             echo "Using backend test image: ${BACKEND_TEST_IMAGE}" | tee -a .deploy.log
-            docker run --rm \
-              -v "$PWD:/workspace" \
-              -w /workspace/backend \
-              "$BACKEND_TEST_IMAGE" \
-              python -B -m pytest -p no:cacheprovider tests 2>&1 | tee -a .deploy.log
+            backend_test_run_image="fund-nav-estimator-backend-test:${GITHUB_SHA:-local}"
+            docker build \
+              --build-arg BACKEND_TEST_IMAGE="$BACKEND_TEST_IMAGE" \
+              -f backend/Dockerfile.test \
+              -t "$backend_test_run_image" \
+              backend 2>&1 | tee -a .deploy.log
+            docker run --rm "$backend_test_run_image" 2>&1 | tee -a .deploy.log
           else
             echo "No backend changes detected; skipping backend tests." | tee -a .deploy.log
           fi

@@ -1,0 +1,8 @@
+ARG BACKEND_TEST_IMAGE=192.168.50.50:16060/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260702
+FROM ${BACKEND_TEST_IMAGE}
+
+WORKDIR /workspace/backend
+
+COPY . .
+
+CMD ["python", "-B", "-m", "pytest", "-p", "no:cacheprovider", "tests"]
