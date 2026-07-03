@@ -4,6 +4,7 @@ export const routeNames = {
   fundNavQuality: 'fund-nav-quality',
   estimateDriftList: 'estimate-drift-list',
   estimateDriftDetail: 'estimate-drift-detail',
+  fundEstimateLogs: 'fund-estimate-logs',
   manualIndexMappings: 'manual-index-mappings',
   operations: 'operations',
   fundNavHistory: 'fund-nav-history',

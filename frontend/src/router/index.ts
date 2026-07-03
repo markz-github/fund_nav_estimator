@@ -3,6 +3,7 @@ import FundListView from '../modules/fund_nav/views/FundListView.vue'
 import FundDetailView from '../modules/fund_nav/views/FundDetailView.vue'
 import EstimateDriftDetailView from '../modules/fund_nav/views/EstimateDriftDetailView.vue'
 import EstimateDriftListView from '../modules/fund_nav/views/EstimateDriftListView.vue'
+import FundEstimateLogsView from '../modules/fund_nav/views/FundEstimateLogsView.vue'
 import FundNavQualityView from '../modules/fund_nav/views/FundNavQualityView.vue'
 import ManualIndexMappingsView from '../modules/fund_nav/views/ManualIndexMappingsView.vue'
 import OperationsView from '../modules/fund_nav/operations/views/OperationsView.vue'
@@ -45,6 +46,11 @@ const router = createRouter({
       path: '/fund-nav/quality/estimate-drift/:fundCode',
       name: routeNames.estimateDriftDetail,
       component: EstimateDriftDetailView,
+    },
+    {
+      path: '/fund-nav/estimate-logs',
+      name: routeNames.fundEstimateLogs,
+      component: FundEstimateLogsView,
     },
     {
       path: '/fund-nav/index-mappings/manual',
