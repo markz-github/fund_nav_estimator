@@ -823,6 +823,15 @@ tbody tr {
   flex: 0 1 260px;
 }
 
+.compact-filter .el-date-editor {
+  width: 100%;
+}
+
+.compact-filter .el-input__wrapper {
+  min-height: 42px;
+  border-radius: 8px;
+}
+
 .period-select {
   min-width: 150px;
   color: #1f3f35;

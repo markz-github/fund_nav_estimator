@@ -17,7 +17,7 @@ const logs = ref<FundTaskDetailLog[]>([])
 const loading = ref(false)
 const message = ref('')
 const selectedFundCode = ref(String(route.query.fund_code || ''))
-const selectedDate = ref(String(route.query.estimate_date || todayText()))
+const selectedDate = ref(String(route.query.estimate_date || ''))
 
 const selectedFund = computed(() =>
   funds.value.find((fund) => fund.fund_code === selectedFundCode.value) ?? null,
@@ -103,7 +103,17 @@ async function loadLogs() {
 
 function clearFilters() {
   selectedFundCode.value = ''
+  selectedDate.value = ''
+  void loadLogs()
+}
+
+function useToday() {
   selectedDate.value = todayText()
+  void loadLogs()
+}
+
+function clearDate() {
+  selectedDate.value = ''
   void loadLogs()
 }
 
@@ -146,10 +156,19 @@ onMounted(async () => {
       </label>
       <label>
         估算日期
-        <input v-model="selectedDate" type="date" />
+        <ElDatePicker
+          v-model="selectedDate"
+          type="date"
+          value-format="YYYY-MM-DD"
+          format="YYYY-MM-DD"
+          placeholder="全部日期"
+          clearable
+        />
       </label>
       <div class="filter-actions">
         <button class="ghost" type="submit" :disabled="loading">应用</button>
+        <button class="ghost" type="button" :disabled="loading" @click="useToday">今天</button>
+        <button class="ghost" type="button" :disabled="loading || !selectedDate" @click="clearDate">清空日期</button>
         <button class="ghost" type="button" :disabled="loading" @click="clearFilters">重置</button>
       </div>
     </form>
@@ -162,7 +181,7 @@ onMounted(async () => {
       </article>
       <article class="info-card">
         <span>估算日期</span>
-        <strong>{{ selectedDate || '-' }}</strong>
+        <strong>{{ selectedDate || '全部日期' }}</strong>
       </article>
       <article class="info-card">
         <span>日志数量</span>
