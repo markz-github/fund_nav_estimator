@@ -179,7 +179,7 @@ async function loadDetail() {
       getFund(fundCode.value),
       listFundHoldings(fundCode.value),
       listFundNavHistory(fundCode.value),
-      listFundTaskDetailLogs(fundCode.value),
+      listFundTaskDetailLogs(fundCode.value, 1),
     ])
     fund.value = fundResult
     holdings.value = holdingsResult
@@ -569,9 +569,14 @@ onBeforeUnmount(disposeNavChart)
     <section class="section-title">
       <div>
         <p class="eyebrow">Estimate Logs</p>
-        <h2>估算执行日志</h2>
+        <h2>最新估算日志</h2>
       </div>
-      <span>{{ taskDetailLogs.length }} 条</span>
+      <RouterLink
+        class="link-button"
+        :to="{ name: routeNames.fundEstimateLogs, query: { fund_code: fundCode } }"
+      >
+        查看全部日志
+      </RouterLink>
     </section>
 
     <div class="table-card">
@@ -589,7 +594,7 @@ onBeforeUnmount(disposeNavChart)
         </thead>
         <tbody>
           <tr v-if="taskDetailLogs.length === 0">
-            <td colspan="7">暂无基金级估算执行日志。</td>
+            <td colspan="7">暂无基金级估算日志。</td>
           </tr>
           <tr v-for="log in taskDetailLogs" :key="log.id">
             <td data-label="执行时间">{{ formatDateTime(log.estimate_time || log.created_at) }}</td>

@@ -121,7 +121,22 @@ export async function listFundNavHistory(fundCode: string, limit = 500): Promise
 
 export async function listFundTaskDetailLogs(fundCode: string, limit = 50): Promise<FundTaskDetailLog[]> {
   const { data } = await apiClient.get<FundTaskDetailLog[]>(`/funds/${fundCode}/task-detail-logs`, {
-    params: { task_type: 'estimate_nav', limit },
+    params: { limit },
+  })
+  return data
+}
+
+export async function listAllFundTaskDetailLogs(options?: {
+  fundCode?: string
+  estimateDate?: string
+  limit?: number
+}): Promise<FundTaskDetailLog[]> {
+  const { data } = await apiClient.get<FundTaskDetailLog[]>('/funds/task-detail-logs', {
+    params: {
+      fund_code: options?.fundCode || undefined,
+      estimate_date: options?.estimateDate || undefined,
+      limit: options?.limit ?? 100,
+    },
   })
   return data
 }
