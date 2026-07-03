@@ -147,12 +147,15 @@ onMounted(async () => {
     <form class="filter-bar compact-filter" @submit.prevent="loadLogs">
       <label>
         基金
-        <select v-model="selectedFundCode">
-          <option value="">全部基金</option>
-          <option v-for="fund in funds" :key="fund.fund_code" :value="fund.fund_code">
-            {{ fund.fund_code }} {{ fund.fund_name }}
-          </option>
-        </select>
+        <ElSelect v-model="selectedFundCode" filterable clearable placeholder="全部基金">
+          <ElOption label="全部基金" value="" />
+          <ElOption
+            v-for="fund in funds"
+            :key="fund.fund_code"
+            :label="`${fund.fund_code} ${fund.fund_name}`"
+            :value="fund.fund_code"
+          />
+        </ElSelect>
       </label>
       <label>
         估算日期

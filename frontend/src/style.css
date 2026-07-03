@@ -823,13 +823,63 @@ tbody tr {
   flex: 0 1 260px;
 }
 
-.compact-filter .el-date-editor {
+.compact-filter .el-date-editor,
+.compact-filter .el-select {
   width: 100%;
 }
 
-.compact-filter .el-input__wrapper {
-  min-height: 42px;
+.compact-filter .el-input,
+.compact-filter .el-date-editor {
+  --el-input-height: 48px;
+}
+
+.compact-filter .el-input__wrapper,
+.compact-filter .el-select__wrapper {
+  min-height: 48px;
+  border: 1px solid rgba(36, 63, 47, 0.2);
   border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+  color: #17271d;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.compact-filter .el-input__wrapper.is-focus,
+.compact-filter .el-select__wrapper.is-focused {
+  border-color: rgba(36, 63, 47, 0.42);
+  box-shadow: 0 0 0 3px rgba(31, 63, 53, 0.1);
+}
+
+.compact-filter .el-input__inner,
+.compact-filter .el-select__placeholder,
+.compact-filter .el-select__selected-item {
+  color: #17271d;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.compact-filter .el-input__inner::placeholder,
+.compact-filter .el-select__placeholder.is-transparent {
+  color: #7f8d87;
+}
+
+.compact-filter .el-input__prefix,
+.compact-filter .el-input__suffix,
+.compact-filter .el-select__caret {
+  color: #7f8d87;
+}
+
+.compact-filter .filter-actions {
+  min-height: 48px;
+}
+
+.compact-filter .filter-actions button {
+  min-height: 48px;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .period-select {
@@ -936,7 +986,7 @@ tbody tr {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
-  align-items: end;
+  align-items: flex-end;
   margin-bottom: 16px;
 }
 
@@ -948,6 +998,7 @@ tbody tr {
 .pagination-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
