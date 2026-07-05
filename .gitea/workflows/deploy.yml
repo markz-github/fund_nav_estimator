@@ -188,7 +188,7 @@ jobs:
         env:
           DEPLOY_SERVICE: 基金当日净值预测
           DEPLOY_ENV: test
-          WECHAT_PUSH_URL: http://192.168.50.50:18765/api/wechat/push
+          WECHAT_PUSH_URL: http://192.168.50.50:18765/api/wecom/push
         run: |
           if [ "${DEPLOY_FRONTEND:-false}" = "true" ]; then
             FRONTEND_RESULT="${FRONTEND_DEPLOY_RESULT:-失败}"
