@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
@@ -134,6 +134,25 @@ def delete_fund(fund_code: str, db: Session = Depends(get_db)) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get("/task-detail-logs", response_model=list[FundTaskDetailLogOut])
+def list_task_detail_logs(
+    fund_code: str | None = Query(default=None),
+    estimate_date: date | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    statement = select(FundTaskDetailLog).order_by(
+        FundTaskDetailLog.estimate_time.desc(),
+        FundTaskDetailLog.created_at.desc(),
+        FundTaskDetailLog.id.desc(),
+    )
+    if fund_code:
+        statement = statement.where(FundTaskDetailLog.fund_code == str(fund_code).strip().zfill(6))
+    if estimate_date:
+        statement = statement.where(FundTaskDetailLog.estimate_date == estimate_date)
+    return list(db.scalars(statement.limit(limit)).all())
+
+
 @router.get("/{fund_code}", response_model=FundOut)
 def get_fund(fund_code: str, db: Session = Depends(get_db)) -> dict:
     fund = FundService(db).get_fund_detail(fund_code)
@@ -167,7 +186,11 @@ def list_fund_task_detail_logs(
     statement = (
         select(FundTaskDetailLog)
         .where(FundTaskDetailLog.fund_code == normalized_code)
-        .order_by(FundTaskDetailLog.created_at.desc(), FundTaskDetailLog.id.desc())
+        .order_by(
+            FundTaskDetailLog.estimate_time.desc(),
+            FundTaskDetailLog.created_at.desc(),
+            FundTaskDetailLog.id.desc(),
+        )
         .limit(limit)
     )
     if task_type:

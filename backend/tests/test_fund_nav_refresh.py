@@ -37,6 +37,7 @@ from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.schemas.manual_index_mapping import ManualFundIndexMappingIn
 from app.modules.fund_nav.schemas.task_detail import FundTaskDetailLogOut
+from app.modules.fund_nav.api.funds import list_task_detail_logs
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
@@ -1015,6 +1016,66 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(detail_log.task_type, "refresh_quote_estimate")
         self.assertEqual(detail_log.strategy, "index_tracking")
         self.assertEqual(detail_log.estimated_growth_rate, Decimal("0.031000"))
+
+    def test_list_task_detail_logs_filters_by_fund_and_date(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        target_date = date(2026, 7, 2)
+        db.add_all(
+            [
+                FundTaskDetailLog(
+                    task_type="estimate_nav",
+                    fund_code="161036",
+                    fund_name="富国中证娱乐主题指数增强(LOF)A",
+                    status="success",
+                    strategy="holding_weighted",
+                    estimate_date=target_date,
+                    estimate_time=datetime(2026, 7, 2, 15, 30),
+                    estimated_nav=Decimal("0.650000"),
+                    estimated_growth_rate=Decimal("0.006000"),
+                    coverage_ratio=Decimal("0.900000"),
+                    message="holding_weighted=success",
+                ),
+                FundTaskDetailLog(
+                    task_type="estimate_nav",
+                    fund_code="501009",
+                    fund_name="汇添富中证生物科技指数(LOF)A",
+                    status="success",
+                    strategy="index_tracking",
+                    estimate_date=target_date,
+                    estimate_time=datetime(2026, 7, 2, 15, 35),
+                    estimated_nav=Decimal("1.120000"),
+                    estimated_growth_rate=Decimal("0.020000"),
+                    coverage_ratio=Decimal("1"),
+                    message="index_tracking=success",
+                ),
+                FundTaskDetailLog(
+                    task_type="estimate_nav",
+                    fund_code="161036",
+                    fund_name="富国中证娱乐主题指数增强(LOF)A",
+                    status="success",
+                    strategy="index_tracking",
+                    estimate_date=date(2026, 7, 1),
+                    estimate_time=datetime(2026, 7, 1, 15, 35),
+                    estimated_nav=Decimal("0.648000"),
+                    estimated_growth_rate=Decimal("0.003000"),
+                    coverage_ratio=Decimal("1"),
+                    message="index_tracking=success",
+                ),
+            ]
+        )
+        db.commit()
+
+        try:
+            logs = list_task_detail_logs(fund_code="161036", estimate_date=target_date, limit=100, db=db)
+        finally:
+            db.close()
+
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].fund_code, "161036")
+        self.assertEqual(logs[0].estimate_date, target_date)
 
     def test_run_estimates_updates_daily_skipped_fund_detail_log(self) -> None:
         engine = create_engine("sqlite:///:memory:")

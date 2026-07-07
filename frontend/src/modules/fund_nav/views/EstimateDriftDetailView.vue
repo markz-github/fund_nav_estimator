@@ -240,11 +240,25 @@ onBeforeUnmount(disposeChart)
     <form class="filter-bar compact-filter" @submit.prevent="loadDetail">
       <label>
         开始日期
-        <input v-model="startDate" type="date" />
+        <ElDatePicker
+          v-model="startDate"
+          type="date"
+          value-format="YYYY-MM-DD"
+          format="YYYY-MM-DD"
+          placeholder="选择开始日期"
+          clearable
+        />
       </label>
       <label>
         结束日期
-        <input v-model="endDate" type="date" />
+        <ElDatePicker
+          v-model="endDate"
+          type="date"
+          value-format="YYYY-MM-DD"
+          format="YYYY-MM-DD"
+          placeholder="选择结束日期"
+          clearable
+        />
       </label>
       <label>
         阈值 %
