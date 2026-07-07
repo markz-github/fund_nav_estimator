@@ -9,8 +9,14 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.scheduler.fund_jobs import check_fund_nav_quality_job, refresh_fund_navs_job, refresh_index_catalog_job
-from app.config import AppConfig
+from app.scheduler.fund_jobs import (
+    check_fund_nav_quality_job,
+    refresh_fund_navs_job,
+    refresh_index_catalog_job,
+    refresh_quotes_and_estimate_job,
+)
+from app.scheduler.scheduler import create_fund_scheduler
+from app.config import AppConfig, _load_app_config
 
 
 class FundSchedulerJobTests(unittest.TestCase):
@@ -20,6 +26,20 @@ class FundSchedulerJobTests(unittest.TestCase):
         self.assertEqual(config.scheduler_refresh_nav_cron, "0 21,22 * * *")
         self.assertEqual(config.scheduler_check_nav_quality_cron, "30 22 * * mon-fri")
         self.assertEqual(config.scheduler_refresh_index_catalog_cron, "20 3 * * *")
+        self.assertEqual(config.scheduler_refresh_quote_estimate_cron, "0,30 9-15 * * mon-fri")
+
+    def test_default_config_file_schedules_intraday_quote_refresh_and_estimate_as_one_job(self) -> None:
+        config = _load_app_config("local")
+
+        self.assertEqual(config.scheduler_refresh_quote_estimate_cron, "0,30 9-15 * * mon-fri")
+
+    def test_fund_scheduler_registers_combined_intraday_quote_estimate_job(self) -> None:
+        scheduler = create_fund_scheduler()
+        job_ids = {job.id for job in scheduler.get_jobs()}
+
+        self.assertIn("refresh_quotes_and_estimate", job_ids)
+        self.assertNotIn("refresh_market_quotes", job_ids)
+        self.assertNotIn("estimate_fund_navs", job_ids)
 
     def test_scheduled_fund_job_only_submits_queue_task(self) -> None:
         db = Mock()
@@ -75,6 +95,25 @@ class FundSchedulerJobTests(unittest.TestCase):
         service.submit.assert_called_once_with(
             "refresh_index_catalog",
             "刷新指数目录",
+            origin="scheduled",
+        )
+
+    def test_scheduled_quote_estimate_job_only_submits_combined_queue_task(self) -> None:
+        db = Mock()
+        session_context = Mock()
+        session_context.__enter__ = Mock(return_value=db)
+        session_context.__exit__ = Mock(return_value=False)
+        service = Mock()
+
+        with (
+            patch("app.scheduler.fund_jobs.SessionLocal", return_value=session_context),
+            patch("app.scheduler.fund_jobs.FundTaskQueueService", return_value=service),
+        ):
+            refresh_quotes_and_estimate_job()
+
+        service.submit.assert_called_once_with(
+            "refresh_quote_estimate",
+            "刷新行情并估算",
             origin="scheduled",
         )
 

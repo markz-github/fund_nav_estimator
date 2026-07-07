@@ -108,9 +108,17 @@ class IndexTrackingEstimateStrategy(EstimateStrategy):
 
         quote = self.service._latest_quotes([index_code]).get(index_code)
         if quote is None or quote.change_rate is None:
-            return "missing_index_quote"
+            self.service._refresh_index_quote(index_code)
+            quote = self.service._latest_quotes([index_code]).get(index_code)
+            if quote is None or quote.change_rate is None:
+                return "missing_index_quote"
         if self.service._is_stale_index_quote(quote, estimate_time):
-            return "stale_index_quote"
+            self.service._refresh_index_quote(index_code)
+            quote = self.service._latest_quotes([index_code]).get(index_code)
+            if quote is None or quote.change_rate is None:
+                return "missing_index_quote"
+            if self.service._is_stale_index_quote(quote, estimate_time):
+                return "stale_index_quote"
 
         estimated_nav = self.service.calculate_estimated_nav(latest_nav.unit_nav, quote.change_rate)
         return FundEstimate(
@@ -177,6 +185,7 @@ class EstimateService:
         self.source = source or AkshareSource()
         self._valuation_configs: AssetValuationConfigMap | None = None
         self._last_attempts: list[dict[str, str]] = []
+        self._refreshed_index_codes: set[str] = set()
 
     @timed()
     def latest_all(self) -> list[FundEstimate]:
@@ -458,6 +467,57 @@ class EstimateService:
             )
         ).all()
         return {quote.asset_code: quote for quote in quotes}
+
+    def _refresh_index_quote(self, index_code: str) -> None:
+        normalized_code = self._normalize_index_code(index_code)
+        if not normalized_code or normalized_code in self._refreshed_index_codes:
+            return
+        self._refreshed_index_codes.add(normalized_code)
+        try:
+            snapshots = list(self.source.get_index_quotes([normalized_code]) or [])
+        except Exception:
+            logging.getLogger("app.performance").exception(
+                "index_quote_on_demand status=failed index_code=%s",
+                normalized_code,
+            )
+            return
+
+        for snapshot in snapshots:
+            snapshot_code = self._normalize_index_code(snapshot.asset_code)
+            if snapshot_code != normalized_code:
+                continue
+            quote = self.db.scalar(
+                select(MarketQuote).where(
+                    MarketQuote.asset_code == normalized_code,
+                    MarketQuote.quote_time == snapshot.quote_time,
+                )
+            )
+            source_name = getattr(self.source, "source_name", "akshare")
+            if quote is None:
+                self.db.add(
+                    MarketQuote(
+                        asset_code=normalized_code,
+                        asset_name=snapshot.asset_name,
+                        asset_type=snapshot.asset_type,
+                        market=snapshot.market,
+                        trade_date=snapshot.trade_date,
+                        quote_time=snapshot.quote_time,
+                        latest_price=snapshot.latest_price,
+                        prev_close=snapshot.prev_close,
+                        change_rate=snapshot.change_rate,
+                        source=source_name,
+                    )
+                )
+                continue
+            quote.asset_name = snapshot.asset_name or quote.asset_name
+            quote.asset_type = snapshot.asset_type
+            quote.market = snapshot.market
+            quote.trade_date = snapshot.trade_date
+            quote.latest_price = snapshot.latest_price
+            quote.prev_close = snapshot.prev_close
+            quote.change_rate = snapshot.change_rate
+            quote.source = source_name
+        self.db.flush()
 
     @staticmethod
     def _is_stale_realtime_quote(

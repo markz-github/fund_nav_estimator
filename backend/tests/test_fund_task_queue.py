@@ -5,7 +5,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -122,6 +122,45 @@ class FundTaskQueueTests(unittest.TestCase):
         self.assertIn("fund_etf_spot_em", task_log.message)
         fetch_error = self.db.scalar(select(DataFetchError))
         self.assertEqual(fetch_error.source, "akshare")
+
+    def test_refresh_quote_estimate_only_refreshes_quotes_then_estimates(self) -> None:
+        submitted = self.service.submit("refresh_quote_estimate", "刷新行情并估算", origin="scheduled")
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        market_service = Mock()
+        market_service.last_refresh_diagnostics = []
+        market_service.refresh_quotes_for_holdings.return_value = [object(), object()]
+        estimate_service = Mock()
+        estimate_service.run_estimates.return_value = {
+            "estimated_count": 1,
+            "skipped_count": 0,
+            "skipped": [],
+        }
+
+        with (
+            patch("app.modules.fund_nav.services.fund_task_queue_service.MarketService", return_value=market_service),
+            patch("app.modules.fund_nav.services.fund_task_queue_service.EstimateService", return_value=estimate_service),
+            patch("app.modules.fund_nav.services.fund_task_queue_service.FundService") as fund_service,
+            patch("app.modules.fund_nav.services.fund_task_queue_service.HoldingService") as holding_service,
+            patch("app.modules.fund_nav.services.fund_task_queue_service.FundIndexMappingService") as mapping_service,
+        ):
+            self.service.execute(submitted.task_id)
+
+        task_log = self.db.get(TaskLog, submitted.task_log_id)
+        self.assertEqual(task_log.status, "success")
+        self.assertIn("quotes=2", task_log.message)
+        self.assertIn("estimated=1", task_log.message)
+        market_service.refresh_quotes_for_holdings.assert_called_once_with(None)
+        estimate_service.run_estimates.assert_called_once_with(
+            None,
+            task_log_id=submitted.task_log_id,
+            task_type="refresh_quote_estimate",
+        )
+        fund_service.assert_not_called()
+        holding_service.assert_not_called()
+        mapping_service.assert_not_called()
 
     def test_check_nav_quality_task_records_partial_when_stale_nav_exists(self) -> None:
         self.db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))

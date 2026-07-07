@@ -35,3 +35,7 @@ def refresh_market_quotes_job() -> None:
 
 def estimate_fund_navs_job() -> None:
     _enqueue("estimate_nav", "估算基金当日净值")
+
+
+def refresh_quotes_and_estimate_job() -> None:
+    _enqueue("refresh_quote_estimate", "刷新行情并估算")
