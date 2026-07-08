@@ -8,6 +8,7 @@ import { getFundNavQualityReport, type FundNavQualityReport } from '../api/quali
 const report = ref<FundNavQualityReport | null>(null)
 const loading = ref(false)
 const message = ref('')
+const issueDateRange = ref<[string, string]>(defaultIssueDateRange())
 
 const latestTask = computed(() => report.value?.latest_task ?? null)
 const issues = computed(() => report.value?.issues ?? [])
@@ -67,11 +68,28 @@ function mappingTypeLabel(type?: string | null) {
   return '-'
 }
 
+function dateText(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function defaultIssueDateRange(): [string, string] {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(end.getDate() - 4)
+  return [dateText(start), dateText(end)]
+}
+
 async function loadReport() {
   loading.value = true
   message.value = ''
   try {
-    report.value = await getFundNavQualityReport()
+    report.value = await getFundNavQualityReport({
+      occurredFrom: issueDateRange.value?.[0],
+      occurredTo: issueDateRange.value?.[1],
+    })
   } catch (error) {
     message.value = apiErrorMessage(error, '净值巡检结果加载失败，请确认后端服务是否正常。')
   } finally {
@@ -124,6 +142,16 @@ onMounted(loadReport)
         <h2>巡检问题清单</h2>
       </div>
       <div class="section-actions">
+        <el-date-picker
+          v-model="issueDateRange"
+          type="daterange"
+          value-format="YYYY-MM-DD"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          range-separator="至"
+          :clearable="false"
+          @change="loadReport"
+        />
         <RouterLink class="link-button" :to="{ name: routeNames.estimateDriftList }">查看估算偏差</RouterLink>
         <RouterLink class="link-button" :to="{ name: routeNames.operations, query: { task_type: 'check_nav_quality' } }">
           查看巡检任务

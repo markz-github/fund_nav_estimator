@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 import sys
@@ -180,13 +180,52 @@ class FundNavQualityTests(unittest.TestCase):
         )
         self.db.commit()
 
-        report = get_fund_nav_quality_report(db=self.db)
+        report = get_fund_nav_quality_report(
+            occurred_from=date(2026, 6, 8),
+            occurred_to=date(2026, 6, 8),
+            db=self.db,
+        )
 
         self.assertEqual(report["latest_task"].status, "partial")
         self.assertEqual(report["issue_count"], 1)
         self.assertEqual(report["issues"][0].fund_name, "测试基金")
         self.assertEqual(report["issues"][0].issue_type, "fund_nav")
         self.assertEqual(report["issues"][0].expected_nav_date, "2026-06-08")
+
+    def test_quality_report_defaults_to_recent_five_days(self) -> None:
+        today = date.today()
+        recent_time = datetime.combine(today, datetime.min.time())
+        old_time = datetime.combine(today - timedelta(days=5), datetime.min.time())
+        self.db.add_all(
+            [
+                Fund(id=1, fund_code="000001", fund_name="近期问题基金"),
+                Fund(id=2, fund_code="000002", fund_name="历史问题基金"),
+                DataFetchError(
+                    id=1,
+                    source="quality_check",
+                    data_type="fund_nav",
+                    target_code="000001",
+                    error_message=f"latest_nav_date={today};expected_nav_date={today};reason=stale_nav",
+                    occurred_at=recent_time,
+                    resolved=0,
+                ),
+                DataFetchError(
+                    id=2,
+                    source="quality_check",
+                    data_type="fund_nav",
+                    target_code="000002",
+                    error_message=f"latest_nav_date={today};expected_nav_date={today};reason=stale_nav",
+                    occurred_at=old_time,
+                    resolved=0,
+                ),
+            ]
+        )
+        self.db.commit()
+
+        report = get_fund_nav_quality_report(db=self.db)
+
+        self.assertEqual(report["issue_count"], 1)
+        self.assertEqual(report["issues"][0].fund_code, "000001")
 
     def test_check_quality_records_missing_manual_mapping_issues(self) -> None:
         self.db.add_all(

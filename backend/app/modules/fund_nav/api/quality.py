@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
@@ -27,9 +27,13 @@ router = APIRouter(prefix="/fund-nav/quality", tags=["fund-nav-quality"])
 def get_fund_nav_quality_report(
     limit: int = 200,
     unresolved_only: bool = True,
+    occurred_from: date | None = None,
+    occurred_to: date | None = None,
     db: Session = Depends(get_db),
 ):
     safe_limit = min(max(limit, 1), 500)
+    end_date = occurred_to or date.today()
+    start_date = occurred_from or (end_date - timedelta(days=4))
     latest_task = db.scalar(
         select(TaskLog)
         .where(TaskLog.task_type == "check_nav_quality")
@@ -42,6 +46,8 @@ def get_fund_nav_quality_report(
         .where(
             DataFetchError.source == "quality_check",
             DataFetchError.data_type.in_(("fund_nav", "fund_mapping")),
+            DataFetchError.occurred_at >= datetime.combine(start_date, time.min),
+            DataFetchError.occurred_at <= datetime.combine(end_date, time.max),
         )
         .order_by(DataFetchError.occurred_at.desc(), DataFetchError.id.desc())
         .limit(safe_limit)
