@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 from app.modules.fund_nav.data_sources.akshare.akshare_source import MarketQuoteSnapshot
 from app.modules.fund_nav.data_sources.akshare.eastmoney_index_source import EastmoneyIndexSource
 from app.modules.fund_nav.data_sources.akshare.sina_index_source import SinaIndexSource
+from app.modules.fund_nav.data_sources.web.eastmoney_index_source import EastmoneyHttpIndexSource
+from app.modules.fund_nav.data_sources.web.sina_index_source import SinaHttpIndexSource
 from app.modules.fund_nav.data_sources.web.tencent_index_source import TencentIndexSource
+from app.modules.fund_nav.data_sources.web.xueqiu_index_source import XueqiuIndexSource
 from app.modules.fund_nav.services.index_quote_source_status_service import IndexQuoteSourceStatusService
 
 
@@ -17,9 +20,12 @@ class CompositeIndexQuoteSource:
     def __init__(self, helper, db: Session | None = None) -> None:
         self.helper = helper
         self.status_service = IndexQuoteSourceStatusService(db)
+        self.eastmoney_http = EastmoneyHttpIndexSource(helper)
         self.eastmoney = EastmoneyIndexSource(helper)
         self.sina = SinaIndexSource(helper)
+        self.sina_http = SinaHttpIndexSource(helper)
         self.tencent = TencentIndexSource(helper)
+        self.xueqiu = XueqiuIndexSource(helper)
 
     def get_quotes(self, index_codes: list[str]) -> list[MarketQuoteSnapshot]:
         quote_time = datetime.now()
@@ -31,9 +37,12 @@ class CompositeIndexQuoteSource:
         snapshots: dict[str, MarketQuoteSnapshot] = {}
 
         realtime_sources = {
+            "eastmoney_http_spot": self.eastmoney_http.get_spot_quotes,
             "eastmoney_spot": self.eastmoney.get_spot_quotes,
             "sina_spot": self.sina.get_spot_quotes,
+            "sina_http_spot": self.sina_http.get_spot_quotes,
             "tencent_spot": self.tencent.get_spot_quotes,
+            "xueqiu_spot": self.xueqiu.get_spot_quotes,
         }
 
         for source_status in self.status_service.ordered_sources("realtime"):

@@ -20,9 +20,12 @@ if str(BACKEND_DIR) not in sys.path:
 from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot, MarketQuoteSnapshot
 from app.modules.fund_nav.data_sources.akshare.eastmoney_index_source import EastmoneyIndexSource
 from app.modules.fund_nav.data_sources.web.eastmoney_source import EastmoneySource
+from app.modules.fund_nav.data_sources.web.eastmoney_index_source import EastmoneyHttpIndexSource
 from app.modules.fund_nav.data_sources.akshare.index_catalog_source import MarketIndexSnapshot
 from app.modules.fund_nav.data_sources.akshare.sina_index_source import SinaIndexSource
+from app.modules.fund_nav.data_sources.web.sina_index_source import SinaHttpIndexSource
 from app.modules.fund_nav.data_sources.web.tencent_index_source import TencentIndexSource
+from app.modules.fund_nav.data_sources.web.xueqiu_index_source import XueqiuIndexSource
 from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMappingSnapshot
 from app.database import Base
 from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
@@ -700,6 +703,83 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(result.coverage_ratio, Decimal("1"))
         self.assertIn("strategy=index_tracking", result.source_snapshot)
 
+    def test_index_fund_estimate_prefers_current_trade_date_quote_over_later_stale_quote(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(
+            Fund(
+                id=1,
+                fund_code="006786",
+                fund_name="泰康港股通大消费指数A",
+                fund_type="指数型-股票",
+            )
+        )
+        db.add(
+            FundIndexMapping(
+                id=1,
+                fund_code="006786",
+                index_code="931027.CSI",
+                index_name="中证港股通大消费主题指数",
+                source="test",
+                confidence="high",
+            )
+        )
+        db.add(
+            FundNav(
+                id=1,
+                fund_code="006786",
+                nav_date=date(2026, 7, 7),
+                unit_nav=Decimal("0.8940"),
+                accumulated_nav=None,
+                daily_growth_rate=Decimal("-0.0073"),
+                source="test",
+            )
+        )
+        db.add_all(
+            [
+                MarketQuote(
+                    id=1,
+                    asset_code="931027",
+                    asset_name="港股通大消费",
+                    asset_type="index",
+                    market="CN",
+                    trade_date=date(2026, 7, 8),
+                    quote_time=datetime(2026, 7, 8, 14, 36, 11),
+                    latest_price=Decimal("4021.34"),
+                    prev_close=Decimal("3937.83"),
+                    change_rate=Decimal("0.0212"),
+                    source="test",
+                ),
+                MarketQuote(
+                    id=2,
+                    asset_code="931027",
+                    asset_name="港股通大消费",
+                    asset_type="index",
+                    market="CN",
+                    trade_date=date(2026, 7, 7),
+                    quote_time=datetime(2026, 7, 8, 15, 33, 56),
+                    latest_price=Decimal("3937.83"),
+                    prev_close=Decimal("3968.39"),
+                    change_rate=Decimal("-0.0077"),
+                    source="test",
+                ),
+            ]
+        )
+        db.commit()
+
+        try:
+            fund = db.scalar(select(Fund).where(Fund.fund_code == "006786"))
+            result = EstimateService(db, Mock())._estimate_one(fund, datetime(2026, 7, 8, 17, 22, 15))
+        finally:
+            db.close()
+
+        self.assertIsInstance(result, FundEstimate)
+        self.assertEqual(result.estimated_growth_rate, Decimal("0.0212"))
+        self.assertIn("strategy=index_tracking", result.source_snapshot)
+        self.assertIn("quote=2026-07-08T14:36:11", result.source_snapshot)
+
     def test_index_fund_estimate_does_not_fetch_missing_index_quote_on_demand(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
@@ -751,7 +831,7 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIsNone(quote)
         source.get_index_quotes.assert_not_called()
 
-    def test_index_fund_estimate_does_not_refresh_stale_index_quote_on_demand(self) -> None:
+    def test_index_fund_estimate_requires_current_trade_date_quote(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
         SessionLocal = sessionmaker(bind=engine)
@@ -812,7 +892,7 @@ class FundNavRefreshTests(unittest.TestCase):
         finally:
             db.close()
 
-        self.assertEqual(result, "stale_index_quote")
+        self.assertEqual(result, "missing_index_quote")
         source.get_index_quotes.assert_not_called()
 
     def test_run_estimates_records_fund_detail_log(self) -> None:
@@ -1407,7 +1487,48 @@ class FundNavRefreshTests(unittest.TestCase):
             ],
         )
 
-    def test_index_quotes_prefer_eastmoney_realtime_spot(self) -> None:
+    def test_index_quotes_prefer_eastmoney_http_realtime_spot_for_csi_theme_index(self) -> None:
+        provider_time = datetime(2026, 7, 8, 16, 29, 55)
+        response = Mock()
+        response.json.return_value = {
+            "data": {
+                "diff": [
+                    {
+                        "f12": "930875",
+                        "f13": 2,
+                        "f14": "空天军工",
+                        "f2": 2158.4,
+                        "f3": -2.53,
+                        "f18": 2214.35,
+                        "f124": int(provider_time.timestamp()),
+                    }
+                ]
+            }
+        }
+        response.raise_for_status.return_value = None
+
+        with (
+            patch(
+                "app.modules.fund_nav.data_sources.web.eastmoney_index_source.requests.get",
+                return_value=response,
+            ) as request_get,
+            patch.object(EastmoneyIndexSource, "get_spot_quotes") as eastmoney_spot,
+        ):
+            quotes = AkshareSource().get_index_quotes(["930875.CSI"])
+
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(quotes[0].asset_code, "930875")
+        self.assertEqual(quotes[0].asset_name, "空天军工")
+        self.assertEqual(quotes[0].trade_date, date(2026, 7, 8))
+        self.assertEqual(quotes[0].quote_time, provider_time)
+        self.assertEqual(quotes[0].latest_price, Decimal("2158.4"))
+        self.assertEqual(quotes[0].prev_close, Decimal("2214.35"))
+        self.assertEqual(quotes[0].change_rate, Decimal("-0.0253"))
+        request_get.assert_called_once()
+        self.assertIn("2.930875", request_get.call_args.kwargs["params"]["secids"])
+        eastmoney_spot.assert_not_called()
+
+    def test_index_quotes_fall_back_to_akshare_eastmoney_realtime_spot_when_http_missing(self) -> None:
         columns = ["代码", "名称", "最新价", "涨跌幅", "昨收"]
 
         def fake_spot(symbol: str):
@@ -1426,9 +1547,12 @@ class FundNavRefreshTests(unittest.TestCase):
                 )
             return pd.DataFrame(columns=columns)
 
-        with patch(
-            "app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.stock_zh_index_spot_em",
-            side_effect=fake_spot,
+        with (
+            patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
+            patch(
+                "app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.stock_zh_index_spot_em",
+                side_effect=fake_spot,
+            ),
         ):
             quotes = AkshareSource().get_index_quotes(["399395"])
 
@@ -1454,6 +1578,7 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with (
+            patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
             patch(
                 "app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.stock_zh_index_spot_em",
                 return_value=empty_spot,
@@ -1473,6 +1598,53 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(quotes[0].prev_close, Decimal("9352.435"))
         self.assertEqual(quotes[0].change_rate, Decimal("0.00615"))
 
+    def test_index_quotes_fall_back_to_sina_http_realtime_when_akshare_sina_missing(self) -> None:
+        quote_time = datetime(2026, 7, 8, 10, 30)
+        snapshot = MarketQuoteSnapshot(
+            asset_code="399395",
+            asset_name="国证有色",
+            asset_type="index",
+            market="CN",
+            trade_date=quote_time.date(),
+            quote_time=quote_time,
+            latest_price=Decimal("9409.938"),
+            prev_close=Decimal("9352.435"),
+            change_rate=Decimal("0.00615"),
+        )
+
+        with (
+            patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(SinaIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(SinaHttpIndexSource, "get_spot_quotes", return_value={"399395": snapshot}) as sina_http_spot,
+            patch.object(TencentIndexSource, "get_spot_quotes") as tencent_spot,
+        ):
+            quotes = AkshareSource().get_index_quotes(["399395"])
+
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(quotes[0].asset_code, "399395")
+        sina_http_spot.assert_called_once()
+        tencent_spot.assert_not_called()
+
+    def test_sina_http_index_source_parses_simplified_quote(self) -> None:
+        response = Mock()
+        response.content = 'var hq_str_s_sz399395="国证有色,9409.938,57.503,0.615,0,0";'.encode("gbk")
+        response.raise_for_status.return_value = None
+        quote_time = datetime(2026, 7, 8, 10, 30)
+
+        with patch(
+            "app.modules.fund_nav.data_sources.web.sina_index_source.requests.get",
+            return_value=response,
+        ) as request_get:
+            quotes = SinaHttpIndexSource(AkshareSource()).get_spot_quotes({"399395"}, quote_time)
+
+        quote = quotes["399395"]
+        self.assertEqual(quote.asset_name, "国证有色")
+        self.assertEqual(quote.trade_date, date(2026, 7, 8))
+        self.assertEqual(quote.latest_price, Decimal("9409.938"))
+        self.assertEqual(quote.change_rate, Decimal("0.00615"))
+        self.assertIn("s_sz399395", request_get.call_args.args[0])
+
     def test_index_quotes_fall_back_to_tencent_realtime_when_eastmoney_and_sina_missing(self) -> None:
         snapshot = MarketQuoteSnapshot(
             asset_code="399395",
@@ -1487,8 +1659,10 @@ class FundNavRefreshTests(unittest.TestCase):
         )
 
         with (
+            patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
             patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}),
             patch.object(SinaIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(SinaHttpIndexSource, "get_spot_quotes", return_value={}),
             patch.object(TencentIndexSource, "get_spot_quotes", return_value={"399395": snapshot}) as tencent_spot,
         ):
             quotes = AkshareSource().get_index_quotes(["399395"])
@@ -1497,10 +1671,74 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(quotes[0].asset_code, "399395")
         tencent_spot.assert_called_once()
 
+    def test_index_quotes_fall_back_to_xueqiu_realtime_when_previous_sources_missing(self) -> None:
+        snapshot = MarketQuoteSnapshot(
+            asset_code="399395",
+            asset_name="国证有色",
+            asset_type="index",
+            market="CN",
+            trade_date=date(2026, 7, 8),
+            quote_time=datetime(2026, 7, 8, 10, 30),
+            latest_price=Decimal("9409.938"),
+            prev_close=Decimal("9352.435"),
+            change_rate=Decimal("0.00615"),
+        )
+
+        with (
+            patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(SinaIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(SinaHttpIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(TencentIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(XueqiuIndexSource, "get_spot_quotes", return_value={"399395": snapshot}) as xueqiu_spot,
+        ):
+            quotes = AkshareSource().get_index_quotes(["399395"])
+
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(quotes[0].asset_code, "399395")
+        xueqiu_spot.assert_called_once()
+
+    def test_xueqiu_index_source_parses_realtime_quote(self) -> None:
+        provider_time = datetime(2026, 7, 8, 10, 30)
+        home_response = Mock()
+        home_response.raise_for_status.return_value = None
+        quote_response = Mock()
+        quote_response.raise_for_status.return_value = None
+        quote_response.json.return_value = {
+            "data": [
+                {
+                    "symbol": "SZ399395",
+                    "name": "国证有色",
+                    "current": 9409.938,
+                    "percent": 0.615,
+                    "last_close": 9352.435,
+                    "timestamp": int(provider_time.timestamp() * 1000),
+                }
+            ]
+        }
+        session = Mock()
+        session.get.side_effect = [home_response, quote_response]
+
+        with patch(
+            "app.modules.fund_nav.data_sources.web.xueqiu_index_source.requests.Session",
+            return_value=session,
+        ):
+            quotes = XueqiuIndexSource(AkshareSource()).get_spot_quotes({"399395"}, provider_time)
+
+        quote = quotes["399395"]
+        self.assertEqual(quote.asset_name, "国证有色")
+        self.assertEqual(quote.trade_date, date(2026, 7, 8))
+        self.assertEqual(quote.quote_time, provider_time)
+        self.assertEqual(quote.latest_price, Decimal("9409.938"))
+        self.assertEqual(quote.prev_close, Decimal("9352.435"))
+        self.assertEqual(quote.change_rate, Decimal("0.00615"))
+        self.assertEqual(session.get.call_args_list[1].kwargs["params"]["symbol"], "SZ399395")
+
     def test_index_quotes_do_not_fall_back_to_daily_when_spot_missing(self) -> None:
         empty_spot = pd.DataFrame(columns=["代码", "名称", "最新价", "涨跌幅", "昨收"])
 
         with (
+            patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
             patch(
                 "app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.stock_zh_index_spot_em",
                 return_value=empty_spot,
@@ -1509,6 +1747,9 @@ class FundNavRefreshTests(unittest.TestCase):
                 "app.modules.fund_nav.data_sources.akshare.sina_index_source.ak.stock_zh_index_spot_sina",
                 return_value=empty_spot,
             ),
+            patch.object(SinaHttpIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(TencentIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(XueqiuIndexSource, "get_spot_quotes", return_value={}),
             patch(
                 "app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.index_zh_a_hist",
                 side_effect=AssertionError("index daily fallback should not be used for NAV estimate quotes"),
@@ -1539,6 +1780,7 @@ class FundNavRefreshTests(unittest.TestCase):
 
         try:
             with (
+                patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
                 patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}),
                 patch.object(SinaIndexSource, "get_spot_quotes", return_value={"399395": snapshot}),
             ):
@@ -1588,6 +1830,7 @@ class FundNavRefreshTests(unittest.TestCase):
 
         try:
             with (
+                patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
                 patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}) as eastmoney_spot,
                 patch.object(SinaIndexSource, "get_spot_quotes", return_value={"399395": snapshot}) as sina_spot,
             ):
@@ -1631,8 +1874,8 @@ class FundNavRefreshTests(unittest.TestCase):
         finally:
             db.close()
 
-        self.assertEqual(len(rows), 3)
-        self.assertEqual(rows[0]["source_key"], "eastmoney_spot")
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(rows[0]["source_key"], "eastmoney_http_spot")
         self.assertEqual(rows[0]["source_type_label"], "实时")
         self.assertEqual(rows[0]["status_label"], "启用")
         self.assertIn("effective_priority", rows[0])
