@@ -45,7 +45,7 @@ class SinaHttpIndexSource:
                 "hq.sinajs.cn",
                 f"fetch failed: {exc!r}",
             )
-            return {}
+            raise
 
         snapshots: dict[str, MarketQuoteSnapshot] = {}
         symbol_to_code = {symbol: code for code, symbol in symbols.items()}

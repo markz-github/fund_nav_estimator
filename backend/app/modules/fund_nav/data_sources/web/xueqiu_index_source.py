@@ -53,7 +53,7 @@ class XueqiuIndexSource:
                 "stock.xueqiu.com",
                 f"fetch failed: {exc!r}",
             )
-            return {}
+            raise
 
         code_by_symbol = {symbol: code for code, symbol in symbols.items()}
         snapshots: dict[str, MarketQuoteSnapshot] = {}

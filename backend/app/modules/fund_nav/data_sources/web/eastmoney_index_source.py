@@ -50,7 +50,7 @@ class EastmoneyHttpIndexSource:
                 "push2.eastmoney.com",
                 f"fetch failed: {exc!r}",
             )
-            return {}
+            raise
 
         code_by_secid = {secid: code for code, secid in secids.items()}
         snapshots: dict[str, MarketQuoteSnapshot] = {}
