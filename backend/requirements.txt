@@ -4,7 +4,7 @@ SQLAlchemy==2.0.49
 PyMySQL==1.1.1
 pydantic-settings==2.7.1
 APScheduler==3.11.0
-akshare==1.18.57
+akshare==1.18.64
 python-dotenv==1.0.1
 cryptography==46.0.3
 PySocks==1.7.1
