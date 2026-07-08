@@ -152,8 +152,8 @@ http://127.0.0.1:5173/fund-nav
 
 后端 Docker 镜像分为三类：
 
-- 项目级基础镜像：`192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621`，由 `backend/Dockerfile.base` 构建，安装 `backend/requirements.txt` 中的运行依赖。
-- 后端测试基础镜像：`192.168.50.50:16060/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260702`，由 `backend/Dockerfile.test-base` 构建，安装 `backend/requirements-dev.txt` 中的测试依赖。
+- 项目级基础镜像：`192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260708-akshare11864`，由 `backend/Dockerfile.base` 构建，安装 `backend/requirements.txt` 中的运行依赖。
+- 后端测试基础镜像：`192.168.50.50:16060/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260708-akshare11864`，由 `backend/Dockerfile.test-base` 构建，安装 `backend/requirements-dev.txt` 中的测试依赖。
 - 业务镜像：由 `backend/Dockerfile` 构建，基于项目级基础镜像，只复制 `app`、`config` 和 `scripts`。
 
 自动部署中，后端测试先基于 `BACKEND_TEST_IMAGE` 和 `backend/Dockerfile.test` 构建临时测试镜像，把当前 `backend` 代码复制进镜像后执行 pytest；不在 runner 上临时创建 venv 或安装 pip 依赖，也不依赖 Docker bind mount 的宿主机路径一致性。生产业务镜像只依赖项目级基础镜像，不安装 pytest。
@@ -166,18 +166,18 @@ http://127.0.0.1:5173/fund-nav
 docker build -f backend/Dockerfile.base `
   --build-arg PIP_INDEX_URL=http://192.168.50.50:16666/repository/pypi-group/simple/ `
   --build-arg PIP_TRUSTED_HOST=192.168.50.50 `
-  -t 192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621 `
+  -t 192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260708-akshare11864 `
   backend
 
-docker push 192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621
+docker push 192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260708-akshare11864
 
 docker build -f backend/Dockerfile.test-base `
   --build-arg PIP_INDEX_URL=http://192.168.50.50:16666/repository/pypi-group/simple/ `
   --build-arg PIP_TRUSTED_HOST=192.168.50.50 `
-  -t 192.168.50.50:16060/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260702 `
+  -t 192.168.50.50:16060/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260708-akshare11864 `
   backend
 
-docker push 192.168.50.50:16060/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260702
+docker push 192.168.50.50:16060/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260708-akshare11864
 ```
 
 ## 数据库初始化

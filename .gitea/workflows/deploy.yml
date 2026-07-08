@@ -74,8 +74,8 @@ jobs:
           echo "FRONTEND_DEPLOY_RESULT=未执行" >> "$GITHUB_ENV"
           echo "BACKEND_DEPLOY_RESULT=未执行" >> "$GITHUB_ENV"
           echo "COMPOSE_PROJECT_NAME=fund-nav-estimator-${DEPLOY_ENV}" >> "$GITHUB_ENV"
-          echo "BACKEND_BASE_IMAGE=192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621" >> "$GITHUB_ENV"
-          echo "BACKEND_TEST_IMAGE=192.168.50.50:16060/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260702" >> "$GITHUB_ENV"
+          echo "BACKEND_BASE_IMAGE=192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260708-akshare11864" >> "$GITHUB_ENV"
+          echo "BACKEND_TEST_IMAGE=192.168.50.50:16060/markz/fund-nav-estimator-backend-test-base:py3.14-test-deps-20260708-akshare11864" >> "$GITHUB_ENV"
 
       - name: Deploy frontend
         env:

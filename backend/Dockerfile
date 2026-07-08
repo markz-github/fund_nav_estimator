@@ -1,4 +1,4 @@
-ARG BACKEND_BASE_IMAGE=192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260524-193621
+ARG BACKEND_BASE_IMAGE=192.168.50.50:16060/markz/fund-nav-estimator-backend-base:py3.14-deps-20260708-akshare11864
 FROM ${BACKEND_BASE_IMAGE}
 
 WORKDIR /app
