@@ -75,10 +75,21 @@ def ensure_fund_category_columns() -> None:
         ensure_index(connection, "fund_profiles", "idx_fund_profiles_category", "`fund_category`")
 
 
+def ensure_index_quote_source_status_columns() -> None:
+    with engine.begin() as connection:
+        ensure_column(
+            connection,
+            "index_quote_source_status",
+            "is_deleted",
+            "`is_deleted` INT NOT NULL DEFAULT 0 COMMENT '软删除标记'",
+        )
+
+
 def main() -> None:
     ensure_database_exists()
     Base.metadata.create_all(bind=engine)
     ensure_fund_category_columns()
+    ensure_index_quote_source_status_columns()
     with SessionLocal() as db:
         seed_default_asset_valuation_configs(db)
         seed_default_index_quote_source_statuses(db)

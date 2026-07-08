@@ -22,6 +22,7 @@ from app.modules.fund_nav.data_sources.akshare.eastmoney_index_source import Eas
 from app.modules.fund_nav.data_sources.web.eastmoney_source import EastmoneySource
 from app.modules.fund_nav.data_sources.akshare.index_catalog_source import MarketIndexSnapshot
 from app.modules.fund_nav.data_sources.akshare.sina_index_source import SinaIndexSource
+from app.modules.fund_nav.data_sources.web.tencent_index_source import TencentIndexSource
 from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMappingSnapshot
 from app.database import Base
 from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
@@ -1472,14 +1473,32 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(quotes[0].prev_close, Decimal("9352.435"))
         self.assertEqual(quotes[0].change_rate, Decimal("0.00615"))
 
-    def test_index_quotes_fall_back_to_eastmoney_daily_when_spot_missing(self) -> None:
-        empty_spot = pd.DataFrame(columns=["代码", "名称", "最新价", "涨跌幅", "昨收"])
-        daily = pd.DataFrame(
-            [
-                {"日期": date(2026, 6, 30), "收盘": 2973.34, "涨跌幅": 3.00},
-                {"日期": date(2026, 7, 1), "收盘": 3010.47, "涨跌幅": 1.25},
-            ]
+    def test_index_quotes_fall_back_to_tencent_realtime_when_eastmoney_and_sina_missing(self) -> None:
+        snapshot = MarketQuoteSnapshot(
+            asset_code="399395",
+            asset_name="国证有色",
+            asset_type="index",
+            market="CN",
+            trade_date=date(2026, 7, 8),
+            quote_time=datetime(2026, 7, 8, 10, 30),
+            latest_price=Decimal("9409.938"),
+            prev_close=Decimal("9352.435"),
+            change_rate=Decimal("0.00615"),
         )
+
+        with (
+            patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(SinaIndexSource, "get_spot_quotes", return_value={}),
+            patch.object(TencentIndexSource, "get_spot_quotes", return_value={"399395": snapshot}) as tencent_spot,
+        ):
+            quotes = AkshareSource().get_index_quotes(["399395"])
+
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(quotes[0].asset_code, "399395")
+        tencent_spot.assert_called_once()
+
+    def test_index_quotes_do_not_fall_back_to_daily_when_spot_missing(self) -> None:
+        empty_spot = pd.DataFrame(columns=["代码", "名称", "最新价", "涨跌幅", "昨收"])
 
         with (
             patch(
@@ -1490,15 +1509,14 @@ class FundNavRefreshTests(unittest.TestCase):
                 "app.modules.fund_nav.data_sources.akshare.sina_index_source.ak.stock_zh_index_spot_sina",
                 return_value=empty_spot,
             ),
-            patch("app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.index_zh_a_hist", return_value=daily),
+            patch(
+                "app.modules.fund_nav.data_sources.akshare.eastmoney_index_source.ak.index_zh_a_hist",
+                side_effect=AssertionError("index daily fallback should not be used for NAV estimate quotes"),
+            ),
         ):
             quotes = AkshareSource().get_index_quotes(["930997.CSI"])
 
-        self.assertEqual(len(quotes), 1)
-        self.assertEqual(quotes[0].asset_code, "930997")
-        self.assertEqual(quotes[0].trade_date, date(2026, 7, 1))
-        self.assertEqual(quotes[0].latest_price, Decimal("3010.47"))
-        self.assertEqual(quotes[0].change_rate, Decimal("0.0125"))
+        self.assertEqual(quotes, [])
 
     def test_index_quote_sources_record_success_and_failure_stats(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -1613,7 +1631,7 @@ class FundNavRefreshTests(unittest.TestCase):
         finally:
             db.close()
 
-        self.assertEqual(len(rows), 7)
+        self.assertEqual(len(rows), 3)
         self.assertEqual(rows[0]["source_key"], "eastmoney_spot")
         self.assertEqual(rows[0]["source_type_label"], "实时")
         self.assertEqual(rows[0]["status_label"], "启用")

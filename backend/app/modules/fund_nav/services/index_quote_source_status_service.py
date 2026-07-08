@@ -21,14 +21,11 @@ class IndexQuoteSourceDefinition:
 DEFAULT_INDEX_QUOTE_SOURCES = (
     IndexQuoteSourceDefinition("eastmoney_spot", "东财实时指数", "realtime", 10),
     IndexQuoteSourceDefinition("sina_spot", "新浪实时指数", "realtime", 20),
-    IndexQuoteSourceDefinition("eastmoney_daily", "东财指数日线", "daily", 110),
-    IndexQuoteSourceDefinition("sina_daily", "新浪指数日线", "daily", 120),
-    IndexQuoteSourceDefinition("tencent_daily", "腾讯指数日线", "daily", 130),
-    IndexQuoteSourceDefinition("csindex_daily", "中证指数日线", "daily", 140),
-    IndexQuoteSourceDefinition("cni_daily", "国证指数日线", "daily", 150),
+    IndexQuoteSourceDefinition("tencent_spot", "腾讯实时指数", "realtime", 30),
 )
+DEFAULT_INDEX_QUOTE_SOURCE_KEYS = {definition.source_key for definition in DEFAULT_INDEX_QUOTE_SOURCES}
 
-SOURCE_TYPE_ORDER = {"realtime": 0, "daily": 1}
+SOURCE_TYPE_ORDER = {"realtime": 0}
 COOLDOWN_FAILURES = 5
 DISABLE_FAILURES = 20
 COOLDOWN_MINUTES = 30
@@ -62,7 +59,9 @@ class IndexQuoteSourceStatusService:
         if self.db is None:
             return []
         self.seed_defaults()
-        rows = self.db.scalars(select(IndexQuoteSourceStatus)).all()
+        rows = self.db.scalars(
+            select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key.in_(DEFAULT_INDEX_QUOTE_SOURCE_KEYS))
+        ).all()
         return [self._status_out(row) for row in sorted(rows, key=self._sort_key)]
 
     def record_success(self, source_key: str) -> None:

@@ -59,29 +59,24 @@ data_sources/
 
 ### 指数行情
 
-指数行情通过 `AkshareSource.get_index_quotes()` 对外提供，内部由 `CompositeIndexQuoteSource` 按 `index_quote_source_status` 中的渠道配置和成功率动态排序尝试。默认渠道为：
+指数行情通过 `AkshareSource.get_index_quotes()` 对外提供，内部由 `CompositeIndexQuoteSource` 按 `index_quote_source_status` 中的渠道配置和成功率动态排序尝试。净值估算只使用实时指数行情，默认渠道为：
 
 1. 东方财富实时指数：`ak.stock_zh_index_spot_em()`，按“深证系列指数 / 中证系列指数 / 沪深重要指数 / 上证系列指数”分组查询。
 2. 新浪实时指数：`ak.stock_zh_index_spot_sina()`，用于东方财富实时接口失败或未命中时兜底。
-3. 东方财富指数日线：`ak.index_zh_a_hist()`。
-4. 新浪指数日线：`ak.stock_zh_index_daily()`。
-5. 腾讯指数日线：`ak.stock_zh_index_daily_tx()`。
-6. 中证指数日线：`ak.stock_zh_index_hist_csindex()`。
-7. 国证指数日线：`ak.index_hist_cni()`。
+3. 腾讯实时指数：`qt.gtimg.cn` 简版行情，用于前两个实时源失败或未命中时兜底。
 
-指数法估算应优先使用实时源。日线源只能作为缺少实时行情时的保底数据；估算前仍要校验 `market_quotes.trade_date`，若日线源只返回上一交易日，应记录为 `stale_index_quote`，不能当成当日指数涨跌幅使用。
+历史日 K 不能作为盘中净值估算兜底。实时渠道都失败或未命中时，本轮指数行情缺失，估值阶段记录 `missing_index_quote` 或回退到持仓法，不再尝试日线源。
 
 每个渠道调用后会更新成功/失败统计：本次调用只要为缺失指数返回至少一条可用行情即记为成功，否则记为失败。排序会综合默认优先级、成功率和连续失败次数；连续失败达到冷却阈值后临时跳过，长期连续失败后自动禁用，需人工重新启用。
 
-前端“行情 / 指数渠道”页面读取 `/api/market/index-quote-sources`，展示当前渠道排序、成功率、失败率、连续失败、冷却状态和最近错误。
+前端“基金 / 渠道管理”页面读取 `/api/market/index-quote-sources`，展示当前实时渠道排序、成功率、失败率、连续失败、冷却状态和最近错误。
 
 指数行情渠道文件：
 
-- `akshare/eastmoney_index_source.py`：通过 AkShare 调用东方财富实时和日线。
-- `akshare/sina_index_source.py`：通过 AkShare 调用新浪实时、指数日线和腾讯指数日线。
-- `akshare/csindex_index_source.py`：通过 AkShare 调用中证指数日线。
-- `akshare/cni_index_source.py`：通过 AkShare 调用国证指数日线。
-- `composites/index_quote_source.py`：按优先级组合各渠道。
+- `akshare/eastmoney_index_source.py`：通过 AkShare 调用东方财富实时指数。
+- `akshare/sina_index_source.py`：通过 AkShare 调用新浪实时指数。
+- `web/tencent_index_source.py`：通过腾讯行情接口调用实时指数。
+- `composites/index_quote_source.py`：按动态优先级组合实时渠道。
 
 ### 债券持仓
 
