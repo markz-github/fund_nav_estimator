@@ -212,7 +212,7 @@ class FundTaskQueueService:
                 task_type=task.task_type,
             )
             quote_status, quote_message = self._quote_status_message(len(quotes), market_service.last_refresh_diagnostics)
-            status = "success" if quote_status == "success" and not result["skipped_count"] else "partial"
+            status = "success" if not result["skipped_count"] else "partial"
             if quote_status == "failed" and not result["estimated_count"]:
                 status = "failed"
             return status, f"{quote_message};{self._estimate_message(result)}"

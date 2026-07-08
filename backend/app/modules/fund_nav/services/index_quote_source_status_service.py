@@ -19,16 +19,33 @@ class IndexQuoteSourceDefinition:
 
 
 DEFAULT_INDEX_QUOTE_SOURCES = (
-    IndexQuoteSourceDefinition("eastmoney_http_spot", "东财 HTTP 实时指数", "realtime", 5),
-    IndexQuoteSourceDefinition("eastmoney_spot", "东财 AkShare 实时指数", "realtime", 10),
-    IndexQuoteSourceDefinition("sina_spot", "新浪 AkShare 实时指数", "realtime", 20),
-    IndexQuoteSourceDefinition("sina_http_spot", "新浪 HTTP 实时指数", "realtime", 25),
-    IndexQuoteSourceDefinition("tencent_spot", "腾讯 HTTP 实时指数", "realtime", 30),
-    IndexQuoteSourceDefinition("xueqiu_spot", "雪球 HTTP 实时指数", "realtime", 40),
+    IndexQuoteSourceDefinition("eastmoney_http_spot", "东财 HTTP 实时指数", "index", 5),
+    IndexQuoteSourceDefinition("eastmoney_spot", "东财 AkShare 实时指数", "index", 10),
+    IndexQuoteSourceDefinition("sina_spot", "新浪 AkShare 实时指数", "index", 20),
+    IndexQuoteSourceDefinition("sina_http_spot", "新浪 HTTP 实时指数", "index", 25),
+    IndexQuoteSourceDefinition("tencent_spot", "腾讯 HTTP 实时指数", "index", 30),
+    IndexQuoteSourceDefinition("xueqiu_spot", "雪球 HTTP 实时指数", "index", 40),
+    IndexQuoteSourceDefinition("stock_zh_a_spot", "A 股 AkShare 实时行情", "stock", 10),
+    IndexQuoteSourceDefinition("stock_zh_a_spot_em", "A 股东财 AkShare 实时行情", "stock", 20),
+    IndexQuoteSourceDefinition("stock_hk_spot", "港股 AkShare 实时行情", "stock", 30),
+    IndexQuoteSourceDefinition("stock_hk_spot_em", "港股东财 AkShare 实时行情", "stock", 40),
+    IndexQuoteSourceDefinition("sina_quote", "新浪 HTTP 股票行情", "stock", 50),
+    IndexQuoteSourceDefinition("stock_history_quote", "AkShare 历史行情兜底", "stock", 90),
+    IndexQuoteSourceDefinition("fund_etf_spot_em", "ETF 东财 AkShare 实时行情", "etf", 10),
+    IndexQuoteSourceDefinition("eastmoney_etf", "东财 HTTP ETF 行情", "etf", 20),
+    IndexQuoteSourceDefinition("sina_etf_quote", "新浪 HTTP ETF 行情", "etf", 30),
+    IndexQuoteSourceDefinition("etf_history_quote", "AkShare ETF 历史行情兜底", "etf", 90),
 )
 DEFAULT_INDEX_QUOTE_SOURCE_KEYS = {definition.source_key for definition in DEFAULT_INDEX_QUOTE_SOURCES}
 
-SOURCE_TYPE_ORDER = {"realtime": 0}
+SOURCE_TYPE_LABELS = {
+    "index": "指数",
+    "stock": "股票",
+    "etf": "ETF",
+    "realtime": "实时",
+    "daily": "日线",
+}
+SOURCE_TYPE_ORDER = {"index": 0, "stock": 1, "etf": 2, "realtime": 3, "daily": 4}
 COOLDOWN_FAILURES = 5
 DISABLE_FAILURES = 20
 COOLDOWN_MINUTES = 30
@@ -153,7 +170,7 @@ class IndexQuoteSourceStatusService:
             "source_key": row.source_key,
             "source_name": row.source_name,
             "source_type": row.source_type,
-            "source_type_label": "实时" if row.source_type == "realtime" else "日线",
+            "source_type_label": SOURCE_TYPE_LABELS.get(row.source_type, row.source_type),
             "priority": row.priority,
             "enabled": row.enabled,
             "success_count": success_count,
