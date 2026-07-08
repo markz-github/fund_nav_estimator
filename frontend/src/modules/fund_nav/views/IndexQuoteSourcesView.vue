@@ -14,23 +14,17 @@ const activeSourceType = ref<'index' | 'stock' | 'etf'>('index')
 const sourceGroups = computed(() => [
   {
     key: 'index',
-    eyebrow: 'Index',
     title: '指数渠道',
-    subtitle: '指数估值使用的实时行情源。',
     items: sources.value.filter((item) => item.source_type === 'index'),
   },
   {
     key: 'stock',
-    eyebrow: 'Stock',
     title: '股票渠道',
-    subtitle: '持仓股票估值使用的行情源。',
     items: sources.value.filter((item) => item.source_type === 'stock'),
   },
   {
     key: 'etf',
-    eyebrow: 'ETF',
     title: 'ETF 渠道',
-    subtitle: 'ETF 持仓和 ETF 净值估算使用的行情源。',
     items: sources.value.filter((item) => item.source_type === 'etf'),
   },
 ])
@@ -122,14 +116,6 @@ onMounted(loadSources)
       </el-tab-pane>
     </el-tabs>
 
-    <section class="section-title">
-      <div>
-        <p class="eyebrow">{{ activeGroup.eyebrow }}</p>
-        <h2>{{ activeGroup.title }}</h2>
-        <p class="group-subtitle">{{ activeGroup.subtitle }}</p>
-      </div>
-      <span>{{ activeGroup.items.length }} 个</span>
-    </section>
     <div
       :id="`source-panel-${activeGroup.key}`"
       class="table-card source-group-card"
@@ -211,13 +197,8 @@ onMounted(loadSources)
   font-size: 12px;
 }
 
-.group-subtitle {
-  margin: 4px 0 0;
-  color: var(--text-muted);
-}
-
 .source-tabs {
-  margin: 28px 0 18px;
+  margin: 28px 0 12px;
 }
 
 .source-tab-label {
