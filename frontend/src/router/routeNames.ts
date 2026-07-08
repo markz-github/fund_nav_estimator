@@ -6,6 +6,7 @@ export const routeNames = {
   estimateDriftDetail: 'estimate-drift-detail',
   fundEstimateLogs: 'fund-estimate-logs',
   manualIndexMappings: 'manual-index-mappings',
+  indexQuoteSources: 'index-quote-sources',
   operations: 'operations',
   fundNavHistory: 'fund-nav-history',
   fundNavHistoryTask: 'fund-nav-history-task',

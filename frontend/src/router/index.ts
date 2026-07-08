@@ -5,6 +5,7 @@ import EstimateDriftDetailView from '../modules/fund_nav/views/EstimateDriftDeta
 import EstimateDriftListView from '../modules/fund_nav/views/EstimateDriftListView.vue'
 import FundEstimateLogsView from '../modules/fund_nav/views/FundEstimateLogsView.vue'
 import FundNavQualityView from '../modules/fund_nav/views/FundNavQualityView.vue'
+import IndexQuoteSourcesView from '../modules/fund_nav/views/IndexQuoteSourcesView.vue'
 import ManualIndexMappingsView from '../modules/fund_nav/views/ManualIndexMappingsView.vue'
 import OperationsView from '../modules/fund_nav/operations/views/OperationsView.vue'
 import AStockHistoryView from '../modules/a_stock/views/AStockHistoryView.vue'
@@ -56,6 +57,11 @@ const router = createRouter({
       path: '/fund-nav/index-mappings/manual',
       name: routeNames.manualIndexMappings,
       component: ManualIndexMappingsView,
+    },
+    {
+      path: '/fund-nav/market/index-quote-sources',
+      name: routeNames.indexQuoteSources,
+      component: IndexQuoteSourcesView,
     },
     {
       path: '/fund-nav/operations',

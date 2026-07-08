@@ -19,7 +19,7 @@ from app.utils.performance import timed
 class MarketService:
     def __init__(self, db: Session, source: AkshareSource | None = None) -> None:
         self.db = db
-        self.source = source or AkshareSource()
+        self.source = source or AkshareSource(db)
         self.last_refresh_diagnostics: list[FetchDiagnostic] = []
 
     @timed()
@@ -38,19 +38,28 @@ class MarketService:
             for asset_code, asset in assets.items()
             if valuation_configs.resolve(asset["asset_type"], asset["market"]).realtime_valuable
         }
+        stock_asset_codes = [
+            asset_code
+            for asset_code, asset in valuable_assets.items()
+            if asset["asset_type"] not in {"etf", "index"}
+        ]
+        etf_codes = [
+            asset_code
+            for asset_code, asset in valuable_assets.items()
+            if asset["asset_type"] == "etf"
+        ]
         index_codes = [
             asset_code
             for asset_code, asset in valuable_assets.items()
             if asset["asset_type"] == "index"
         ]
-        market_asset_codes = [
-            asset_code
-            for asset_code, asset in valuable_assets.items()
-            if asset["asset_type"] != "index"
-        ]
         token = self.source.begin_fetch_diagnostics()
         try:
-            snapshots = self.source.get_market_quotes(market_asset_codes)
+            snapshots = []
+            if stock_asset_codes:
+                snapshots.extend(self.source.get_market_quotes(stock_asset_codes))
+            if etf_codes:
+                snapshots.extend(self.source.get_market_quotes(etf_codes))
             if index_codes:
                 snapshots.extend(self.source.get_index_quotes(index_codes))
         finally:

@@ -17,6 +17,7 @@ const navItems = [
 ]
 
 const marketItems = [
+  { routeName: routeNames.indexQuoteSources, label: '指数渠道' },
   { routeName: routeNames.aStockHistory, label: '历史行情' },
 ]
 

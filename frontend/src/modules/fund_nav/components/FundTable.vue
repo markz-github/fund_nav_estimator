@@ -157,7 +157,7 @@ function sortIndicator(sortBy: FundSortBy) {
           <td class="mobile-hidden-cell" data-label="快捷操作">
             <div class="quick-actions">
               <RouterLink class="link-button" :to="{ name: routeNames.fundDetail, params: { fundCode: fund.fund_code } }">详情</RouterLink>
-              <button class="ghost" @click="emit('refresh', fund.fund_code)">刷新</button>
+              <button class="ghost" @click="emit('refresh', fund.fund_code)">更新净值</button>
               <button class="danger" @click="emit('delete', fund.fund_code)">删除</button>
             </div>
           </td>

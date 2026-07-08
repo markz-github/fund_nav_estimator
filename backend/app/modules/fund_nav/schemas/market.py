@@ -19,3 +19,24 @@ class MarketQuoteOut(BaseModel):
     source: str
 
     model_config = {"from_attributes": True}
+
+
+class IndexQuoteSourceStatusOut(BaseModel):
+    id: int
+    source_key: str
+    source_name: str
+    source_type: str
+    source_type_label: str
+    priority: int
+    enabled: int
+    success_count: int
+    failure_count: int
+    consecutive_failures: int
+    success_rate: Decimal | None = None
+    failure_rate: Decimal | None = None
+    effective_priority: Decimal
+    auto_disabled_until: datetime | None = None
+    last_success_at: datetime | None = None
+    last_failure_at: datetime | None = None
+    last_error: str | None = None
+    status_label: str

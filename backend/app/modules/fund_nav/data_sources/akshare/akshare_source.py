@@ -11,6 +11,7 @@ from time import monotonic
 
 import akshare as ak
 import requests
+from sqlalchemy.orm import Session
 
 from app.utils.performance import timed
 
@@ -84,6 +85,9 @@ class AkshareSource:
         "akshare_fetch_diagnostics",
         default=None,
     )
+
+    def __init__(self, db: Session | None = None) -> None:
+        self.db = db
 
     @classmethod
     def begin_fetch_diagnostics(cls) -> Token[list[FetchDiagnostic] | None]:
@@ -567,7 +571,7 @@ class AkshareSource:
     def get_index_quotes(self, index_codes: list[str]) -> list[MarketQuoteSnapshot]:
         from app.modules.fund_nav.data_sources.composites.index_quote_source import CompositeIndexQuoteSource
 
-        return CompositeIndexQuoteSource(self).get_quotes(index_codes)
+        return CompositeIndexQuoteSource(self, self.db).get_quotes(index_codes)
 
     @classmethod
     def _get_etf_spot_dataframe(cls):

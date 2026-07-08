@@ -201,6 +201,34 @@ CREATE TABLE asset_valuation_configs (
 - `etf + CN`：可实时估值，使用 `quote` 行情涨跌幅。
 - `bond + *`：不可实时估值，使用 `none`，只进入持仓展示和覆盖率分母。
 
+## index_quote_source_status
+
+指数行情渠道配置和成功率统计表。`source_type = realtime` 的渠道优先用于盘中指数行情，`source_type = daily` 的渠道作为实时行情缺失后的日线保底。
+
+```sql
+CREATE TABLE index_quote_source_status (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    source_key VARCHAR(50) NOT NULL COMMENT '渠道唯一键，如 eastmoney_spot、sina_spot',
+    source_name VARCHAR(100) NOT NULL COMMENT '渠道展示名称',
+    source_type VARCHAR(20) NOT NULL COMMENT '渠道类型：realtime 或 daily',
+    priority INT NOT NULL DEFAULT 100 COMMENT '默认优先级，数值越小越靠前',
+    enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
+    success_count INT NOT NULL DEFAULT 0 COMMENT '成功次数',
+    failure_count INT NOT NULL DEFAULT 0 COMMENT '失败次数',
+    consecutive_failures INT NOT NULL DEFAULT 0 COMMENT '连续失败次数',
+    auto_disabled_until DATETIME NULL COMMENT '自动冷却截止时间',
+    last_success_at DATETIME NULL COMMENT '最近成功时间',
+    last_failure_at DATETIME NULL COMMENT '最近失败时间',
+    last_error VARCHAR(500) NULL COMMENT '最近失败原因',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_index_quote_source_status_key (source_key),
+    INDEX idx_index_quote_source_status_type_enabled (source_type, enabled)
+);
+```
+
+默认配置由 `scripts/init_db.py` 写入。渠道调用成功率用于动态调整后续调用顺序；连续失败达到冷却阈值后临时跳过，长期连续失败后自动置为禁用。
+
 ## market_quotes
 
 行情快照表。

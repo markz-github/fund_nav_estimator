@@ -108,17 +108,9 @@ class IndexTrackingEstimateStrategy(EstimateStrategy):
 
         quote = self.service._latest_quotes([index_code]).get(index_code)
         if quote is None or quote.change_rate is None:
-            self.service._refresh_index_quote(index_code)
-            quote = self.service._latest_quotes([index_code]).get(index_code)
-            if quote is None or quote.change_rate is None:
-                return "missing_index_quote"
+            return "missing_index_quote"
         if self.service._is_stale_index_quote(quote, estimate_time):
-            self.service._refresh_index_quote(index_code)
-            quote = self.service._latest_quotes([index_code]).get(index_code)
-            if quote is None or quote.change_rate is None:
-                return "missing_index_quote"
-            if self.service._is_stale_index_quote(quote, estimate_time):
-                return "stale_index_quote"
+            return "stale_index_quote"
 
         estimated_nav = self.service.calculate_estimated_nav(latest_nav.unit_nav, quote.change_rate)
         return FundEstimate(
@@ -156,27 +148,7 @@ class EtfIopvEstimateStrategy(EstimateStrategy):
                 source_snapshot=f"strategy=etf_quote;quote={quote.quote_time.isoformat()}",
             )
 
-        snapshot = self.service.source.get_etf_iopv_snapshot(fund.fund_code)
-        if snapshot is None:
-            return "missing_etf_quote"
-
-        base_nav_date = latest_nav.nav_date if latest_nav is not None else estimate_time.date()
-        base_unit_nav = latest_nav.unit_nav if latest_nav is not None else snapshot.estimated_nav
-        growth_rate = snapshot.change_rate
-        if latest_nav is not None and base_unit_nav != 0:
-            growth_rate = (snapshot.estimated_nav - base_unit_nav) / base_unit_nav
-
-        return FundEstimate(
-            fund_code=fund.fund_code,
-            estimate_date=estimate_time.date(),
-            estimate_time=estimate_time,
-            base_nav_date=base_nav_date,
-            base_unit_nav=base_unit_nav,
-            estimated_growth_rate=growth_rate,
-            estimated_nav=snapshot.estimated_nav,
-            coverage_ratio=Decimal("1"),
-            source_snapshot=f"strategy=etf_iopv;source={snapshot.source};quotes={snapshot.estimate_time.isoformat()}",
-        )
+        return "missing_etf_quote"
 
 
 class EstimateService:
@@ -185,7 +157,6 @@ class EstimateService:
         self.source = source or AkshareSource()
         self._valuation_configs: AssetValuationConfigMap | None = None
         self._last_attempts: list[dict[str, str]] = []
-        self._refreshed_index_codes: set[str] = set()
 
     @timed()
     def latest_all(self) -> list[FundEstimate]:
@@ -467,57 +438,6 @@ class EstimateService:
             )
         ).all()
         return {quote.asset_code: quote for quote in quotes}
-
-    def _refresh_index_quote(self, index_code: str) -> None:
-        normalized_code = self._normalize_index_code(index_code)
-        if not normalized_code or normalized_code in self._refreshed_index_codes:
-            return
-        self._refreshed_index_codes.add(normalized_code)
-        try:
-            snapshots = list(self.source.get_index_quotes([normalized_code]) or [])
-        except Exception:
-            logging.getLogger("app.performance").exception(
-                "index_quote_on_demand status=failed index_code=%s",
-                normalized_code,
-            )
-            return
-
-        for snapshot in snapshots:
-            snapshot_code = self._normalize_index_code(snapshot.asset_code)
-            if snapshot_code != normalized_code:
-                continue
-            quote = self.db.scalar(
-                select(MarketQuote).where(
-                    MarketQuote.asset_code == normalized_code,
-                    MarketQuote.quote_time == snapshot.quote_time,
-                )
-            )
-            source_name = getattr(self.source, "source_name", "akshare")
-            if quote is None:
-                self.db.add(
-                    MarketQuote(
-                        asset_code=normalized_code,
-                        asset_name=snapshot.asset_name,
-                        asset_type=snapshot.asset_type,
-                        market=snapshot.market,
-                        trade_date=snapshot.trade_date,
-                        quote_time=snapshot.quote_time,
-                        latest_price=snapshot.latest_price,
-                        prev_close=snapshot.prev_close,
-                        change_rate=snapshot.change_rate,
-                        source=source_name,
-                    )
-                )
-                continue
-            quote.asset_name = snapshot.asset_name or quote.asset_name
-            quote.asset_type = snapshot.asset_type
-            quote.market = snapshot.market
-            quote.trade_date = snapshot.trade_date
-            quote.latest_price = snapshot.latest_price
-            quote.prev_close = snapshot.prev_close
-            quote.change_rate = snapshot.change_rate
-            quote.source = source_name
-        self.db.flush()
 
     @staticmethod
     def _is_stale_realtime_quote(
