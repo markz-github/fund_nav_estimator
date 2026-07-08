@@ -8,7 +8,8 @@ import { getFundNavQualityReport, type FundNavQualityReport } from '../api/quali
 const report = ref<FundNavQualityReport | null>(null)
 const loading = ref(false)
 const message = ref('')
-const issueDateRange = ref<[string, string]>(defaultIssueDateRange())
+const endDate = ref(todayText())
+const startDate = ref(daysAgoText(4))
 
 const latestTask = computed(() => report.value?.latest_task ?? null)
 const issues = computed(() => report.value?.issues ?? [])
@@ -68,18 +69,14 @@ function mappingTypeLabel(type?: string | null) {
   return '-'
 }
 
-function dateText(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+function todayText() {
+  return new Date().toISOString().slice(0, 10)
 }
 
-function defaultIssueDateRange(): [string, string] {
-  const end = new Date()
-  const start = new Date()
-  start.setDate(end.getDate() - 4)
-  return [dateText(start), dateText(end)]
+function daysAgoText(days: number) {
+  const value = new Date()
+  value.setDate(value.getDate() - days)
+  return value.toISOString().slice(0, 10)
 }
 
 async function loadReport() {
@@ -87,8 +84,8 @@ async function loadReport() {
   message.value = ''
   try {
     report.value = await getFundNavQualityReport({
-      occurredFrom: issueDateRange.value?.[0],
-      occurredTo: issueDateRange.value?.[1],
+      occurredFrom: startDate.value,
+      occurredTo: endDate.value,
     })
   } catch (error) {
     message.value = apiErrorMessage(error, '净值巡检结果加载失败，请确认后端服务是否正常。')
@@ -142,22 +139,40 @@ onMounted(loadReport)
         <h2>巡检问题清单</h2>
       </div>
       <div class="section-actions">
-        <el-date-picker
-          v-model="issueDateRange"
-          type="daterange"
-          value-format="YYYY-MM-DD"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          range-separator="至"
-          :clearable="false"
-          @change="loadReport"
-        />
         <RouterLink class="link-button" :to="{ name: routeNames.estimateDriftList }">查看估算偏差</RouterLink>
         <RouterLink class="link-button" :to="{ name: routeNames.operations, query: { task_type: 'check_nav_quality' } }">
           查看巡检任务
         </RouterLink>
       </div>
     </section>
+
+    <form class="filter-bar compact-filter" @submit.prevent="loadReport">
+      <label>
+        开始日期
+        <ElDatePicker
+          v-model="startDate"
+          type="date"
+          value-format="YYYY-MM-DD"
+          format="YYYY-MM-DD"
+          placeholder="选择开始日期"
+          clearable
+        />
+      </label>
+      <label>
+        结束日期
+        <ElDatePicker
+          v-model="endDate"
+          type="date"
+          value-format="YYYY-MM-DD"
+          format="YYYY-MM-DD"
+          placeholder="选择结束日期"
+          clearable
+        />
+      </label>
+      <div class="filter-actions">
+        <button class="ghost" type="submit" :disabled="loading">查询</button>
+      </div>
+    </form>
 
     <div class="table-card">
       <table class="quality-table responsive-card-table">
