@@ -20,11 +20,11 @@ class IndexQuoteSourceDefinition:
 
 DEFAULT_INDEX_QUOTE_SOURCES = (
     IndexQuoteSourceDefinition("eastmoney_http_spot", "东财 HTTP 实时指数", "realtime", 5),
-    IndexQuoteSourceDefinition("eastmoney_spot", "东财实时指数", "realtime", 10),
-    IndexQuoteSourceDefinition("sina_spot", "新浪实时指数", "realtime", 20),
+    IndexQuoteSourceDefinition("eastmoney_spot", "东财 AkShare 实时指数", "realtime", 10),
+    IndexQuoteSourceDefinition("sina_spot", "新浪 AkShare 实时指数", "realtime", 20),
     IndexQuoteSourceDefinition("sina_http_spot", "新浪 HTTP 实时指数", "realtime", 25),
-    IndexQuoteSourceDefinition("tencent_spot", "腾讯实时指数", "realtime", 30),
-    IndexQuoteSourceDefinition("xueqiu_spot", "雪球实时指数", "realtime", 40),
+    IndexQuoteSourceDefinition("tencent_spot", "腾讯 HTTP 实时指数", "realtime", 30),
+    IndexQuoteSourceDefinition("xueqiu_spot", "雪球 HTTP 实时指数", "realtime", 40),
 )
 DEFAULT_INDEX_QUOTE_SOURCE_KEYS = {definition.source_key for definition in DEFAULT_INDEX_QUOTE_SOURCES}
 
@@ -115,8 +115,8 @@ class IndexQuoteSourceStatusService:
                     )
                 )
                 continue
-            row.source_name = row.source_name or definition.source_name
-            row.source_type = row.source_type or definition.source_type
+            row.source_name = definition.source_name
+            row.source_type = definition.source_type
         self.db.flush()
 
     @staticmethod

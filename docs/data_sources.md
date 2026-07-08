@@ -61,11 +61,11 @@ data_sources/
 指数行情通过 `AkshareSource.get_index_quotes()` 对外提供，内部由 `CompositeIndexQuoteSource` 按 `index_quote_source_status` 中的渠道配置和成功率动态排序尝试。净值估算只使用实时指数行情，默认渠道为：
 
 1. 东方财富 HTTP 实时指数：`push2.eastmoney.com/api/qt/ulist.np/get`，中证 `93xxxx` 等指数使用 `secid = 2.<index_code>`，优先覆盖中证主题指数。
-2. 东方财富 AkShare 实时指数：`ak.stock_zh_index_spot_em()`，按“深证系列指数 / 中证系列指数 / 沪深重要指数 / 上证系列指数”分组查询。
-3. 新浪实时指数：`ak.stock_zh_index_spot_sina()`，用于前置实时接口失败或未命中时兜底。
+2. 东财 AkShare 实时指数：`ak.stock_zh_index_spot_em()`，按“深证系列指数 / 中证系列指数 / 沪深重要指数 / 上证系列指数”分组查询。
+3. 新浪 AkShare 实时指数：`ak.stock_zh_index_spot_sina()`，用于前置实时接口失败或未命中时兜底。
 4. 新浪 HTTP 实时指数：`hq.sinajs.cn` 简版行情，用于 AkShare 新浪源失败或未命中时兜底。
-5. 腾讯实时指数：`qt.gtimg.cn` 简版行情，用于前置实时源失败或未命中时兜底。
-6. 雪球实时指数：`stock.xueqiu.com/v5/stock/realtime/quotec.json`，用于前置实时源失败或未命中时兜底。
+5. 腾讯 HTTP 实时指数：`qt.gtimg.cn` 简版行情，用于前置实时源失败或未命中时兜底。
+6. 雪球 HTTP 实时指数：`stock.xueqiu.com/v5/stock/realtime/quotec.json`，用于前置实时源失败或未命中时兜底。
 
 腾讯 `qt.gtimg.cn` 可返回上证指数、深证成指等常见指数，但当前探测显示不收录大量中证 `93xxxx` 主题指数；`smartbox.gtimg.cn` 搜索这些指数代码也返回未命中。因此腾讯不能作为中证主题指数的主渠道，不能通过简单增加 `sh` / `sz` / `zs` 等前缀解决。新浪 HTTP 和雪球 HTTP 对中证主题指数覆盖也有限，主要作为 `399xxx`、宽基指数等常见指数的补充渠道。
 
@@ -77,11 +77,11 @@ data_sources/
 
 指数行情渠道文件：
 
-- `akshare/eastmoney_index_source.py`：通过 AkShare 调用东方财富实时指数。
+- `akshare/eastmoney_index_source.py`：通过 AkShare 调用东财实时指数。
 - `akshare/sina_index_source.py`：通过 AkShare 调用新浪实时指数。
 - `web/eastmoney_index_source.py`：通过东方财富 HTTP 行情接口调用实时指数。
 - `web/sina_index_source.py`：通过新浪 HTTP 行情接口调用实时指数。
-- `web/tencent_index_source.py`：通过腾讯行情接口调用实时指数。
+- `web/tencent_index_source.py`：通过腾讯 HTTP 行情接口调用实时指数。
 - `web/xueqiu_index_source.py`：通过雪球 HTTP 行情接口调用实时指数。
 - `composites/index_quote_source.py`：按动态优先级组合实时渠道。
 

@@ -8,6 +8,7 @@ import { listIndexQuoteSources, type IndexQuoteSourceStatus } from '../api/marke
 const sources = ref<IndexQuoteSourceStatus[]>([])
 const loading = ref(false)
 const message = ref('')
+const popover = ref({ text: '', top: 0, left: 0, visible: false })
 
 const realtimeSources = computed(() => sources.value.filter((item) => item.source_type === 'realtime'))
 
@@ -33,6 +34,25 @@ function statusClass(item: IndexQuoteSourceStatus) {
   if (!item.enabled) return 'status-danger'
   if (item.status_label === '冷却中') return 'status-warn'
   return 'status-ok'
+}
+
+function showTextPopover(event: MouseEvent | FocusEvent, text?: string | null) {
+  if (!text) return
+  const element = event.currentTarget as HTMLElement
+  const rect = element.getBoundingClientRect()
+  const width = Math.min(720, window.innerWidth - 48)
+  const pointerLeft = event instanceof MouseEvent ? event.clientX + 10 : rect.left
+  const pointerTop = event instanceof MouseEvent ? event.clientY + 10 : rect.bottom + 6
+  popover.value = {
+    text,
+    top: pointerTop,
+    left: Math.min(Math.max(12, pointerLeft), window.innerWidth - width - 12),
+    visible: true,
+  }
+}
+
+function hideTextPopover() {
+  popover.value.visible = false
 }
 
 async function loadSources() {
@@ -113,10 +133,29 @@ onMounted(loadSources)
             <td data-label="冷却至">{{ formatDateTime(item.auto_disabled_until) }}</td>
             <td data-label="最近成功">{{ formatDateTime(item.last_success_at) }}</td>
             <td data-label="最近失败">{{ formatDateTime(item.last_failure_at) }}</td>
-            <td data-label="最近错误" class="error-cell">{{ item.last_error || '-' }}</td>
+            <td
+              data-label="最近错误"
+              class="log-text-cell"
+              tabindex="0"
+              @mouseenter="showTextPopover($event, item.last_error)"
+              @mouseleave="hideTextPopover"
+              @focus="showTextPopover($event, item.last_error)"
+              @blur="hideTextPopover"
+            >
+              <span class="log-text-preview">{{ item.last_error || '-' }}</span>
+            </td>
           </tr>
         </tbody>
       </table>
+    </div>
+    <div
+      v-if="popover.visible"
+      class="log-text-popover"
+      :style="{ top: `${popover.top}px`, left: `${popover.left}px` }"
+      @mouseenter="popover.visible = true"
+      @mouseleave="hideTextPopover"
+    >
+      {{ popover.text }}
     </div>
   </main>
 </template>
@@ -133,10 +172,4 @@ onMounted(loadSources)
   font-size: 12px;
 }
 
-.error-cell {
-  max-width: 320px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 </style>

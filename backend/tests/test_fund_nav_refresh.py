@@ -1800,6 +1800,42 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(sina_status.success_count, 1)
         self.assertEqual(sina_status.consecutive_failures, 0)
 
+    def test_index_quote_source_records_exception_message_when_source_raises(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        seed_default_index_quote_source_statuses(db)
+        db.commit()
+        snapshot = MarketQuoteSnapshot(
+            asset_code="399395",
+            asset_name="国证有色",
+            asset_type="index",
+            market="CN",
+            trade_date=date(2026, 7, 8),
+            quote_time=datetime(2026, 7, 8, 10, 30),
+            latest_price=Decimal("9409.938"),
+            prev_close=Decimal("9352.435"),
+            change_rate=Decimal("0.00615"),
+        )
+
+        try:
+            with (
+                patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", side_effect=ConnectionError("proxy refused")),
+                patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={"399395": snapshot}),
+            ):
+                quotes = AkshareSource(db).get_index_quotes(["399395"])
+            eastmoney_http_status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "eastmoney_http_spot")
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(eastmoney_http_status.failure_count, 1)
+        self.assertIn("proxy refused", eastmoney_http_status.last_error)
+        self.assertNotEqual(eastmoney_http_status.last_error, "no quote matched")
+
     def test_index_quote_sources_use_success_rate_to_adjust_realtime_order(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
