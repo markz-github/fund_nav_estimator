@@ -9,6 +9,7 @@ const sources = ref<IndexQuoteSourceStatus[]>([])
 const loading = ref(false)
 const message = ref('')
 const popover = ref({ text: '', top: 0, left: 0, visible: false })
+const activeSourceType = ref<'index' | 'stock' | 'etf'>('index')
 
 const sourceGroups = computed(() => [
   {
@@ -33,6 +34,7 @@ const sourceGroups = computed(() => [
     items: sources.value.filter((item) => item.source_type === 'etf'),
   },
 ])
+const activeGroup = computed(() => sourceGroups.value.find((group) => group.key === activeSourceType.value) ?? sourceGroups.value[0])
 
 function formatDateTime(value?: string | null) {
   if (!value) return '-'
@@ -109,16 +111,40 @@ onMounted(loadSources)
 
     <p v-if="message" class="message">{{ message }}</p>
 
-    <template v-for="group in sourceGroups" :key="group.key">
-      <section class="section-title">
-        <div>
-          <p class="eyebrow">{{ group.eyebrow }}</p>
-          <h2>{{ group.title }}</h2>
-          <p class="group-subtitle">{{ group.subtitle }}</p>
-        </div>
-        <span>{{ group.items.length }} 个</span>
-      </section>
-      <div class="table-card source-group-card">
+    <section class="source-tabs-shell" aria-label="行情渠道类型">
+      <div class="source-tabs" role="tablist" aria-label="行情渠道类型">
+        <button
+          v-for="group in sourceGroups"
+          :id="`source-tab-${group.key}`"
+          :key="group.key"
+          type="button"
+          role="tab"
+          class="source-tab"
+          :class="{ active: activeSourceType === group.key }"
+          :aria-selected="activeSourceType === group.key"
+          :aria-controls="`source-panel-${group.key}`"
+          @click="activeSourceType = group.key as 'index' | 'stock' | 'etf'"
+        >
+          <span>{{ group.title }}</span>
+          <strong>{{ group.items.length }}</strong>
+        </button>
+      </div>
+    </section>
+
+    <section class="section-title">
+      <div>
+        <p class="eyebrow">{{ activeGroup.eyebrow }}</p>
+        <h2>{{ activeGroup.title }}</h2>
+        <p class="group-subtitle">{{ activeGroup.subtitle }}</p>
+      </div>
+      <span>{{ activeGroup.items.length }} 个</span>
+    </section>
+    <div
+      :id="`source-panel-${activeGroup.key}`"
+      class="table-card source-group-card"
+      role="tabpanel"
+      :aria-labelledby="`source-tab-${activeGroup.key}`"
+    >
       <table class="responsive-card-table quote-source-table">
         <thead>
           <tr>
@@ -137,10 +163,10 @@ onMounted(loadSources)
           </tr>
         </thead>
         <tbody>
-          <tr v-if="group.items.length === 0">
-            <td colspan="12">暂无{{ group.title }}。</td>
+          <tr v-if="activeGroup.items.length === 0">
+            <td colspan="12">暂无{{ activeGroup.title }}。</td>
           </tr>
-          <tr v-for="(item, index) in group.items" :key="item.source_key">
+          <tr v-for="(item, index) in activeGroup.items" :key="item.source_key">
             <td data-label="排序">{{ index + 1 }}</td>
             <td data-label="渠道">
               <strong>{{ item.source_name }}</strong>
@@ -171,8 +197,7 @@ onMounted(loadSources)
           </tr>
         </tbody>
       </table>
-      </div>
-    </template>
+    </div>
     <div
       v-if="popover.visible"
       class="log-text-popover"
@@ -200,6 +225,56 @@ onMounted(loadSources)
 .group-subtitle {
   margin: 4px 0 0;
   color: var(--text-muted);
+}
+
+.source-tabs-shell {
+  margin: 28px 0 20px;
+}
+
+.source-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.source-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.source-tab strong {
+  min-width: 24px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-main);
+  font-size: 13px;
+  text-align: center;
+}
+
+.source-tab.active {
+  background: var(--surface);
+  color: var(--text-main);
+  box-shadow: var(--shadow-soft);
+}
+
+.source-tab.active strong {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .source-group-card {
