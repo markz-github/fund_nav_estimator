@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.modules.fund_nav.schemas.market import MarketQuoteOut
+from app.modules.fund_nav.schemas.market import IndexQuoteSourceStatusOut, MarketQuoteOut
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
+from app.modules.fund_nav.services.index_quote_source_status_service import IndexQuoteSourceStatusService
 from app.modules.fund_nav.services.market_service import MarketService
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -22,3 +23,8 @@ def refresh_market_quotes(db: Session = Depends(get_db)) -> dict:
 @router.get("/quotes/latest", response_model=list[MarketQuoteOut])
 def latest_market_quotes(db: Session = Depends(get_db)):
     return MarketService(db).latest_quotes()
+
+
+@router.get("/index-quote-sources", response_model=list[IndexQuoteSourceStatusOut])
+def index_quote_sources(db: Session = Depends(get_db)):
+    return IndexQuoteSourceStatusService(db).list_statuses()

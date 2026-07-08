@@ -18,8 +18,10 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot, MarketQuoteSnapshot
+from app.modules.fund_nav.data_sources.akshare.eastmoney_index_source import EastmoneyIndexSource
 from app.modules.fund_nav.data_sources.web.eastmoney_source import EastmoneySource
 from app.modules.fund_nav.data_sources.akshare.index_catalog_source import MarketIndexSnapshot
+from app.modules.fund_nav.data_sources.akshare.sina_index_source import SinaIndexSource
 from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMappingSnapshot
 from app.database import Base
 from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
@@ -30,6 +32,7 @@ from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.fund_profile import FundProfile
 from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
+from app.modules.fund_nav.models.index_quote_source_status import IndexQuoteSourceStatus
 from app.modules.fund_nav.models.manual_fund_index_mapping import ManualFundIndexMapping
 from app.modules.fund_nav.models.market_index import MarketIndex
 from app.modules.fund_nav.models.market_quote import MarketQuote
@@ -38,14 +41,20 @@ from app.modules.fund_nav.schemas.fund import FundCreate
 from app.modules.fund_nav.schemas.manual_index_mapping import ManualFundIndexMappingIn
 from app.modules.fund_nav.schemas.task_detail import FundTaskDetailLogOut
 from app.modules.fund_nav.api.funds import list_task_detail_logs
+from app.modules.fund_nav.api.market import index_quote_sources
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.index_catalog_service import IndexCatalogService
+from app.modules.fund_nav.services.index_quote_source_status_service import (
+    DISABLE_FAILURES,
+    IndexQuoteSourceStatusService,
+    seed_default_index_quote_source_statuses,
+)
 from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
-from app.modules.fund_nav.services.estimate_service import EstimateService
+from app.modules.fund_nav.services.estimate_service import EstimateService, IndexTrackingEstimateStrategy
 from app.modules.fund_nav.services.market_service import MarketService
 from app.modules.fund_nav.services.asset_valuation_config_service import load_asset_valuation_config_map
 
@@ -513,20 +522,12 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(snapshot.unit_nav, Decimal("1.098"))
         self.assertEqual(snapshot.nav_date, date(2026, 4, 27))
 
-    def test_etf_estimate_uses_iopv_strategy_without_holdings(self) -> None:
+    def test_etf_estimate_requires_persisted_quote_without_holdings(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
         SessionLocal = sessionmaker(bind=engine)
         db = SessionLocal()
         source = Mock()
-        source.get_etf_iopv_snapshot.return_value = EtfIopvSnapshot(
-            fund_code="561560",
-            asset_name="电力ETF华泰柏瑞",
-            estimate_time=datetime(2026, 6, 5, 10, 30),
-            estimated_nav=Decimal("1.4638"),
-            latest_price=Decimal("1.4600"),
-            change_rate=Decimal("-0.0181"),
-        )
         db.add(Fund(id=1, fund_code="561560", fund_name="电力ETF华泰柏瑞", fund_type="指数型-股票"))
         db.add(
             FundNav(
@@ -549,11 +550,8 @@ class FundNavRefreshTests(unittest.TestCase):
             db.close()
 
         self.assertTrue(EstimateService.is_exchange_traded_fund(fund))
-        self.assertEqual(result.estimated_nav, Decimal("1.4638"))
-        self.assertEqual(result.base_unit_nav, Decimal("1.4908"))
-        self.assertEqual(result.estimated_growth_rate.quantize(Decimal("0.0001")), Decimal("-0.0181"))
-        self.assertEqual(result.coverage_ratio, Decimal("1"))
-        self.assertIn("strategy=etf_iopv", result.source_snapshot)
+        self.assertEqual(result, "missing_etf_quote")
+        source.get_etf_iopv_snapshot.assert_not_called()
 
     def test_etf_estimate_uses_local_quote_before_iopv(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -609,21 +607,12 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIn("strategy=etf_quote", result.source_snapshot)
         source.get_etf_iopv_snapshot.assert_not_called()
 
-    def test_etf_estimate_uses_etf_strategy_when_nav_source_is_etf_spot(self) -> None:
+    def test_etf_estimate_with_etf_spot_nav_source_requires_persisted_quote(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
         SessionLocal = sessionmaker(bind=engine)
         db = SessionLocal()
         source = Mock()
-        source.get_etf_iopv_snapshot.return_value = EtfIopvSnapshot(
-            fund_code="515450",
-            asset_name="红利低波",
-            estimate_time=datetime(2026, 6, 5, 10, 30),
-            estimated_nav=Decimal("1.4638"),
-            latest_price=Decimal("1.4638"),
-            change_rate=Decimal("-0.0181"),
-            source="akshare:etf_spot",
-        )
         fund = Fund(id=1, fund_code="515450", fund_name="515450", fund_type=None)
         db.add(fund)
         db.add(
@@ -644,8 +633,8 @@ class FundNavRefreshTests(unittest.TestCase):
         finally:
             db.close()
 
-        self.assertIsInstance(result, FundEstimate)
-        self.assertIn("strategy=etf_iopv", result.source_snapshot)
+        self.assertEqual(result, "missing_etf_quote")
+        source.get_etf_iopv_snapshot.assert_not_called()
 
     def test_index_fund_estimate_uses_tracking_index_quote(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -710,7 +699,7 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(result.coverage_ratio, Decimal("1"))
         self.assertIn("strategy=index_tracking", result.source_snapshot)
 
-    def test_index_fund_estimate_fetches_missing_index_quote_on_demand(self) -> None:
+    def test_index_fund_estimate_does_not_fetch_missing_index_quote_on_demand(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
         SessionLocal = sessionmaker(bind=engine)
@@ -746,35 +735,22 @@ class FundNavRefreshTests(unittest.TestCase):
         )
         db.commit()
         source = Mock()
-        source.source_name = "akshare"
-        source.get_index_quotes.return_value = [
-            MarketQuoteSnapshot(
-                asset_code="930743",
-                asset_name="中证生科",
-                asset_type="index",
-                market="CN",
-                trade_date=date(2026, 6, 24),
-                quote_time=datetime(2026, 6, 24, 10, 30),
-                latest_price=Decimal("2901.69"),
-                prev_close=Decimal("2853.55"),
-                change_rate=Decimal("0.0169"),
-            )
-        ]
 
         try:
             fund = db.scalar(select(Fund).where(Fund.fund_code == "501009"))
-            result = EstimateService(db, source)._estimate_one(fund, datetime(2026, 6, 24, 10, 35))
+            result = IndexTrackingEstimateStrategy(EstimateService(db, source)).estimate(
+                fund,
+                datetime(2026, 6, 24, 10, 35),
+            )
             quote = db.scalar(select(MarketQuote).where(MarketQuote.asset_code == "930743"))
         finally:
             db.close()
 
-        self.assertIsInstance(result, FundEstimate)
-        self.assertEqual(result.estimated_growth_rate, Decimal("0.0169"))
-        self.assertIsNotNone(quote)
-        self.assertEqual(quote.trade_date, date(2026, 6, 24))
-        source.get_index_quotes.assert_called_once_with(["930743"])
+        self.assertEqual(result, "missing_index_quote")
+        self.assertIsNone(quote)
+        source.get_index_quotes.assert_not_called()
 
-    def test_index_fund_estimate_refreshes_stale_index_quote_on_demand(self) -> None:
+    def test_index_fund_estimate_does_not_refresh_stale_index_quote_on_demand(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
         SessionLocal = sessionmaker(bind=engine)
@@ -825,31 +801,18 @@ class FundNavRefreshTests(unittest.TestCase):
         )
         db.commit()
         source = Mock()
-        source.source_name = "akshare"
-        source.get_index_quotes.return_value = [
-            MarketQuoteSnapshot(
-                asset_code="930743.CSI",
-                asset_name="中证生科",
-                asset_type="index",
-                market="CN",
-                trade_date=date(2026, 6, 24),
-                quote_time=datetime(2026, 6, 24, 10, 30),
-                latest_price=Decimal("2901.69"),
-                prev_close=Decimal("2853.55"),
-                change_rate=Decimal("0.0169"),
-            )
-        ]
 
         try:
             fund = db.scalar(select(Fund).where(Fund.fund_code == "501009"))
-            result = EstimateService(db, source)._estimate_one(fund, datetime(2026, 6, 24, 10, 35))
+            result = IndexTrackingEstimateStrategy(EstimateService(db, source)).estimate(
+                fund,
+                datetime(2026, 6, 24, 10, 35),
+            )
         finally:
             db.close()
 
-        self.assertIsInstance(result, FundEstimate)
-        self.assertEqual(result.estimated_growth_rate, Decimal("0.0169"))
-        self.assertIn("quote=2026-06-24T10:30:00", result.source_snapshot)
-        source.get_index_quotes.assert_called_once_with(["930743"])
+        self.assertEqual(result, "stale_index_quote")
+        source.get_index_quotes.assert_not_called()
 
     def test_run_estimates_records_fund_detail_log(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -1365,8 +1328,83 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(len(quotes), 1)
         self.assertEqual(quotes[0].asset_code, "930743")
         self.assertEqual(quotes[0].asset_type, "index")
-        source.get_market_quotes.assert_called_once_with([])
+        source.get_market_quotes.assert_not_called()
         source.get_index_quotes.assert_called_once_with(["930743"])
+
+    def test_refresh_quotes_for_holdings_refreshes_stock_etf_index_in_order(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(
+            Fund(
+                id=1,
+                fund_code="501009",
+                fund_name="汇添富中证生物科技指数(LOF)A",
+                fund_type="指数型-股票",
+            )
+        )
+        db.add(
+            Fund(
+                id=2,
+                fund_code="515450",
+                fund_name="红利低波ETF",
+                fund_type="指数型-股票",
+            )
+        )
+        db.add(
+            FundHolding(
+                id=1,
+                fund_code="501009",
+                report_period="2026Q1",
+                asset_code="600276",
+                asset_name="恒瑞医药",
+                asset_type="stock",
+                market="SH",
+                holding_ratio=Decimal("1.000000"),
+                holding_value=None,
+                source="test",
+            )
+        )
+        db.add(
+            FundIndexMapping(
+                id=1,
+                fund_code="501009",
+                index_code="930743.CSI",
+                index_name="中证生物科技主题指数",
+                source="test",
+                confidence="high",
+            )
+        )
+        db.commit()
+        source = Mock()
+        source.source_name = "akshare"
+        calls = []
+
+        def fake_market_quotes(asset_codes):
+            calls.append(("market", list(asset_codes)))
+            return []
+
+        def fake_index_quotes(index_codes):
+            calls.append(("index", list(index_codes)))
+            return []
+
+        source.get_market_quotes.side_effect = fake_market_quotes
+        source.get_index_quotes.side_effect = fake_index_quotes
+
+        try:
+            MarketService(db, source).refresh_quotes_for_holdings()
+        finally:
+            db.close()
+
+        self.assertEqual(
+            calls,
+            [
+                ("market", ["600276"]),
+                ("market", ["515450"]),
+                ("index", ["930743"]),
+            ],
+        )
 
     def test_index_quotes_prefer_eastmoney_realtime_spot(self) -> None:
         columns = ["代码", "名称", "最新价", "涨跌幅", "昨收"]
@@ -1461,6 +1499,125 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(quotes[0].trade_date, date(2026, 7, 1))
         self.assertEqual(quotes[0].latest_price, Decimal("3010.47"))
         self.assertEqual(quotes[0].change_rate, Decimal("0.0125"))
+
+    def test_index_quote_sources_record_success_and_failure_stats(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        seed_default_index_quote_source_statuses(db)
+        db.commit()
+        snapshot = MarketQuoteSnapshot(
+            asset_code="399395",
+            asset_name="国证有色",
+            asset_type="index",
+            market="CN",
+            trade_date=date(2026, 7, 8),
+            quote_time=datetime(2026, 7, 8, 10, 30),
+            latest_price=Decimal("9409.938"),
+            prev_close=Decimal("9352.435"),
+            change_rate=Decimal("0.00615"),
+        )
+
+        try:
+            with (
+                patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(SinaIndexSource, "get_spot_quotes", return_value={"399395": snapshot}),
+            ):
+                quotes = AkshareSource(db).get_index_quotes(["399395"])
+            eastmoney_status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "eastmoney_spot")
+            )
+            sina_status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "sina_spot")
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(len(quotes), 1)
+        self.assertEqual(eastmoney_status.failure_count, 1)
+        self.assertEqual(eastmoney_status.consecutive_failures, 1)
+        self.assertEqual(sina_status.success_count, 1)
+        self.assertEqual(sina_status.consecutive_failures, 0)
+
+    def test_index_quote_sources_use_success_rate_to_adjust_realtime_order(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        seed_default_index_quote_source_statuses(db)
+        eastmoney_status = db.scalar(
+            select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "eastmoney_spot")
+        )
+        sina_status = db.scalar(
+            select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "sina_spot")
+        )
+        eastmoney_status.failure_count = 10
+        eastmoney_status.consecutive_failures = 4
+        sina_status.success_count = 10
+        db.commit()
+        snapshot = MarketQuoteSnapshot(
+            asset_code="399395",
+            asset_name="国证有色",
+            asset_type="index",
+            market="CN",
+            trade_date=date(2026, 7, 8),
+            quote_time=datetime(2026, 7, 8, 10, 30),
+            latest_price=Decimal("9409.938"),
+            prev_close=Decimal("9352.435"),
+            change_rate=Decimal("0.00615"),
+        )
+
+        try:
+            with (
+                patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}) as eastmoney_spot,
+                patch.object(SinaIndexSource, "get_spot_quotes", return_value={"399395": snapshot}) as sina_spot,
+            ):
+                quotes = AkshareSource(db).get_index_quotes(["399395"])
+        finally:
+            db.close()
+
+        self.assertEqual(len(quotes), 1)
+        sina_spot.assert_called_once()
+        eastmoney_spot.assert_not_called()
+
+    def test_index_quote_source_is_disabled_after_long_consecutive_failures(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        service = IndexQuoteSourceStatusService(db)
+        service.seed_defaults()
+
+        try:
+            for _ in range(DISABLE_FAILURES):
+                service.record_failure("eastmoney_spot")
+            status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "eastmoney_spot")
+            )
+            ordered_sources = service.ordered_sources("realtime")
+        finally:
+            db.close()
+
+        self.assertEqual(status.enabled, 0)
+        self.assertNotIn("eastmoney_spot", [item.source_key for item in ordered_sources])
+
+    def test_index_quote_source_status_api_returns_default_sources(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+
+        try:
+            rows = index_quote_sources(db)
+        finally:
+            db.close()
+
+        self.assertEqual(len(rows), 7)
+        self.assertEqual(rows[0]["source_key"], "eastmoney_spot")
+        self.assertEqual(rows[0]["source_type_label"], "实时")
+        self.assertEqual(rows[0]["status_label"], "启用")
+        self.assertIn("effective_priority", rows[0])
 
     def test_refresh_index_related_mappings_includes_index_and_etf_funds(self) -> None:
         engine = create_engine("sqlite:///:memory:")
