@@ -45,7 +45,7 @@ class CompositeIndexQuoteSource:
             "xueqiu_spot": self.xueqiu.get_spot_quotes,
         }
 
-        for source_status in self.status_service.ordered_sources("realtime"):
+        for source_status in self.status_service.ordered_sources("index"):
             missing_codes = target_codes - set(snapshots)
             if not missing_codes:
                 return list(snapshots.values())

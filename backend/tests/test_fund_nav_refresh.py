@@ -1836,7 +1836,7 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIn("proxy refused", eastmoney_http_status.last_error)
         self.assertNotEqual(eastmoney_http_status.last_error, "no quote matched")
 
-    def test_index_quote_sources_use_success_rate_to_adjust_realtime_order(self) -> None:
+    def test_index_quote_sources_use_success_rate_to_adjust_order(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
         SessionLocal = sessionmaker(bind=engine)
@@ -1892,7 +1892,7 @@ class FundNavRefreshTests(unittest.TestCase):
             status = db.scalar(
                 select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "eastmoney_spot")
             )
-            ordered_sources = service.ordered_sources("realtime")
+            ordered_sources = service.ordered_sources("index")
         finally:
             db.close()
 
@@ -1910,11 +1910,68 @@ class FundNavRefreshTests(unittest.TestCase):
         finally:
             db.close()
 
-        self.assertEqual(len(rows), 6)
+        self.assertEqual(len(rows), 16)
         self.assertEqual(rows[0]["source_key"], "eastmoney_http_spot")
-        self.assertEqual(rows[0]["source_type_label"], "实时")
+        self.assertEqual(rows[0]["source_type_label"], "指数")
         self.assertEqual(rows[0]["status_label"], "启用")
         self.assertIn("effective_priority", rows[0])
+
+    def test_stock_and_etf_quote_sources_record_success_stats(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        stock_df = pd.DataFrame(
+            [
+                {
+                    "代码": "600000",
+                    "名称": "浦发银行",
+                    "最新价": "9.90",
+                    "昨收": "9.80",
+                    "涨跌幅": "1.02",
+                }
+            ]
+        )
+        etf_df = pd.DataFrame(
+            [
+                {
+                    "代码": "159915",
+                    "名称": "创业板 ETF",
+                    "最新价": "2.100",
+                    "昨收": "2.000",
+                    "涨跌幅": "5.00",
+                }
+            ]
+        )
+        def stock_spot_dataframe(cls):
+            return stock_df
+
+        def etf_spot_dataframe(cls):
+            return etf_df
+
+        stock_spot_dataframe.__name__ = "_get_cn_stock_spot_dataframe"
+        etf_spot_dataframe.__name__ = "_get_etf_spot_dataframe"
+
+        try:
+            with (
+                patch.object(AkshareSource, "_get_cn_stock_spot_dataframe", classmethod(stock_spot_dataframe)),
+                patch.object(AkshareSource, "_get_etf_spot_dataframe", classmethod(etf_spot_dataframe)),
+            ):
+                quotes = AkshareSource(db).get_market_quotes(["600000", "159915"])
+            stock_status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "stock_zh_a_spot")
+            )
+            etf_status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "fund_etf_spot_em")
+            )
+        finally:
+            db.close()
+
+        self.assertEqual({quote.asset_code for quote in quotes}, {"600000", "159915"})
+        self.assertEqual(stock_status.success_count, 1)
+        self.assertEqual(stock_status.source_type, "stock")
+        self.assertEqual(etf_status.success_count, 1)
+        self.assertEqual(etf_status.source_type, "etf")
 
     def test_refresh_index_related_mappings_includes_index_and_etf_funds(self) -> None:
         engine = create_engine("sqlite:///:memory:")

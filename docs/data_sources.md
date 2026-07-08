@@ -58,7 +58,7 @@ data_sources/
 
 ### 指数行情
 
-指数行情通过 `AkshareSource.get_index_quotes()` 对外提供，内部由 `CompositeIndexQuoteSource` 按 `index_quote_source_status` 中的渠道配置和成功率动态排序尝试。净值估算只使用实时指数行情，默认渠道为：
+指数行情通过 `AkshareSource.get_index_quotes()` 对外提供，内部由 `CompositeIndexQuoteSource` 按 `index_quote_source_status` 中 `source_type = index` 的渠道配置和成功率动态排序尝试。净值估算只使用实时指数行情，默认渠道为：
 
 1. 东方财富 HTTP 实时指数：`push2.eastmoney.com/api/qt/ulist.np/get`，中证 `93xxxx` 等指数使用 `secid = 2.<index_code>`，优先覆盖中证主题指数。
 2. 东财 AkShare 实时指数：`ak.stock_zh_index_spot_em()`，按“深证系列指数 / 中证系列指数 / 沪深重要指数 / 上证系列指数”分组查询。
@@ -73,7 +73,9 @@ data_sources/
 
 每个渠道调用后会更新成功/失败统计：本次调用只要为缺失指数返回至少一条可用行情即记为成功，否则记为失败。排序会综合默认优先级、成功率和连续失败次数；连续失败达到冷却阈值后临时跳过，长期连续失败后自动禁用，需人工重新启用。
 
-前端“基金 / 渠道管理”页面读取 `/api/market/index-quote-sources`，展示当前实时渠道排序、成功率、失败率、连续失败、冷却状态和最近错误。
+股票和 ETF 行情也会记录到同一张渠道状态表，分类为 `source_type = stock` 和 `source_type = etf`。其中股票渠道包括 A 股、港股 AkShare 全量实时接口、HTTP 新浪兜底和历史行情兜底；ETF 渠道包括 `fund_etf_spot_em`、东财 HTTP ETF、HTTP 新浪 ETF 和历史行情兜底。当前只有指数渠道会根据成功率动态调整调用顺序；股票/ETF 先记录可观测性，调用顺序仍遵循 `AkshareSource.get_market_quotes()` 中的固定 fallback 流程。
+
+前端“基金 / 渠道管理”页面读取 `/api/market/index-quote-sources`，按指数、股票、ETF 分类展示渠道排序、成功率、失败率、连续失败、冷却状态和最近错误。
 
 指数行情渠道文件：
 

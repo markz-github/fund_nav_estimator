@@ -162,6 +162,37 @@ class FundTaskQueueTests(unittest.TestCase):
         holding_service.assert_not_called()
         mapping_service.assert_not_called()
 
+    def test_refresh_quote_estimate_succeeds_when_upstream_errors_do_not_skip_estimates(self) -> None:
+        submitted = self.service.submit("refresh_quote_estimate", "刷新行情并估算", origin="scheduled")
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        market_service = Mock()
+        market_service.last_refresh_diagnostics = [
+            FetchDiagnostic("error", "akshare", "stock_zh_a_spot_em", "fetch failed: RemoteDisconnected")
+        ]
+        market_service.refresh_quotes_for_holdings.return_value = [object()]
+        estimate_service = Mock()
+        estimate_service.run_estimates.return_value = {
+            "estimated_count": 20,
+            "skipped_count": 0,
+            "skipped": [],
+        }
+
+        with (
+            patch("app.modules.fund_nav.services.fund_task_queue_service.MarketService", return_value=market_service),
+            patch("app.modules.fund_nav.services.fund_task_queue_service.EstimateService", return_value=estimate_service),
+        ):
+            self.service.execute(submitted.task_id)
+
+        task_log = self.db.get(TaskLog, submitted.task_log_id)
+        self.assertEqual(task_log.status, "success")
+        self.assertIn("upstream_errors=1", task_log.message)
+        self.assertIn("estimated=20;skipped=0", task_log.message)
+        fetch_error = self.db.scalar(select(DataFetchError))
+        self.assertEqual(fetch_error.source, "akshare")
+
     def test_check_nav_quality_task_records_partial_when_stale_nav_exists(self) -> None:
         self.db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))
         self.db.commit()

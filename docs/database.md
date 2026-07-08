@@ -203,14 +203,14 @@ CREATE TABLE asset_valuation_configs (
 
 ## index_quote_source_status
 
-指数行情渠道配置和成功率统计表。当前净值估算只启用 `source_type = realtime` 的盘中指数行情渠道，历史日 K 不作为估算兜底。
+行情渠道配置和成功率统计表。当前包括 `source_type = index`、`stock`、`etf` 三类；指数估值只使用盘中实时指数渠道，历史日 K 不作为指数估算兜底。
 
 ```sql
 CREATE TABLE index_quote_source_status (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    source_key VARCHAR(50) NOT NULL COMMENT '渠道唯一键，如 eastmoney_http_spot、sina_http_spot、xueqiu_spot',
+    source_key VARCHAR(50) NOT NULL COMMENT '渠道唯一键，如 eastmoney_http_spot、stock_zh_a_spot、fund_etf_spot_em',
     source_name VARCHAR(100) NOT NULL COMMENT '渠道展示名称',
-    source_type VARCHAR(20) NOT NULL COMMENT '渠道类型，当前使用 realtime',
+    source_type VARCHAR(20) NOT NULL COMMENT '渠道类型，如 index、stock、etf',
     priority INT NOT NULL DEFAULT 100 COMMENT '默认优先级，数值越小越靠前',
     enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
     success_count INT NOT NULL DEFAULT 0 COMMENT '成功次数',

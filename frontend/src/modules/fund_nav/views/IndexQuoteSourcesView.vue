@@ -10,7 +10,29 @@ const loading = ref(false)
 const message = ref('')
 const popover = ref({ text: '', top: 0, left: 0, visible: false })
 
-const realtimeSources = computed(() => sources.value.filter((item) => item.source_type === 'realtime'))
+const sourceGroups = computed(() => [
+  {
+    key: 'index',
+    eyebrow: 'Index',
+    title: '指数渠道',
+    subtitle: '指数估值使用的实时行情源。',
+    items: sources.value.filter((item) => item.source_type === 'index'),
+  },
+  {
+    key: 'stock',
+    eyebrow: 'Stock',
+    title: '股票渠道',
+    subtitle: '持仓股票估值使用的行情源。',
+    items: sources.value.filter((item) => item.source_type === 'stock'),
+  },
+  {
+    key: 'etf',
+    eyebrow: 'ETF',
+    title: 'ETF 渠道',
+    subtitle: 'ETF 持仓和 ETF 净值估算使用的行情源。',
+    items: sources.value.filter((item) => item.source_type === 'etf'),
+  },
+])
 
 function formatDateTime(value?: string | null) {
   if (!value) return '-'
@@ -78,7 +100,7 @@ onMounted(loadSources)
       <div>
         <p class="eyebrow">Source Management</p>
         <h1>渠道管理</h1>
-        <p class="subtitle">指数估值只使用实时行情源，当前 {{ realtimeSources.length }} 个。</p>
+        <p class="subtitle">按指数、股票、ETF 分类查看行情渠道，当前 {{ sources.length }} 个。</p>
       </div>
       <button class="ghost" :disabled="loading" @click="loadSources">
         {{ loading ? '刷新中...' : '刷新' }}
@@ -87,14 +109,16 @@ onMounted(loadSources)
 
     <p v-if="message" class="message">{{ message }}</p>
 
-    <section class="section-title">
-      <div>
-        <p class="eyebrow">Realtime</p>
-        <h2>实时渠道</h2>
-      </div>
-      <span>{{ realtimeSources.length }} 个</span>
-    </section>
-    <div class="table-card">
+    <template v-for="group in sourceGroups" :key="group.key">
+      <section class="section-title">
+        <div>
+          <p class="eyebrow">{{ group.eyebrow }}</p>
+          <h2>{{ group.title }}</h2>
+          <p class="group-subtitle">{{ group.subtitle }}</p>
+        </div>
+        <span>{{ group.items.length }} 个</span>
+      </section>
+      <div class="table-card source-group-card">
       <table class="responsive-card-table quote-source-table">
         <thead>
           <tr>
@@ -113,10 +137,10 @@ onMounted(loadSources)
           </tr>
         </thead>
         <tbody>
-          <tr v-if="realtimeSources.length === 0">
-            <td colspan="12">暂无实时渠道。</td>
+          <tr v-if="group.items.length === 0">
+            <td colspan="12">暂无{{ group.title }}。</td>
           </tr>
-          <tr v-for="(item, index) in realtimeSources" :key="item.source_key">
+          <tr v-for="(item, index) in group.items" :key="item.source_key">
             <td data-label="排序">{{ index + 1 }}</td>
             <td data-label="渠道">
               <strong>{{ item.source_name }}</strong>
@@ -147,7 +171,8 @@ onMounted(loadSources)
           </tr>
         </tbody>
       </table>
-    </div>
+      </div>
+    </template>
     <div
       v-if="popover.visible"
       class="log-text-popover"
@@ -170,6 +195,15 @@ onMounted(loadSources)
   margin-top: 4px;
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-size: 12px;
+}
+
+.group-subtitle {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+}
+
+.source-group-card {
+  margin-bottom: 32px;
 }
 
 </style>
