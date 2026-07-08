@@ -205,6 +205,7 @@ onMounted(loadSources)
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  font-size: 17px;
   font-weight: 800;
 }
 
