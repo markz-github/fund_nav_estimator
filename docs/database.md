@@ -208,7 +208,7 @@ CREATE TABLE asset_valuation_configs (
 ```sql
 CREATE TABLE index_quote_source_status (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    source_key VARCHAR(50) NOT NULL COMMENT '渠道唯一键，如 eastmoney_spot、sina_spot',
+    source_key VARCHAR(50) NOT NULL COMMENT '渠道唯一键，如 eastmoney_http_spot、sina_http_spot、xueqiu_spot',
     source_name VARCHAR(100) NOT NULL COMMENT '渠道展示名称',
     source_type VARCHAR(20) NOT NULL COMMENT '渠道类型，当前使用 realtime',
     priority INT NOT NULL DEFAULT 100 COMMENT '默认优先级，数值越小越靠前',

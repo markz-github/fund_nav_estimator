@@ -139,9 +139,11 @@ function sortIndicator(sortBy: FundSortBy) {
             </strong>
             <span class="muted mobile-only">估算 {{ formatDateTime(fund.latest_estimate_time) }}</span>
           </td>
-          <td class="status-cell mobile-hidden-cell" data-label="估算状态">
-            <span class="status-pill" :class="statusClass(fund)">{{ statusText(fund) }}</span>
-            <span class="muted">覆盖 {{ percent(fund.latest_coverage_ratio) }}</span>
+          <td class="mobile-hidden-cell" data-label="估算状态">
+            <div class="status-cell">
+              <span class="status-pill" :class="statusClass(fund)">{{ statusText(fund) }}</span>
+              <span class="muted">覆盖 {{ percent(fund.latest_coverage_ratio) }}</span>
+            </div>
           </td>
           <td data-label="官方净值">
             <div class="benchmark-cell">

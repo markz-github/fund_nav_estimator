@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 import logging
 import re
@@ -106,11 +106,9 @@ class IndexTrackingEstimateStrategy(EstimateStrategy):
         if not index_code:
             return "missing_index_mapping"
 
-        quote = self.service._latest_quotes([index_code]).get(index_code)
+        quote = self.service._latest_quotes([index_code], min_trade_date=estimate_time.date()).get(index_code)
         if quote is None or quote.change_rate is None:
             return "missing_index_quote"
-        if self.service._is_stale_index_quote(quote, estimate_time):
-            return "stale_index_quote"
 
         estimated_nav = self.service.calculate_estimated_nav(latest_nav.unit_nav, quote.change_rate)
         return FundEstimate(
@@ -421,12 +419,20 @@ class EstimateService:
             )
         )
 
-    def _latest_quotes(self, asset_codes: list[str]) -> dict[str, MarketQuote]:
+    def _latest_quotes(
+        self,
+        asset_codes: list[str],
+        *,
+        min_trade_date: date | None = None,
+    ) -> dict[str, MarketQuote]:
         if not asset_codes:
             return {}
+        filters = [MarketQuote.asset_code.in_(asset_codes)]
+        if min_trade_date is not None:
+            filters.append(MarketQuote.trade_date >= min_trade_date)
         subquery = (
             select(MarketQuote.asset_code, func.max(MarketQuote.quote_time).label("latest_time"))
-            .where(MarketQuote.asset_code.in_(asset_codes))
+            .where(*filters)
             .group_by(MarketQuote.asset_code)
             .subquery()
         )
@@ -450,10 +456,6 @@ class EstimateService:
             holding.market in realtime_markets
             and quote.trade_date < estimate_time.date()
         )
-
-    @staticmethod
-    def _is_stale_index_quote(quote: MarketQuote, estimate_time: datetime) -> bool:
-        return quote.trade_date < estimate_time.date()
 
     @staticmethod
     def _normalize_index_code(index_code: str | None) -> str | None:
