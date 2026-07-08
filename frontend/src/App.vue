@@ -13,11 +13,11 @@ const navItems = [
   { routeName: routeNames.estimateDriftList, label: '估算偏差' },
   { routeName: routeNames.fundEstimateLogs, label: '估算日志' },
   { routeName: routeNames.manualIndexMappings, label: '指数映射' },
+  { routeName: routeNames.indexQuoteSources, label: '渠道管理' },
   { routeName: routeNames.operations, label: '运行状态' },
 ]
 
 const marketItems = [
-  { routeName: routeNames.indexQuoteSources, label: '指数渠道' },
   { routeName: routeNames.aStockHistory, label: '历史行情' },
 ]
 

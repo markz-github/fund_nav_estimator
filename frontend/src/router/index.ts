@@ -59,9 +59,13 @@ const router = createRouter({
       component: ManualIndexMappingsView,
     },
     {
-      path: '/fund-nav/market/index-quote-sources',
+      path: '/fund-nav/source-management',
       name: routeNames.indexQuoteSources,
       component: IndexQuoteSourcesView,
+    },
+    {
+      path: '/fund-nav/market/index-quote-sources',
+      redirect: { name: routeNames.indexQuoteSources },
     },
     {
       path: '/fund-nav/operations',

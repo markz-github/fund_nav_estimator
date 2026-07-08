@@ -203,14 +203,14 @@ CREATE TABLE asset_valuation_configs (
 
 ## index_quote_source_status
 
-指数行情渠道配置和成功率统计表。`source_type = realtime` 的渠道优先用于盘中指数行情，`source_type = daily` 的渠道作为实时行情缺失后的日线保底。
+指数行情渠道配置和成功率统计表。当前净值估算只启用 `source_type = realtime` 的盘中指数行情渠道，历史日 K 不作为估算兜底。
 
 ```sql
 CREATE TABLE index_quote_source_status (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     source_key VARCHAR(50) NOT NULL COMMENT '渠道唯一键，如 eastmoney_spot、sina_spot',
     source_name VARCHAR(100) NOT NULL COMMENT '渠道展示名称',
-    source_type VARCHAR(20) NOT NULL COMMENT '渠道类型：realtime 或 daily',
+    source_type VARCHAR(20) NOT NULL COMMENT '渠道类型，当前使用 realtime',
     priority INT NOT NULL DEFAULT 100 COMMENT '默认优先级，数值越小越靠前',
     enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
     success_count INT NOT NULL DEFAULT 0 COMMENT '成功次数',
@@ -222,6 +222,7 @@ CREATE TABLE index_quote_source_status (
     last_error VARCHAR(500) NULL COMMENT '最近失败原因',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted INT NOT NULL DEFAULT 0 COMMENT '软删除标记',
     UNIQUE KEY uk_index_quote_source_status_key (source_key),
     INDEX idx_index_quote_source_status_type_enabled (source_type, enabled)
 );
