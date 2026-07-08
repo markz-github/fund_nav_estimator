@@ -111,25 +111,16 @@ onMounted(loadSources)
 
     <p v-if="message" class="message">{{ message }}</p>
 
-    <section class="source-tabs-shell" aria-label="行情渠道类型">
-      <div class="source-tabs" role="tablist" aria-label="行情渠道类型">
-        <button
-          v-for="group in sourceGroups"
-          :id="`source-tab-${group.key}`"
-          :key="group.key"
-          type="button"
-          role="tab"
-          class="source-tab"
-          :class="{ active: activeSourceType === group.key }"
-          :aria-selected="activeSourceType === group.key"
-          :aria-controls="`source-panel-${group.key}`"
-          @click="activeSourceType = group.key as 'index' | 'stock' | 'etf'"
-        >
-          <span>{{ group.title }}</span>
-          <strong>{{ group.items.length }}</strong>
-        </button>
-      </div>
-    </section>
+    <el-tabs v-model="activeSourceType" class="source-tabs">
+      <el-tab-pane v-for="group in sourceGroups" :key="group.key" :name="group.key">
+        <template #label>
+          <span class="source-tab-label">
+            <span>{{ group.title }}</span>
+            <strong>{{ group.items.length }}</strong>
+          </span>
+        </template>
+      </el-tab-pane>
+    </el-tabs>
 
     <section class="section-title">
       <div>
@@ -142,8 +133,6 @@ onMounted(loadSources)
     <div
       :id="`source-panel-${activeGroup.key}`"
       class="table-card source-group-card"
-      role="tabpanel"
-      :aria-labelledby="`source-tab-${activeGroup.key}`"
     >
       <table class="responsive-card-table quote-source-table">
         <thead>
@@ -227,54 +216,26 @@ onMounted(loadSources)
   color: var(--text-muted);
 }
 
-.source-tabs-shell {
-  margin: 28px 0 20px;
-}
-
 .source-tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--surface-muted);
+  margin: 28px 0 18px;
 }
 
-.source-tab {
+.source-tab-label {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
+  gap: 8px;
+  font-weight: 800;
 }
 
-.source-tab strong {
+.source-tab-label strong {
   min-width: 24px;
-  padding: 2px 7px;
+  padding: 1px 7px;
   border-radius: 999px;
-  background: var(--surface);
-  color: var(--text-main);
-  font-size: 13px;
-  text-align: center;
-}
-
-.source-tab.active {
-  background: var(--surface);
-  color: var(--text-main);
-  box-shadow: var(--shadow-soft);
-}
-
-.source-tab.active strong {
   background: var(--accent-soft);
   color: var(--accent);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
 }
 
 .source-group-card {
