@@ -29,6 +29,11 @@ export interface FundNavQualityReport {
   issues: FundNavQualityIssue[]
 }
 
+export interface FundNavQualityFilters {
+  occurredFrom?: string
+  occurredTo?: string
+}
+
 export interface EstimateDriftFundSummary {
   fund_code: string
   fund_name: string
@@ -73,8 +78,13 @@ export interface EstimateDriftFilters {
   threshold?: string
 }
 
-export async function getFundNavQualityReport(): Promise<FundNavQualityReport> {
-  const { data } = await apiClient.get<FundNavQualityReport>('/fund-nav/quality/nav')
+export async function getFundNavQualityReport(filters?: FundNavQualityFilters): Promise<FundNavQualityReport> {
+  const { data } = await apiClient.get<FundNavQualityReport>('/fund-nav/quality/nav', {
+    params: {
+      occurred_from: filters?.occurredFrom || undefined,
+      occurred_to: filters?.occurredTo || undefined,
+    },
+  })
   return data
 }
 
