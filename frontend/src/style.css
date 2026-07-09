@@ -1269,7 +1269,9 @@ tbody tr:hover {
   }
 
   .app-sidebar.is-open .sidebar-nav {
-    max-height: 320px;
+    max-height: calc(100vh - 58px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     border-top-color: rgba(32, 55, 47, 0.1);
     padding: 12px;
   }
