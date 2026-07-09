@@ -80,6 +80,24 @@ def ensure_index_quote_source_status_columns() -> None:
         ensure_column(
             connection,
             "index_quote_source_status",
+            "source_description",
+            "`source_description` VARCHAR(1000) NULL COMMENT '渠道说明和覆盖范围'",
+        )
+        ensure_column(
+            connection,
+            "index_quote_source_status",
+            "exclude_rule_type",
+            "`exclude_rule_type` VARCHAR(20) NOT NULL DEFAULT 'none' COMMENT '排除规则类型：none、regex、enum'",
+        )
+        ensure_column(
+            connection,
+            "index_quote_source_status",
+            "exclude_rule_value",
+            "`exclude_rule_value` VARCHAR(1000) NULL COMMENT '排除规则内容，正则表达式或枚举代码'",
+        )
+        ensure_column(
+            connection,
+            "index_quote_source_status",
             "is_deleted",
             "`is_deleted` INT NOT NULL DEFAULT 0 COMMENT '软删除标记'",
         )

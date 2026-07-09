@@ -1836,6 +1836,143 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIn("proxy refused", eastmoney_http_status.last_error)
         self.assertNotEqual(eastmoney_http_status.last_error, "no quote matched")
 
+    def test_index_quote_source_records_requested_symbols_when_source_matches_nothing(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        seed_default_index_quote_source_statuses(db)
+        db.commit()
+
+        try:
+            with (
+                patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(SinaIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(SinaHttpIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(TencentIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(XueqiuIndexSource, "get_spot_quotes", return_value={}),
+            ):
+                quotes = AkshareSource(db).get_index_quotes(["399395"])
+            sina_http_status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "sina_http_spot")
+            )
+            xueqiu_status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "xueqiu_spot")
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(quotes, [])
+        self.assertIn("no quote matched", sina_http_status.last_error)
+        self.assertIn("missing=399395", sina_http_status.last_error)
+        self.assertIn("requested=399395->s_sz399395", sina_http_status.last_error)
+        self.assertIn("missing=399395", xueqiu_status.last_error)
+        self.assertIn("requested=399395->SZ399395", xueqiu_status.last_error)
+
+    def test_index_quote_source_skips_known_unsupported_codes_without_recording_failure(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        seed_default_index_quote_source_statuses(db)
+        db.commit()
+
+        try:
+            with (
+                patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(SinaIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(SinaHttpIndexSource, "get_spot_quotes") as sina_http_spot,
+                patch.object(TencentIndexSource, "get_spot_quotes") as tencent_spot,
+                patch.object(XueqiuIndexSource, "get_spot_quotes") as xueqiu_spot,
+            ):
+                quotes = AkshareSource(db).get_index_quotes(["930875.CSI"])
+            sina_http_status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "sina_http_spot")
+            )
+            xueqiu_status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "xueqiu_spot")
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(quotes, [])
+        sina_http_spot.assert_not_called()
+        tencent_spot.assert_not_called()
+        xueqiu_spot.assert_not_called()
+        self.assertEqual(sina_http_status.failure_count, 0)
+        self.assertIsNone(sina_http_status.last_error)
+        self.assertEqual(xueqiu_status.failure_count, 0)
+        self.assertIsNone(xueqiu_status.last_error)
+
+    def test_index_quote_source_uses_database_enum_exclude_rule(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        service = IndexQuoteSourceStatusService(db)
+        service.seed_defaults()
+        service.update_rules(
+            "sina_http_spot",
+            source_description="测试枚举排除",
+            exclude_rule_type="enum",
+            exclude_rule_value="399395",
+        )
+        db.commit()
+        snapshot = MarketQuoteSnapshot(
+            asset_code="399395",
+            asset_name="国证有色",
+            asset_type="index",
+            market="CN",
+            trade_date=date(2026, 7, 8),
+            quote_time=datetime(2026, 7, 8, 10, 30),
+            latest_price=Decimal("9409.938"),
+            prev_close=Decimal("9352.435"),
+            change_rate=Decimal("0.00615"),
+        )
+
+        try:
+            with (
+                patch.object(EastmoneyHttpIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(EastmoneyIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(SinaIndexSource, "get_spot_quotes", return_value={}),
+                patch.object(SinaHttpIndexSource, "get_spot_quotes") as sina_http_spot,
+                patch.object(TencentIndexSource, "get_spot_quotes", return_value={"399395": snapshot}) as tencent_spot,
+            ):
+                quotes = AkshareSource(db).get_index_quotes(["399395"])
+            sina_http_status = db.scalar(
+                select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "sina_http_spot")
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(len(quotes), 1)
+        sina_http_spot.assert_not_called()
+        tencent_spot.assert_called_once()
+        self.assertEqual(sina_http_status.failure_count, 0)
+        self.assertEqual(sina_http_status.exclude_rule_type, "enum")
+        self.assertEqual(sina_http_status.exclude_rule_value, "399395")
+
+    def test_index_quote_source_rejects_invalid_regex_rule(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        service = IndexQuoteSourceStatusService(db)
+        service.seed_defaults()
+
+        try:
+            with self.assertRaises(ValueError):
+                service.update_rules(
+                    "sina_http_spot",
+                    source_description="bad regex",
+                    exclude_rule_type="regex",
+                    exclude_rule_value="[",
+                )
+        finally:
+            db.close()
+
     def test_index_quote_sources_use_success_rate_to_adjust_order(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)

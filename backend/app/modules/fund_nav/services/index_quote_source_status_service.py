@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,27 +17,34 @@ class IndexQuoteSourceDefinition:
     source_name: str
     source_type: str
     priority: int
+    description: str
+    exclude_rule_type: str = "none"
+    exclude_rule_value: str | None = None
 
 
 DEFAULT_INDEX_QUOTE_SOURCES = (
-    IndexQuoteSourceDefinition("eastmoney_http_spot", "东财 HTTP 实时指数", "index", 5),
-    IndexQuoteSourceDefinition("eastmoney_spot", "东财 AkShare 实时指数", "index", 10),
-    IndexQuoteSourceDefinition("sina_spot", "新浪 AkShare 实时指数", "index", 20),
-    IndexQuoteSourceDefinition("sina_http_spot", "新浪 HTTP 实时指数", "index", 25),
-    IndexQuoteSourceDefinition("tencent_spot", "腾讯 HTTP 实时指数", "index", 30),
-    IndexQuoteSourceDefinition("xueqiu_spot", "雪球 HTTP 实时指数", "index", 40),
-    IndexQuoteSourceDefinition("stock_zh_a_spot", "A 股 AkShare 实时行情", "stock", 10),
-    IndexQuoteSourceDefinition("stock_zh_a_spot_em", "A 股东财 AkShare 实时行情", "stock", 20),
-    IndexQuoteSourceDefinition("stock_hk_spot", "港股 AkShare 实时行情", "stock", 30),
-    IndexQuoteSourceDefinition("stock_hk_spot_em", "港股东财 AkShare 实时行情", "stock", 40),
-    IndexQuoteSourceDefinition("sina_quote", "新浪 HTTP 股票行情", "stock", 50),
-    IndexQuoteSourceDefinition("stock_history_quote", "AkShare 历史行情兜底", "stock", 90),
-    IndexQuoteSourceDefinition("fund_etf_spot_em", "ETF 东财 AkShare 实时行情", "etf", 10),
-    IndexQuoteSourceDefinition("eastmoney_etf", "东财 HTTP ETF 行情", "etf", 20),
-    IndexQuoteSourceDefinition("sina_etf_quote", "新浪 HTTP ETF 行情", "etf", 30),
-    IndexQuoteSourceDefinition("etf_history_quote", "AkShare ETF 历史行情兜底", "etf", 90),
+    IndexQuoteSourceDefinition("eastmoney_http_spot", "东财 HTTP 实时指数", "index", 5, "覆盖中证 9xxxxx、深证 399xxx、上证 000xxx 等实时指数，优先用于中证主题指数。"),
+    IndexQuoteSourceDefinition("eastmoney_spot", "东财 AkShare 实时指数", "index", 10, "通过 AkShare 东财指数分组接口获取实时指数，覆盖深证、中证、沪深重要、上证系列。"),
+    IndexQuoteSourceDefinition("sina_spot", "新浪 AkShare 实时指数", "index", 20, "通过 AkShare 新浪指数实时表获取，作为东财源未命中后的补充。"),
+    IndexQuoteSourceDefinition("sina_http_spot", "新浪 HTTP 实时指数", "index", 25, "直接请求新浪简版行情，适合常见上证、深证指数；已知不覆盖中证 9xxxxx 主题指数，调度时会跳过。", "regex", "^9"),
+    IndexQuoteSourceDefinition("tencent_spot", "腾讯 HTTP 实时指数", "index", 30, "直接请求腾讯简版行情，适合常见上证、深证指数；已知不覆盖大量中证 9xxxxx 主题指数，调度时会跳过。", "regex", "^9"),
+    IndexQuoteSourceDefinition("xueqiu_spot", "雪球 HTTP 实时指数", "index", 40, "直接请求雪球实时行情，适合常见上证、深证指数；已知不覆盖中证 9xxxxx 主题指数，调度时会跳过。", "regex", "^9"),
+    IndexQuoteSourceDefinition("stock_zh_a_spot", "A 股 AkShare 实时行情", "stock", 10, "AkShare A 股实时行情主源。"),
+    IndexQuoteSourceDefinition("stock_zh_a_spot_em", "A 股东财 AkShare 实时行情", "stock", 20, "AkShare 东财 A 股实时行情补充源。"),
+    IndexQuoteSourceDefinition("stock_hk_spot", "港股 AkShare 实时行情", "stock", 30, "AkShare 港股实时行情主源。"),
+    IndexQuoteSourceDefinition("stock_hk_spot_em", "港股东财 AkShare 实时行情", "stock", 40, "AkShare 东财港股实时行情补充源。"),
+    IndexQuoteSourceDefinition("sina_quote", "新浪 HTTP 股票行情", "stock", 50, "新浪 HTTP 个股行情兜底。"),
+    IndexQuoteSourceDefinition("stock_history_quote", "AkShare 历史行情兜底", "stock", 90, "股票历史行情兜底，仅在实时行情缺失时使用。"),
+    IndexQuoteSourceDefinition("fund_etf_spot_em", "ETF 东财 AkShare 实时行情", "etf", 10, "AkShare 东财 ETF 实时行情主源。"),
+    IndexQuoteSourceDefinition("eastmoney_etf", "东财 HTTP ETF 行情", "etf", 20, "东财 HTTP ETF 单标的行情兜底。"),
+    IndexQuoteSourceDefinition("sina_etf_quote", "新浪 HTTP ETF 行情", "etf", 30, "新浪 HTTP ETF 行情兜底。"),
+    IndexQuoteSourceDefinition("etf_history_quote", "AkShare ETF 历史行情兜底", "etf", 90, "ETF 历史行情兜底，仅在实时行情缺失时使用。"),
 )
 DEFAULT_INDEX_QUOTE_SOURCE_KEYS = {definition.source_key for definition in DEFAULT_INDEX_QUOTE_SOURCES}
+DEFAULT_INDEX_QUOTE_SOURCE_DESCRIPTIONS = {
+    definition.source_key: definition.description for definition in DEFAULT_INDEX_QUOTE_SOURCES
+}
+EXCLUDE_RULE_TYPES = {"none", "regex", "enum"}
 
 SOURCE_TYPE_LABELS = {
     "index": "指数",
@@ -127,14 +135,43 @@ class IndexQuoteSourceStatusService:
                     IndexQuoteSourceStatus(
                         source_key=definition.source_key,
                         source_name=definition.source_name,
+                        source_description=definition.description,
                         source_type=definition.source_type,
+                        exclude_rule_type=definition.exclude_rule_type,
+                        exclude_rule_value=definition.exclude_rule_value,
                         priority=definition.priority,
                     )
                 )
                 continue
             row.source_name = definition.source_name
+            row.source_description = definition.description
             row.source_type = definition.source_type
+            if not row.exclude_rule_type or row.exclude_rule_type == "none" and not row.exclude_rule_value:
+                row.exclude_rule_type = definition.exclude_rule_type
+                row.exclude_rule_value = definition.exclude_rule_value
         self.db.flush()
+
+    def update_rules(
+        self,
+        source_key: str,
+        *,
+        source_description: str | None = None,
+        exclude_rule_type: str = "none",
+        exclude_rule_value: str | None = None,
+    ) -> dict[str, object]:
+        if self.db is None:
+            raise ValueError("Database session is required")
+        row = self._get_or_create(source_key)
+        if row is None:
+            raise LookupError(f"Unknown source: {source_key}")
+        rule_type = (exclude_rule_type or "none").strip().lower()
+        rule_value = (exclude_rule_value or "").strip()
+        self._validate_exclude_rule(rule_type, rule_value)
+        row.source_description = (source_description or "").strip()[:1000] or None
+        row.exclude_rule_type = rule_type
+        row.exclude_rule_value = rule_value[:1000] if rule_type != "none" else None
+        self.db.flush()
+        return self._status_out(row)
 
     @staticmethod
     def _sort_key(row: IndexQuoteSourceStatus) -> tuple[int, float, int, str]:
@@ -169,8 +206,11 @@ class IndexQuoteSourceStatusService:
             "id": row.id,
             "source_key": row.source_key,
             "source_name": row.source_name,
+            "source_description": row.source_description or DEFAULT_INDEX_QUOTE_SOURCE_DESCRIPTIONS.get(row.source_key, ""),
             "source_type": row.source_type,
             "source_type_label": SOURCE_TYPE_LABELS.get(row.source_type, row.source_type),
+            "exclude_rule_type": row.exclude_rule_type or "none",
+            "exclude_rule_value": row.exclude_rule_value,
             "priority": row.priority,
             "enabled": row.enabled,
             "success_count": success_count,
@@ -185,6 +225,20 @@ class IndexQuoteSourceStatusService:
             "last_error": row.last_error,
             "status_label": status_label,
         }
+
+    @staticmethod
+    def _validate_exclude_rule(rule_type: str, rule_value: str) -> None:
+        if rule_type not in EXCLUDE_RULE_TYPES:
+            raise ValueError("exclude_rule_type must be one of none, regex, enum")
+        if rule_type == "none":
+            return
+        if not rule_value:
+            raise ValueError("exclude_rule_value is required")
+        if rule_type == "regex":
+            try:
+                re.compile(rule_value)
+            except re.error as exc:
+                raise ValueError(f"Invalid regex exclude rule: {exc}") from exc
 
     def _get_or_create(self, source_key: str) -> IndexQuoteSourceStatus | None:
         definition = next(
@@ -201,7 +255,10 @@ class IndexQuoteSourceStatusService:
         row = IndexQuoteSourceStatus(
             source_key=definition.source_key,
             source_name=definition.source_name,
+            source_description=definition.description,
             source_type=definition.source_type,
+            exclude_rule_type=definition.exclude_rule_type,
+            exclude_rule_value=definition.exclude_rule_value,
             priority=definition.priority,
         )
         self.db.add(row)
@@ -214,7 +271,10 @@ class IndexQuoteSourceStatusService:
             IndexQuoteSourceStatus(
                 source_key=definition.source_key,
                 source_name=definition.source_name,
+                source_description=definition.description,
                 source_type=definition.source_type,
+                exclude_rule_type=definition.exclude_rule_type,
+                exclude_rule_value=definition.exclude_rule_value,
                 priority=definition.priority,
             )
             for definition in DEFAULT_INDEX_QUOTE_SOURCES
