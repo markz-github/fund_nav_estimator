@@ -226,8 +226,10 @@ onMounted(loadSources)
               <span class="log-text-preview">{{ item.last_error || '-' }}</span>
             </td>
             <td data-label="操作" class="operation-cell">
-              <button class="table-link-button" type="button" @click="openViewDialog(item)">查看</button>
-              <button class="table-link-button" type="button" @click="openRuleDialog(item)">编辑</button>
+              <div class="quick-actions">
+                <button class="ghost" type="button" @click="openViewDialog(item)">查看</button>
+                <button class="ghost" type="button" @click="openRuleDialog(item)">编辑</button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -364,12 +366,7 @@ onMounted(loadSources)
 }
 
 .operation-cell {
-  min-width: 96px;
-  white-space: nowrap;
-}
-
-.operation-cell button + button {
-  margin-left: 10px;
+  min-width: 150px;
 }
 
 .source-rule-dialog {
