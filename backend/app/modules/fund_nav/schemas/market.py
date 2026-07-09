@@ -25,8 +25,11 @@ class IndexQuoteSourceStatusOut(BaseModel):
     id: int
     source_key: str
     source_name: str
+    source_description: str | None = None
     source_type: str
     source_type_label: str
+    exclude_rule_type: str
+    exclude_rule_value: str | None = None
     priority: int
     enabled: int
     success_count: int
@@ -40,3 +43,9 @@ class IndexQuoteSourceStatusOut(BaseModel):
     last_failure_at: datetime | None = None
     last_error: str | None = None
     status_label: str
+
+
+class IndexQuoteSourceRuleIn(BaseModel):
+    source_description: str | None = None
+    exclude_rule_type: str = "none"
+    exclude_rule_value: str | None = None

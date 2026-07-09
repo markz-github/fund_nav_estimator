@@ -9,8 +9,11 @@ export interface IndexQuoteSourceStatus {
   id: number
   source_key: string
   source_name: string
+  source_description?: string | null
   source_type: string
   source_type_label: string
+  exclude_rule_type: string
+  exclude_rule_value: string | null
   priority: number
   enabled: number
   success_count: number
@@ -35,5 +38,19 @@ export async function refreshMarketQuotes(): Promise<RefreshMarketResult> {
 
 export async function listIndexQuoteSources(): Promise<IndexQuoteSourceStatus[]> {
   const { data } = await apiClient.get<IndexQuoteSourceStatus[]>('/market/index-quote-sources')
+  return data
+}
+
+export interface IndexQuoteSourceRuleUpdate {
+  source_description?: string | null
+  exclude_rule_type: string
+  exclude_rule_value?: string | null
+}
+
+export async function updateIndexQuoteSource(
+  sourceKey: string,
+  payload: IndexQuoteSourceRuleUpdate,
+): Promise<IndexQuoteSourceStatus> {
+  const { data } = await apiClient.put<IndexQuoteSourceStatus>(`/market/index-quote-sources/${sourceKey}`, payload)
   return data
 }

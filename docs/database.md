@@ -210,7 +210,10 @@ CREATE TABLE index_quote_source_status (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     source_key VARCHAR(50) NOT NULL COMMENT '渠道唯一键，如 eastmoney_http_spot、stock_zh_a_spot、fund_etf_spot_em',
     source_name VARCHAR(100) NOT NULL COMMENT '渠道展示名称',
+    source_description VARCHAR(1000) NULL COMMENT '渠道说明和覆盖范围',
     source_type VARCHAR(20) NOT NULL COMMENT '渠道类型，如 index、stock、etf',
+    exclude_rule_type VARCHAR(20) NOT NULL DEFAULT 'none' COMMENT '排除规则类型：none、regex、enum',
+    exclude_rule_value VARCHAR(1000) NULL COMMENT '排除规则内容，正则表达式或枚举代码',
     priority INT NOT NULL DEFAULT 100 COMMENT '默认优先级，数值越小越靠前',
     enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用',
     success_count INT NOT NULL DEFAULT 0 COMMENT '成功次数',
@@ -229,6 +232,12 @@ CREATE TABLE index_quote_source_status (
 ```
 
 默认配置由 `scripts/init_db.py` 写入。渠道调用成功率用于动态调整后续调用顺序；连续失败达到冷却阈值后临时跳过，长期连续失败后自动置为禁用。
+
+`exclude_rule_type / exclude_rule_value` 用于维护“已确认不应请求”的代码范围，不计入渠道失败率：
+
+- `none`：不排除。
+- `regex`：按正则表达式排除，例如 `^9` 表示跳过中证 `9xxxxx` 指数。
+- `enum`：按枚举代码排除，使用逗号或换行分隔，例如 `930875,931027`。
 
 ## market_quotes
 
