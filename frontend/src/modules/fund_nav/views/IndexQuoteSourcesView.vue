@@ -11,7 +11,8 @@ const message = ref('')
 const popover = ref({ text: '', top: 0, left: 0, visible: false })
 const activeSourceType = ref<'index' | 'stock' | 'etf'>('index')
 const savingSourceKey = ref('')
-const ruleForms = ref<Record<string, { source_description: string; exclude_rule_type: string; exclude_rule_value: string }>>({})
+const editingSource = ref<IndexQuoteSourceStatus | null>(null)
+const ruleForm = ref({ source_description: '', exclude_rule_type: 'none', exclude_rule_value: '' })
 
 const sourceGroups = computed(() => [
   {
@@ -80,25 +81,11 @@ async function loadSources() {
   message.value = ''
   try {
     sources.value = await listIndexQuoteSources()
-    resetRuleForms()
   } catch (error) {
     message.value = apiErrorMessage(error, '渠道数据加载失败，请确认后端服务。')
   } finally {
     loading.value = false
   }
-}
-
-function resetRuleForms() {
-  ruleForms.value = Object.fromEntries(
-    sources.value.map((item) => [
-      item.source_key,
-      {
-        source_description: item.source_description || '',
-        exclude_rule_type: item.exclude_rule_type || 'none',
-        exclude_rule_value: item.exclude_rule_value || '',
-      },
-    ]),
-  )
 }
 
 function ruleTypeLabel(type?: string | null) {
@@ -107,19 +94,38 @@ function ruleTypeLabel(type?: string | null) {
   return '无'
 }
 
-async function saveRule(item: IndexQuoteSourceStatus) {
-  const form = ruleForms.value[item.source_key]
-  if (!form) return
+function ruleSummary(item: IndexQuoteSourceStatus) {
+  const label = ruleTypeLabel(item.exclude_rule_type)
+  return item.exclude_rule_value ? `${label}：${item.exclude_rule_value}` : label
+}
+
+function openRuleDialog(item: IndexQuoteSourceStatus) {
+  editingSource.value = item
+  ruleForm.value = {
+    source_description: item.source_description || '',
+    exclude_rule_type: item.exclude_rule_type || 'none',
+    exclude_rule_value: item.exclude_rule_value || '',
+  }
+}
+
+function closeRuleDialog() {
+  if (savingSourceKey.value) return
+  editingSource.value = null
+}
+
+async function saveRule() {
+  const item = editingSource.value
+  if (!item) return
   savingSourceKey.value = item.source_key
   message.value = ''
   try {
     const updated = await updateIndexQuoteSource(item.source_key, {
-      source_description: form.source_description,
-      exclude_rule_type: form.exclude_rule_type,
-      exclude_rule_value: form.exclude_rule_value,
+      source_description: ruleForm.value.source_description,
+      exclude_rule_type: ruleForm.value.exclude_rule_type,
+      exclude_rule_value: ruleForm.value.exclude_rule_value,
     })
     sources.value = sources.value.map((source) => (source.source_key === updated.source_key ? updated : source))
-    resetRuleForms()
+    editingSource.value = null
   } catch (error) {
     message.value = apiErrorMessage(error, '渠道规则保存失败，请检查正则或枚举配置。')
   } finally {
@@ -203,29 +209,10 @@ onMounted(loadSources)
               <span class="log-text-preview">{{ item.source_description || '-' }}</span>
             </td>
             <td data-label="排除规则" class="rule-cell">
-              <div class="rule-editor" v-if="ruleForms[item.source_key]">
-                <ElSelect v-model="ruleForms[item.source_key].exclude_rule_type" size="small" class="rule-type-select">
-                  <ElOption label="无" value="none" />
-                  <ElOption label="正则" value="regex" />
-                  <ElOption label="枚举" value="enum" />
-                </ElSelect>
-                <textarea
-                  v-model="ruleForms[item.source_key].exclude_rule_value"
-                  :disabled="ruleForms[item.source_key].exclude_rule_type === 'none'"
-                  :placeholder="ruleForms[item.source_key].exclude_rule_type === 'regex' ? '^9' : '930875,931027'"
-                />
-                <button
-                  class="ghost rule-save-button"
-                  type="button"
-                  :disabled="savingSourceKey === item.source_key"
-                  @click="saveRule(item)"
-                >
-                  {{ savingSourceKey === item.source_key ? '保存中' : '保存' }}
-                </button>
-              </div>
               <span class="muted rule-summary">
-                {{ ruleTypeLabel(item.exclude_rule_type) }}{{ item.exclude_rule_value ? `：${item.exclude_rule_value}` : '' }}
+                {{ ruleSummary(item) }}
               </span>
+              <button class="table-link-button rule-edit-button" type="button" @click="openRuleDialog(item)">编辑</button>
             </td>
             <td data-label="状态">
               <span class="status-pill" :class="statusClass(item)">{{ item.status_label }}</span>
@@ -262,12 +249,60 @@ onMounted(loadSources)
     >
       {{ popover.text }}
     </div>
+
+    <div v-if="editingSource" class="modal-backdrop" @click.self="closeRuleDialog">
+      <section class="form-dialog source-rule-dialog" role="dialog" aria-modal="true" aria-labelledby="source-rule-title">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Source Rule</p>
+            <h2 id="source-rule-title">编辑渠道规则</h2>
+          </div>
+          <button class="ghost" type="button" :disabled="!!savingSourceKey" @click="closeRuleDialog">关闭</button>
+        </div>
+        <form class="dialog-form" @submit.prevent="saveRule">
+          <label>
+            渠道
+            <input :value="`${editingSource.source_name}（${editingSource.source_key}）`" disabled />
+          </label>
+          <label>
+            说明
+            <textarea v-model="ruleForm.source_description" rows="4" placeholder="说明渠道覆盖范围和适用场景" />
+          </label>
+          <label>
+            排除规则类型
+            <ElSelect v-model="ruleForm.exclude_rule_type">
+              <ElOption label="无" value="none" />
+              <ElOption label="正则" value="regex" />
+              <ElOption label="枚举" value="enum" />
+            </ElSelect>
+          </label>
+          <label>
+            排除规则内容
+            <textarea
+              v-model="ruleForm.exclude_rule_value"
+              rows="5"
+              :disabled="ruleForm.exclude_rule_type === 'none'"
+              :placeholder="ruleForm.exclude_rule_type === 'regex' ? '^9' : '930875,931027 或每行一个代码'"
+            />
+          </label>
+          <p class="dialog-copy">
+            正则规则会匹配指数代码；枚举规则支持逗号或换行分隔。命中的代码会在调度前跳过，不计入失败次数。
+          </p>
+          <div class="dialog-actions">
+            <button class="ghost" type="button" :disabled="!!savingSourceKey" @click="closeRuleDialog">取消</button>
+            <button class="primary" type="submit" :disabled="!!savingSourceKey">
+              {{ savingSourceKey ? '保存中...' : '保存' }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   </main>
 </template>
 
 <style scoped>
 .quote-source-table {
-  min-width: 1520px;
+  min-width: 1340px;
 }
 
 .code-line {
@@ -309,50 +344,40 @@ onMounted(loadSources)
 }
 
 .rule-cell {
-  min-width: 260px;
-}
-
-.rule-editor {
-  display: grid;
-  grid-template-columns: 86px minmax(130px, 1fr) auto;
-  gap: 8px;
-  align-items: start;
-}
-
-.rule-type-select {
-  width: 86px;
-}
-
-.rule-editor textarea {
-  min-height: 34px;
-  max-height: 86px;
-  resize: vertical;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 7px 9px;
-  background: var(--surface);
-  color: var(--text-main);
-  font: inherit;
-  font-size: 13px;
-}
-
-.rule-editor textarea:disabled {
-  color: var(--text-muted);
-  background: var(--surface-muted);
-}
-
-.rule-save-button {
-  min-height: 32px;
-  padding: 0 10px;
+  min-width: 150px;
 }
 
 .rule-summary {
   display: block;
-  margin-top: 6px;
-  max-width: 240px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rule-edit-button {
+  margin-top: 6px;
+}
+
+.source-rule-dialog {
+  max-width: 680px;
+}
+
+.source-rule-dialog textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text-main);
+  font: inherit;
+}
+
+.source-rule-dialog textarea:disabled,
+.source-rule-dialog input:disabled {
+  color: var(--text-muted);
+  background: var(--surface-muted);
 }
 
 </style>
