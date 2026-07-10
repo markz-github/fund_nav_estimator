@@ -19,6 +19,7 @@ const popover = ref({ text: '', top: 0, left: 0, visible: false })
 const activeSourceType = ref<'index' | 'stock' | 'etf'>('index')
 const savingSourceKey = ref('')
 const symbols = ref<IndexQuoteSymbol[]>([])
+const symbolsLoading = ref(false)
 const savingSymbol = ref(false)
 const viewingSource = ref<IndexQuoteSourceStatus | null>(null)
 const editingSource = ref<IndexQuoteSourceStatus | null>(null)
@@ -26,6 +27,7 @@ const editingSymbol = ref<IndexQuoteSymbol | null>(null)
 const symbolDialogOpen = ref(false)
 const ruleForm = ref({ source_description: '', exclude_rule_type: 'none', exclude_rule_value: '' })
 const symbolForm = ref({ index_code: '', source_key: '', quote_symbol: '', supported: 1, description: '' })
+const symbolQuery = ref({ index_code: '', source_key: '', limit: 200 })
 
 const sourceGroups = computed(() => [
   {
@@ -94,13 +96,29 @@ async function loadSources() {
   loading.value = true
   message.value = ''
   try {
-    const [sourceRows, symbolRows] = await Promise.all([listIndexQuoteSources(), listIndexQuoteSymbols()])
+    const [sourceRows, symbolRows] = await Promise.all([listIndexQuoteSources(), listIndexQuoteSymbols({ limit: 200 })])
     sources.value = sourceRows
     symbols.value = symbolRows
   } catch (error) {
     message.value = apiErrorMessage(error, '渠道数据加载失败，请确认后端服务。')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadSymbols() {
+  symbolsLoading.value = true
+  message.value = ''
+  try {
+    symbols.value = await listIndexQuoteSymbols({
+      index_code: symbolQuery.value.index_code || undefined,
+      source_key: symbolQuery.value.source_key || undefined,
+      limit: symbolQuery.value.limit,
+    })
+  } catch (error) {
+    message.value = apiErrorMessage(error, '指数映射加载失败，请确认筛选条件。')
+  } finally {
+    symbolsLoading.value = false
   }
 }
 
@@ -196,7 +214,7 @@ async function saveSymbol() {
     )
     if (index >= 0) {
       symbols.value.splice(index, 1, updated)
-    } else {
+    } else if (symbols.value.length < symbolQuery.value.limit) {
       symbols.value.push(updated)
       symbols.value.sort((a, b) => `${a.index_code}:${a.source_key}`.localeCompare(`${b.index_code}:${b.source_key}`))
     }
@@ -308,8 +326,23 @@ onMounted(loadSources)
           <p class="eyebrow">Index Symbols</p>
           <h2>指数代码映射</h2>
         </div>
-        <button class="ghost" type="button" @click="openSymbolDialog()">新增映射</button>
+        <div class="mapping-actions">
+          <input v-model.trim="symbolQuery.index_code" class="compact-input" placeholder="指数代码" @keyup.enter="loadSymbols" />
+          <ElSelect v-model="symbolQuery.source_key" class="compact-select" clearable placeholder="渠道">
+            <ElOption
+              v-for="source in indexSources"
+              :key="source.source_key"
+              :label="source.source_name"
+              :value="source.source_key"
+            />
+          </ElSelect>
+          <button class="ghost" type="button" :disabled="symbolsLoading" @click="loadSymbols">
+            {{ symbolsLoading ? '查询中...' : '查询' }}
+          </button>
+          <button class="ghost" type="button" @click="openSymbolDialog()">新增映射</button>
+        </div>
       </div>
+      <p class="table-hint">默认展示前 {{ symbolQuery.limit }} 条；维护指定指数时请先输入指数代码查询。</p>
       <div class="table-card">
         <table class="responsive-card-table quote-symbol-table">
           <thead>
@@ -571,6 +604,28 @@ onMounted(loadSources)
 .section-toolbar h2 {
   margin: 0;
   font-size: 28px;
+}
+
+.mapping-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.compact-input {
+  width: 150px;
+  min-height: 38px;
+}
+
+.compact-select {
+  width: 210px;
+}
+
+.table-hint {
+  margin: -4px 0 12px;
+  color: var(--text-muted);
 }
 
 .operation-cell {
