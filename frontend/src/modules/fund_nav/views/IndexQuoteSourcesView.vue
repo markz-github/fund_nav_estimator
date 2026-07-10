@@ -51,6 +51,7 @@ const sourceGroups = computed(() => [
 ])
 const activeGroup = computed(() => sourceGroups.value.find((group) => group.key === activeSourceType.value) ?? sourceGroups.value[0])
 const indexSources = computed(() => sources.value.filter((item) => item.source_type === 'index'))
+const symbolTotalPages = computed(() => Math.max(1, Math.ceil(symbolTotal.value / symbolPageSize.value)))
 
 function formatDateTime(value?: string | null) {
   if (!value) return '-'
@@ -139,7 +140,9 @@ function querySymbols() {
 }
 
 function handleSymbolPageChange(page: number) {
-  symbolPage.value = page
+  const nextPage = Math.min(Math.max(1, page), symbolTotalPages.value)
+  if (nextPage === symbolPage.value) return
+  symbolPage.value = nextPage
   loadSymbols()
 }
 
@@ -410,15 +413,28 @@ onMounted(loadSources)
           </tbody>
         </table>
       </div>
-      <div class="pagination-bar" v-if="symbolTotal > symbolPageSize">
-        <ElPagination
-          layout="prev, pager, next, total"
-          :current-page="symbolPage"
-          :page-size="symbolPageSize"
-          :total="symbolTotal"
-          :disabled="symbolsLoading"
-          @current-change="handleSymbolPageChange"
-        />
+      <div class="pagination-bar" v-if="symbolTotal > 0">
+        <span class="pagination-summary">
+          第 {{ symbolPage }} / {{ symbolTotalPages }} 页，共 {{ symbolTotal }} 条
+        </span>
+        <div class="pagination-actions">
+          <button
+            class="ghost"
+            type="button"
+            :disabled="symbolsLoading || symbolPage <= 1"
+            @click="handleSymbolPageChange(symbolPage - 1)"
+          >
+            上一页
+          </button>
+          <button
+            class="ghost"
+            type="button"
+            :disabled="symbolsLoading || symbolPage >= symbolTotalPages"
+            @click="handleSymbolPageChange(symbolPage + 1)"
+          >
+            下一页
+          </button>
+        </div>
       </div>
     </section>
     <div
@@ -706,8 +722,27 @@ onMounted(loadSources)
 
 .pagination-bar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-top: 16px;
+}
+
+.pagination-summary {
+  color: var(--text-muted);
+  font-weight: 800;
+}
+
+.pagination-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pagination-actions button {
+  min-height: 40px;
+  padding: 0 16px;
 }
 
 .operation-cell {
