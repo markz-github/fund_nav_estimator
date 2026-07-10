@@ -9,6 +9,7 @@ from app.modules.fund_nav.schemas.market import (
     IndexQuoteSourceStatusOut,
     IndexQuoteSymbolIn,
     IndexQuoteSymbolOut,
+    IndexQuoteSymbolPageOut,
     MarketQuoteOut,
 )
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
@@ -55,20 +56,21 @@ def update_index_quote_source(source_key: str, payload: IndexQuoteSourceRuleIn, 
     return result
 
 
-@router.get("/index-quote-symbols", response_model=list[IndexQuoteSymbolOut])
+@router.get("/index-quote-symbols", response_model=IndexQuoteSymbolPageOut)
 def index_quote_symbols(
     index_code: str | None = None,
     source_key: str | None = None,
-    limit: int = Query(default=200, ge=1, le=500),
+    limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return IndexQuoteSymbolService(db).list_symbols(
+    items, total = IndexQuoteSymbolService(db).list_symbols(
         index_code=index_code,
         source_key=source_key,
         limit=limit,
         offset=offset,
     )
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @router.put("/index-quote-symbols", response_model=IndexQuoteSymbolOut)

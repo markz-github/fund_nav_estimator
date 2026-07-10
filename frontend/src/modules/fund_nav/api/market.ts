@@ -40,6 +40,13 @@ export interface IndexQuoteSymbol {
   updated_at: string
 }
 
+export interface IndexQuoteSymbolPage {
+  items: IndexQuoteSymbol[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export async function refreshMarketQuotes(): Promise<RefreshMarketResult> {
   const { data } = await apiClient.post<RefreshMarketResult>('/market/refresh', undefined, {
     timeout: 120000,
@@ -81,8 +88,8 @@ export interface IndexQuoteSymbolQuery {
   offset?: number
 }
 
-export async function listIndexQuoteSymbols(params: IndexQuoteSymbolQuery = {}): Promise<IndexQuoteSymbol[]> {
-  const { data } = await apiClient.get<IndexQuoteSymbol[]>('/market/index-quote-symbols', { params })
+export async function listIndexQuoteSymbols(params: IndexQuoteSymbolQuery = {}): Promise<IndexQuoteSymbolPage> {
+  const { data } = await apiClient.get<IndexQuoteSymbolPage>('/market/index-quote-symbols', { params })
   return data
 }
 

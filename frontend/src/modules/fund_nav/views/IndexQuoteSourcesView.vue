@@ -20,6 +20,9 @@ const activeSourceType = ref<'index' | 'stock' | 'etf'>('index')
 const savingSourceKey = ref('')
 const symbols = ref<IndexQuoteSymbol[]>([])
 const symbolsLoading = ref(false)
+const symbolTotal = ref(0)
+const symbolPage = ref(1)
+const symbolPageSize = ref(20)
 const savingSymbol = ref(false)
 const viewingSource = ref<IndexQuoteSourceStatus | null>(null)
 const editingSource = ref<IndexQuoteSourceStatus | null>(null)
@@ -27,7 +30,7 @@ const editingSymbol = ref<IndexQuoteSymbol | null>(null)
 const symbolDialogOpen = ref(false)
 const ruleForm = ref({ source_description: '', exclude_rule_type: 'none', exclude_rule_value: '' })
 const symbolForm = ref({ index_code: '', source_key: '', quote_symbol: '', supported: 1, description: '' })
-const symbolQuery = ref({ index_code: '', source_key: '', limit: 200 })
+const symbolQuery = ref({ index_code: '', source_key: '' })
 
 const sourceGroups = computed(() => [
   {
@@ -96,9 +99,14 @@ async function loadSources() {
   loading.value = true
   message.value = ''
   try {
-    const [sourceRows, symbolRows] = await Promise.all([listIndexQuoteSources(), listIndexQuoteSymbols({ limit: 200 })])
+    const [sourceRows, symbolPageData] = await Promise.all([
+      listIndexQuoteSources(),
+      listIndexQuoteSymbols({ limit: symbolPageSize.value, offset: 0 }),
+    ])
     sources.value = sourceRows
-    symbols.value = symbolRows
+    symbols.value = symbolPageData.items
+    symbolTotal.value = symbolPageData.total
+    symbolPage.value = 1
   } catch (error) {
     message.value = apiErrorMessage(error, '渠道数据加载失败，请确认后端服务。')
   } finally {
@@ -110,16 +118,29 @@ async function loadSymbols() {
   symbolsLoading.value = true
   message.value = ''
   try {
-    symbols.value = await listIndexQuoteSymbols({
+    const pageData = await listIndexQuoteSymbols({
       index_code: symbolQuery.value.index_code || undefined,
       source_key: symbolQuery.value.source_key || undefined,
-      limit: symbolQuery.value.limit,
+      limit: symbolPageSize.value,
+      offset: (symbolPage.value - 1) * symbolPageSize.value,
     })
+    symbols.value = pageData.items
+    symbolTotal.value = pageData.total
   } catch (error) {
     message.value = apiErrorMessage(error, '指数映射加载失败，请确认筛选条件。')
   } finally {
     symbolsLoading.value = false
   }
+}
+
+function querySymbols() {
+  symbolPage.value = 1
+  loadSymbols()
+}
+
+function handleSymbolPageChange(page: number) {
+  symbolPage.value = page
+  loadSymbols()
 }
 
 function sourceName(sourceKey: string) {
@@ -209,16 +230,8 @@ async function saveSymbol() {
       supported: Number(symbolForm.value.supported),
       description: symbolForm.value.description,
     })
-    const index = symbols.value.findIndex(
-      (item) => item.index_code === updated.index_code && item.source_key === updated.source_key,
-    )
-    if (index >= 0) {
-      symbols.value.splice(index, 1, updated)
-    } else if (symbols.value.length < symbolQuery.value.limit) {
-      symbols.value.push(updated)
-      symbols.value.sort((a, b) => `${a.index_code}:${a.source_key}`.localeCompare(`${b.index_code}:${b.source_key}`))
-    }
     closeSymbolDialog()
+    await loadSymbols()
   } catch (error) {
     message.value = apiErrorMessage(error, '指数映射保存失败，请检查代码和 symbol。')
   } finally {
@@ -327,7 +340,7 @@ onMounted(loadSources)
           <h2>指数代码映射</h2>
         </div>
         <div class="mapping-actions">
-          <input v-model.trim="symbolQuery.index_code" class="compact-input" placeholder="指数代码" @keyup.enter="loadSymbols" />
+          <input v-model.trim="symbolQuery.index_code" class="compact-input" placeholder="指数代码" @keyup.enter="querySymbols" />
           <ElSelect v-model="symbolQuery.source_key" class="compact-select" clearable placeholder="渠道">
             <ElOption
               v-for="source in indexSources"
@@ -336,13 +349,13 @@ onMounted(loadSources)
               :value="source.source_key"
             />
           </ElSelect>
-          <button class="ghost" type="button" :disabled="symbolsLoading" @click="loadSymbols">
+          <button class="ghost" type="button" :disabled="symbolsLoading" @click="querySymbols">
             {{ symbolsLoading ? '查询中...' : '查询' }}
           </button>
           <button class="ghost" type="button" @click="openSymbolDialog()">新增映射</button>
         </div>
       </div>
-      <p class="table-hint">默认展示前 {{ symbolQuery.limit }} 条；维护指定指数时请先输入指数代码查询。</p>
+      <p class="table-hint">共 {{ symbolTotal }} 条，每页 {{ symbolPageSize }} 条；维护指定指数时可输入指数代码查询。</p>
       <div class="table-card">
         <table class="responsive-card-table quote-symbol-table">
           <thead>
@@ -396,6 +409,16 @@ onMounted(loadSources)
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="pagination-bar" v-if="symbolTotal > symbolPageSize">
+        <ElPagination
+          layout="prev, pager, next, total"
+          :current-page="symbolPage"
+          :page-size="symbolPageSize"
+          :total="symbolTotal"
+          :disabled="symbolsLoading"
+          @current-change="handleSymbolPageChange"
+        />
       </div>
     </section>
     <div
@@ -616,16 +639,75 @@ onMounted(loadSources)
 
 .compact-input {
   width: 150px;
-  min-height: 38px;
+  height: 48px;
+  border: 1px solid rgba(36, 63, 47, 0.2);
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #fff;
+  color: #17271d;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.compact-input::placeholder {
+  color: #7f8d87;
+  font-weight: 700;
+}
+
+.compact-input:focus {
+  border-color: rgba(36, 63, 47, 0.42);
+  box-shadow: 0 0 0 3px rgba(31, 63, 53, 0.1);
+  outline: none;
 }
 
 .compact-select {
   width: 210px;
 }
 
+.compact-select :deep(.el-select__wrapper) {
+  min-height: 48px;
+  border: 1px solid rgba(36, 63, 47, 0.2);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+  color: #17271d;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.compact-select :deep(.el-select__wrapper.is-focused) {
+  border-color: rgba(36, 63, 47, 0.42);
+  box-shadow: 0 0 0 3px rgba(31, 63, 53, 0.1);
+}
+
+.compact-select :deep(.el-select__placeholder),
+.compact-select :deep(.el-select__selected-item) {
+  color: #17271d;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.compact-select :deep(.el-select__placeholder.is-transparent),
+.compact-select :deep(.el-select__caret) {
+  color: #7f8d87;
+}
+
+.mapping-actions button {
+  min-height: 48px;
+  padding: 0 20px;
+  font-weight: 800;
+}
+
 .table-hint {
   margin: -4px 0 12px;
   color: var(--text-muted);
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 
 .operation-cell {
