@@ -18,6 +18,7 @@ class SinaIndexSource:
         self,
         index_codes: set[str],
         quote_time: datetime,
+        quote_symbols: dict[str, str] | None = None,
     ) -> dict[str, MarketQuoteSnapshot]:
         snapshots: dict[str, MarketQuoteSnapshot] = {}
         if not index_codes:

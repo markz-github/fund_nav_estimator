@@ -19,8 +19,9 @@ class XueqiuIndexSource:
         self,
         index_codes: set[str],
         quote_time: datetime,
+        quote_symbols: dict[str, str] | None = None,
     ) -> dict[str, MarketQuoteSnapshot]:
-        symbols = {
+        symbols = quote_symbols or {
             index_code: self._symbol(index_code)
             for index_code in index_codes
             if self._symbol(index_code) is not None
@@ -55,7 +56,7 @@ class XueqiuIndexSource:
             )
             raise
 
-        code_by_symbol = {symbol: code for code, symbol in symbols.items()}
+        code_by_symbol = {symbol.upper(): code for code, symbol in symbols.items()}
         snapshots: dict[str, MarketQuoteSnapshot] = {}
         for row in payload.get("data") or []:
             symbol = str(row.get("symbol") or "").upper()
@@ -100,6 +101,8 @@ class XueqiuIndexSource:
             return None
         if code.startswith("3"):
             return f"SZ{code}"
+        if code.startswith("9"):
+            return f"CSI{code}"
         if code.startswith(("0", "5", "8", "9")):
             return f"SH{code}"
         return None

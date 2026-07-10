@@ -14,6 +14,7 @@ from app.database import Base, engine
 from app.database import SessionLocal
 from app.modules.fund_nav.services.asset_valuation_config_service import seed_default_asset_valuation_configs
 from app.modules.fund_nav.services.index_quote_source_status_service import seed_default_index_quote_source_statuses
+from app.modules.fund_nav.services.index_quote_symbol_service import seed_default_index_quote_symbols
 from app import models  # noqa: F401
 
 
@@ -111,6 +112,7 @@ def main() -> None:
     with SessionLocal() as db:
         seed_default_asset_valuation_configs(db)
         seed_default_index_quote_source_statuses(db)
+        seed_default_index_quote_symbols(db)
         db.commit()
     print("Database initialized.")
     print("Created or verified tables:")

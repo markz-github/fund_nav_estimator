@@ -4,10 +4,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.modules.fund_nav.schemas.market import IndexQuoteSourceRuleIn, IndexQuoteSourceStatusOut, MarketQuoteOut
+from app.modules.fund_nav.schemas.market import (
+    IndexQuoteSourceRuleIn,
+    IndexQuoteSourceStatusOut,
+    IndexQuoteSymbolIn,
+    IndexQuoteSymbolOut,
+    MarketQuoteOut,
+)
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.fund_nav.services.index_quote_source_status_service import IndexQuoteSourceStatusService
+from app.modules.fund_nav.services.index_quote_symbol_service import IndexQuoteSymbolService
 from app.modules.fund_nav.services.market_service import MarketService
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -45,4 +52,27 @@ def update_index_quote_source(source_key: str, payload: IndexQuoteSourceRuleIn, 
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     db.commit()
+    return result
+
+
+@router.get("/index-quote-symbols", response_model=list[IndexQuoteSymbolOut])
+def index_quote_symbols(db: Session = Depends(get_db)):
+    return IndexQuoteSymbolService(db).list_symbols()
+
+
+@router.put("/index-quote-symbols", response_model=IndexQuoteSymbolOut)
+def upsert_index_quote_symbol(payload: IndexQuoteSymbolIn, db: Session = Depends(get_db)):
+    service = IndexQuoteSymbolService(db)
+    try:
+        result = service.upsert_symbol(
+            index_code=payload.index_code,
+            source_key=payload.source_key,
+            quote_symbol=payload.quote_symbol,
+            supported=payload.supported,
+            description=payload.description,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(result)
     return result

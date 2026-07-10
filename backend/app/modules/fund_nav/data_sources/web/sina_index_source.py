@@ -18,8 +18,9 @@ class SinaHttpIndexSource:
         self,
         index_codes: set[str],
         quote_time: datetime,
+        quote_symbols: dict[str, str] | None = None,
     ) -> dict[str, MarketQuoteSnapshot]:
-        symbols = {
+        symbols = quote_symbols or {
             index_code: self._symbol(index_code)
             for index_code in index_codes
             if self._symbol(index_code) is not None

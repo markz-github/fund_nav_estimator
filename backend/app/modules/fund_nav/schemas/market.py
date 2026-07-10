@@ -49,3 +49,24 @@ class IndexQuoteSourceRuleIn(BaseModel):
     source_description: str | None = None
     exclude_rule_type: str = "none"
     exclude_rule_value: str | None = None
+
+
+class IndexQuoteSymbolOut(BaseModel):
+    id: int
+    index_code: str
+    source_key: str
+    quote_symbol: str | None = None
+    supported: int
+    description: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class IndexQuoteSymbolIn(BaseModel):
+    index_code: str
+    source_key: str
+    quote_symbol: str | None = None
+    supported: int = 1
+    description: str | None = None
