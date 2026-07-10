@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.fund_nav.models.index_quote_symbol import IndexQuoteSymbol
@@ -50,25 +50,30 @@ class IndexQuoteSymbolService:
         source_key: str | None = None,
         limit: int = 200,
         offset: int = 0,
-    ) -> list[IndexQuoteSymbol]:
+    ) -> tuple[list[IndexQuoteSymbol], int]:
         if self.db is None:
-            return []
+            return [], 0
         statement = select(IndexQuoteSymbol)
+        count_statement = select(func.count()).select_from(IndexQuoteSymbol)
         cleaned_code = (index_code or "").strip().upper()
         cleaned_source = (source_key or "").strip()
         if cleaned_code:
             statement = statement.where(IndexQuoteSymbol.index_code.like(f"{cleaned_code}%"))
+            count_statement = count_statement.where(IndexQuoteSymbol.index_code.like(f"{cleaned_code}%"))
         if cleaned_source:
             statement = statement.where(IndexQuoteSymbol.source_key == cleaned_source)
+            count_statement = count_statement.where(IndexQuoteSymbol.source_key == cleaned_source)
         safe_limit = max(1, min(int(limit or 200), 500))
         safe_offset = max(0, int(offset or 0))
-        return list(
+        total = int(self.db.scalar(count_statement) or 0)
+        items = list(
             self.db.scalars(
                 statement.order_by(IndexQuoteSymbol.index_code, IndexQuoteSymbol.source_key)
                 .offset(safe_offset)
                 .limit(safe_limit)
             ).all()
         )
+        return items, total
 
     def upsert_symbol(
         self,

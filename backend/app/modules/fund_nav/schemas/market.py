@@ -70,3 +70,10 @@ class IndexQuoteSymbolIn(BaseModel):
     quote_symbol: str | None = None
     supported: int = 1
     description: str | None = None
+
+
+class IndexQuoteSymbolPageOut(BaseModel):
+    items: list[IndexQuoteSymbolOut]
+    total: int
+    limit: int
+    offset: int
