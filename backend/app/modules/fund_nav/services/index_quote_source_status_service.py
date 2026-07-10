@@ -28,7 +28,7 @@ DEFAULT_INDEX_QUOTE_SOURCES = (
     IndexQuoteSourceDefinition("sina_spot", "新浪 AkShare 实时指数", "index", 20, "通过 AkShare 新浪指数实时表获取，作为东财源未命中后的补充。"),
     IndexQuoteSourceDefinition("sina_http_spot", "新浪 HTTP 实时指数", "index", 25, "直接请求新浪简版行情，适合常见上证、深证指数；已知不覆盖中证 9xxxxx 主题指数，调度时会跳过。", "regex", "^9"),
     IndexQuoteSourceDefinition("tencent_spot", "腾讯 HTTP 实时指数", "index", 30, "直接请求腾讯简版行情，适合常见上证、深证指数；已知不覆盖大量中证 9xxxxx 主题指数，调度时会跳过。", "regex", "^9"),
-    IndexQuoteSourceDefinition("xueqiu_spot", "雪球 HTTP 实时指数", "index", 40, "直接请求雪球实时行情，适合常见上证、深证指数；已知不覆盖中证 9xxxxx 主题指数，调度时会跳过。", "regex", "^9"),
+    IndexQuoteSourceDefinition("xueqiu_spot", "雪球 HTTP 实时指数", "index", 40, "直接请求雪球实时行情，支持常见上证、深证指数以及 CSI9xxxxx 中证主题指数。"),
     IndexQuoteSourceDefinition("stock_zh_a_spot", "A 股 AkShare 实时行情", "stock", 10, "AkShare A 股实时行情主源。"),
     IndexQuoteSourceDefinition("stock_zh_a_spot_em", "A 股东财 AkShare 实时行情", "stock", 20, "AkShare 东财 A 股实时行情补充源。"),
     IndexQuoteSourceDefinition("stock_hk_spot", "港股 AkShare 实时行情", "stock", 30, "AkShare 港股实时行情主源。"),
@@ -146,6 +146,9 @@ class IndexQuoteSourceStatusService:
             row.source_name = definition.source_name
             row.source_description = definition.description
             row.source_type = definition.source_type
+            if row.source_key == "xueqiu_spot" and row.exclude_rule_type == "regex" and row.exclude_rule_value == "^9":
+                row.exclude_rule_type = "none"
+                row.exclude_rule_value = None
             if not row.exclude_rule_type or row.exclude_rule_type == "none" and not row.exclude_rule_value:
                 row.exclude_rule_type = definition.exclude_rule_type
                 row.exclude_rule_value = definition.exclude_rule_value

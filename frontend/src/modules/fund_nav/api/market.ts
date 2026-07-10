@@ -29,6 +29,17 @@ export interface IndexQuoteSourceStatus {
   status_label: string
 }
 
+export interface IndexQuoteSymbol {
+  id: number
+  index_code: string
+  source_key: string
+  quote_symbol: string | null
+  supported: number
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
 export async function refreshMarketQuotes(): Promise<RefreshMarketResult> {
   const { data } = await apiClient.post<RefreshMarketResult>('/market/refresh', undefined, {
     timeout: 120000,
@@ -52,5 +63,23 @@ export async function updateIndexQuoteSource(
   payload: IndexQuoteSourceRuleUpdate,
 ): Promise<IndexQuoteSourceStatus> {
   const { data } = await apiClient.put<IndexQuoteSourceStatus>(`/market/index-quote-sources/${sourceKey}`, payload)
+  return data
+}
+
+export interface IndexQuoteSymbolUpdate {
+  index_code: string
+  source_key: string
+  quote_symbol?: string | null
+  supported: number
+  description?: string | null
+}
+
+export async function listIndexQuoteSymbols(): Promise<IndexQuoteSymbol[]> {
+  const { data } = await apiClient.get<IndexQuoteSymbol[]>('/market/index-quote-symbols')
+  return data
+}
+
+export async function upsertIndexQuoteSymbol(payload: IndexQuoteSymbolUpdate): Promise<IndexQuoteSymbol> {
+  const { data } = await apiClient.put<IndexQuoteSymbol>('/market/index-quote-symbols', payload)
   return data
 }

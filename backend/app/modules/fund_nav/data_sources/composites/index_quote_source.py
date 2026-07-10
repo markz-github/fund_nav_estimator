@@ -13,6 +13,7 @@ from app.modules.fund_nav.data_sources.web.sina_index_source import SinaHttpInde
 from app.modules.fund_nav.data_sources.web.tencent_index_source import TencentIndexSource
 from app.modules.fund_nav.data_sources.web.xueqiu_index_source import XueqiuIndexSource
 from app.modules.fund_nav.services.index_quote_source_status_service import IndexQuoteSourceStatusService
+from app.modules.fund_nav.services.index_quote_symbol_service import IndexQuoteSymbolService
 
 
 class CompositeIndexQuoteSource:
@@ -21,6 +22,7 @@ class CompositeIndexQuoteSource:
     def __init__(self, helper, db: Session | None = None) -> None:
         self.helper = helper
         self.status_service = IndexQuoteSourceStatusService(db)
+        self.symbol_service = IndexQuoteSymbolService(db)
         self.eastmoney_http = EastmoneyHttpIndexSource(helper)
         self.eastmoney = EastmoneyIndexSource(helper)
         self.sina = SinaIndexSource(helper)
@@ -56,8 +58,9 @@ class CompositeIndexQuoteSource:
             realtime_source = realtime_sources.get(source_status.source_key)
             if realtime_source is None:
                 continue
+            request_symbols = self.symbol_service.request_symbols(source_status.source_key, request_codes)
             try:
-                source_snapshots = realtime_source(request_codes, quote_time)
+                source_snapshots = realtime_source(request_codes, quote_time, request_symbols)
             except Exception as exc:
                 self.status_service.record_failure(source_status.source_key, repr(exc))
                 continue
@@ -73,8 +76,9 @@ class CompositeIndexQuoteSource:
         return list(snapshots.values())
 
     def _no_quote_error(self, source_key: str, missing_codes: set[str]) -> str:
-        requested = self._requested_symbols(source_key, missing_codes)
-        unsupported = sorted(code for code in missing_codes if code not in requested)
+        requested = self.symbol_service.request_symbols(source_key, missing_codes)
+        supported = self.symbol_service.supported_codes(source_key, missing_codes)
+        unsupported = sorted(code for code in missing_codes if code not in supported)
         parts = [
             "no quote matched",
             f"missing={self._join_codes(missing_codes)}",
@@ -86,32 +90,16 @@ class CompositeIndexQuoteSource:
             parts.append(f"unsupported={self._join_codes(unsupported)}")
         return ";".join(parts)
 
-    def _requested_symbols(self, source_key: str, missing_codes: set[str]) -> dict[str, str]:
-        formatter = {
-            "eastmoney_http_spot": self.eastmoney_http._secid,
-            "sina_http_spot": self.sina_http._symbol,
-            "tencent_spot": self.tencent._symbol,
-            "xueqiu_spot": self.xueqiu._symbol,
-        }.get(source_key)
-        if formatter is None:
-            return {}
-        requested: dict[str, str] = {}
-        for code in missing_codes:
-            symbol = formatter(code)
-            if symbol is not None:
-                requested[code] = symbol
-        return requested
-
-    @staticmethod
-    def _supported_codes(source_status, missing_codes: set[str]) -> set[str]:
+    def _supported_codes(self, source_status, missing_codes: set[str]) -> set[str]:
+        symbol_supported_codes = self.symbol_service.supported_codes(source_status.source_key, missing_codes)
         rule_type = (source_status.exclude_rule_type or "none").strip().lower()
         rule_value = (source_status.exclude_rule_value or "").strip()
         if rule_type == "regex" and rule_value:
             try:
                 pattern = re.compile(rule_value)
             except re.error:
-                return set(missing_codes)
-            return {code for code in missing_codes if pattern.search(str(code)) is None}
+                return set(symbol_supported_codes)
+            return {code for code in symbol_supported_codes if pattern.search(str(code)) is None}
         if rule_type == "enum" and rule_value:
             excluded = {
                 item.strip()
@@ -119,8 +107,8 @@ class CompositeIndexQuoteSource:
                 for item in [raw_part.strip()]
                 if item
             }
-            return {code for code in missing_codes if str(code) not in excluded}
-        return set(missing_codes)
+            return {code for code in symbol_supported_codes if str(code) not in excluded}
+        return set(symbol_supported_codes)
 
     @staticmethod
     def _join_codes(codes) -> str:

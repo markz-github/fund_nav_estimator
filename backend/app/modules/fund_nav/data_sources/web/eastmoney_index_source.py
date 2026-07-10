@@ -18,8 +18,9 @@ class EastmoneyHttpIndexSource:
         self,
         index_codes: set[str],
         quote_time: datetime,
+        quote_symbols: dict[str, str] | None = None,
     ) -> dict[str, MarketQuoteSnapshot]:
-        secids = {
+        secids = quote_symbols or {
             index_code: self._secid(index_code)
             for index_code in index_codes
             if self._secid(index_code) is not None

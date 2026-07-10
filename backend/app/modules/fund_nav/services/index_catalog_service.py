@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.fund_nav.data_sources.akshare.index_catalog_source import IndexCatalogSource, MarketIndexSnapshot
 from app.modules.fund_nav.models.market_index import MarketIndex
+from app.modules.fund_nav.services.index_quote_symbol_service import IndexQuoteSymbolService
 from app.utils.performance import timed
 
 
@@ -19,6 +20,7 @@ class IndexCatalogService:
     def refresh_indexes(self) -> list[MarketIndex]:
         snapshots = self.source.get_indexes()
         indexes = [self._upsert_snapshot(snapshot) for snapshot in snapshots]
+        IndexQuoteSymbolService(self.db).seed_csindex_symbols()
         self.db.commit()
         for index in indexes:
             self.db.refresh(index)

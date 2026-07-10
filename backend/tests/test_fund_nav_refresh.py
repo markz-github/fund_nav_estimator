@@ -37,6 +37,7 @@ from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.fund_profile import FundProfile
 from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
 from app.modules.fund_nav.models.index_quote_source_status import IndexQuoteSourceStatus
+from app.modules.fund_nav.models.index_quote_symbol import IndexQuoteSymbol
 from app.modules.fund_nav.models.manual_fund_index_mapping import ManualFundIndexMapping
 from app.modules.fund_nav.models.market_index import MarketIndex
 from app.modules.fund_nav.models.market_quote import MarketQuote
@@ -1734,6 +1735,41 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(quote.change_rate, Decimal("0.00615"))
         self.assertEqual(session.get.call_args_list[1].kwargs["params"]["symbol"], "SZ399395")
 
+    def test_xueqiu_index_source_uses_csi_symbol_for_csi_theme_index(self) -> None:
+        provider_time = datetime(2026, 7, 10, 16, 29, 54)
+        home_response = Mock()
+        home_response.raise_for_status.return_value = None
+        quote_response = Mock()
+        quote_response.raise_for_status.return_value = None
+        quote_response.json.return_value = {
+            "data": [
+                {
+                    "symbol": "CSI930875",
+                    "name": "空天军工",
+                    "current": 2257.2699,
+                    "percent": 2.24,
+                    "last_close": 2207.8534,
+                    "timestamp": int(provider_time.timestamp() * 1000),
+                }
+            ]
+        }
+        session = Mock()
+        session.get.side_effect = [home_response, quote_response]
+
+        with patch(
+            "app.modules.fund_nav.data_sources.web.xueqiu_index_source.requests.Session",
+            return_value=session,
+        ):
+            quotes = XueqiuIndexSource(AkshareSource()).get_spot_quotes({"930875"}, provider_time)
+
+        quote = quotes["930875"]
+        self.assertEqual(quote.asset_name, "空天军工")
+        self.assertEqual(quote.quote_time, provider_time)
+        self.assertEqual(quote.latest_price, Decimal("2257.2699"))
+        self.assertEqual(quote.prev_close, Decimal("2207.8534"))
+        self.assertEqual(quote.change_rate, Decimal("0.0224"))
+        self.assertEqual(session.get.call_args_list[1].kwargs["params"]["symbol"], "CSI930875")
+
     def test_index_quotes_do_not_fall_back_to_daily_when_spot_missing(self) -> None:
         empty_spot = pd.DataFrame(columns=["代码", "名称", "最新价", "涨跌幅", "昨收"])
 
@@ -1870,7 +1906,7 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIn("missing=399395", xueqiu_status.last_error)
         self.assertIn("requested=399395->SZ399395", xueqiu_status.last_error)
 
-    def test_index_quote_source_skips_known_unsupported_codes_without_recording_failure(self) -> None:
+    def test_index_quote_source_skips_only_sources_that_do_not_support_csi_codes(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
         SessionLocal = sessionmaker(bind=engine)
@@ -1885,7 +1921,7 @@ class FundNavRefreshTests(unittest.TestCase):
                 patch.object(SinaIndexSource, "get_spot_quotes", return_value={}),
                 patch.object(SinaHttpIndexSource, "get_spot_quotes") as sina_http_spot,
                 patch.object(TencentIndexSource, "get_spot_quotes") as tencent_spot,
-                patch.object(XueqiuIndexSource, "get_spot_quotes") as xueqiu_spot,
+                patch.object(XueqiuIndexSource, "get_spot_quotes", return_value={}) as xueqiu_spot,
             ):
                 quotes = AkshareSource(db).get_index_quotes(["930875.CSI"])
             sina_http_status = db.scalar(
@@ -1900,11 +1936,11 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(quotes, [])
         sina_http_spot.assert_not_called()
         tencent_spot.assert_not_called()
-        xueqiu_spot.assert_not_called()
+        xueqiu_spot.assert_called_once()
         self.assertEqual(sina_http_status.failure_count, 0)
         self.assertIsNone(sina_http_status.last_error)
-        self.assertEqual(xueqiu_status.failure_count, 0)
-        self.assertIsNone(xueqiu_status.last_error)
+        self.assertEqual(xueqiu_status.failure_count, 1)
+        self.assertIn("requested=930875->CSI930875", xueqiu_status.last_error)
 
     def test_index_quote_source_uses_database_enum_exclude_rule(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -2199,6 +2235,80 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIsNotNone(saved)
         self.assertEqual(saved.index_name, "中证港股通大消费主题指数")
         self.assertEqual(saved.provider, "csindex")
+
+    def test_refresh_index_catalog_seeds_csi_quote_symbols_for_9_prefix_indexes(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source.get_indexes.return_value = [
+            MarketIndexSnapshot(
+                index_code="931027",
+                index_name="中证港股通大消费主题指数",
+                index_short_name="港股通大消费",
+                provider="csindex",
+                currency="港元",
+                asset_class="股票",
+                source="test",
+            )
+        ]
+
+        try:
+            IndexCatalogService(db, source).refresh_indexes()
+            rows = {
+                row.source_key: row
+                for row in db.scalars(select(IndexQuoteSymbol).where(IndexQuoteSymbol.index_code == "931027")).all()
+            }
+        finally:
+            db.close()
+
+        self.assertEqual(rows["eastmoney_http_spot"].quote_symbol, "2.931027")
+        self.assertEqual(rows["xueqiu_spot"].quote_symbol, "CSI931027")
+        self.assertEqual(rows["sina_http_spot"].supported, 0)
+        self.assertEqual(rows["tencent_spot"].supported, 0)
+
+    def test_refresh_index_catalog_does_not_override_existing_quote_symbol_mapping(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(
+            IndexQuoteSymbol(
+                index_code="931027",
+                source_key="xueqiu_spot",
+                quote_symbol="CUSTOM931027",
+                supported=1,
+                description="人工维护",
+            )
+        )
+        db.commit()
+        source = Mock()
+        source.get_indexes.return_value = [
+            MarketIndexSnapshot(
+                index_code="931027",
+                index_name="中证港股通大消费主题指数",
+                index_short_name="港股通大消费",
+                provider="csindex",
+                currency="港元",
+                asset_class="股票",
+                source="test",
+            )
+        ]
+
+        try:
+            IndexCatalogService(db, source).refresh_indexes()
+            row = db.scalar(
+                select(IndexQuoteSymbol).where(
+                    IndexQuoteSymbol.index_code == "931027",
+                    IndexQuoteSymbol.source_key == "xueqiu_spot",
+                )
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(row.quote_symbol, "CUSTOM931027")
+        self.assertEqual(row.description, "人工维护")
 
     def test_refresh_mapping_resolves_index_code_from_local_catalog(self) -> None:
         engine = create_engine("sqlite:///:memory:")

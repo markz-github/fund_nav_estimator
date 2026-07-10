@@ -3,7 +3,14 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
-import { listIndexQuoteSources, updateIndexQuoteSource, type IndexQuoteSourceStatus } from '../api/market'
+import {
+  listIndexQuoteSources,
+  listIndexQuoteSymbols,
+  updateIndexQuoteSource,
+  upsertIndexQuoteSymbol,
+  type IndexQuoteSourceStatus,
+  type IndexQuoteSymbol,
+} from '../api/market'
 
 const sources = ref<IndexQuoteSourceStatus[]>([])
 const loading = ref(false)
@@ -11,9 +18,14 @@ const message = ref('')
 const popover = ref({ text: '', top: 0, left: 0, visible: false })
 const activeSourceType = ref<'index' | 'stock' | 'etf'>('index')
 const savingSourceKey = ref('')
+const symbols = ref<IndexQuoteSymbol[]>([])
+const savingSymbol = ref(false)
 const viewingSource = ref<IndexQuoteSourceStatus | null>(null)
 const editingSource = ref<IndexQuoteSourceStatus | null>(null)
+const editingSymbol = ref<IndexQuoteSymbol | null>(null)
+const symbolDialogOpen = ref(false)
 const ruleForm = ref({ source_description: '', exclude_rule_type: 'none', exclude_rule_value: '' })
+const symbolForm = ref({ index_code: '', source_key: '', quote_symbol: '', supported: 1, description: '' })
 
 const sourceGroups = computed(() => [
   {
@@ -33,6 +45,7 @@ const sourceGroups = computed(() => [
   },
 ])
 const activeGroup = computed(() => sourceGroups.value.find((group) => group.key === activeSourceType.value) ?? sourceGroups.value[0])
+const indexSources = computed(() => sources.value.filter((item) => item.source_type === 'index'))
 
 function formatDateTime(value?: string | null) {
   if (!value) return '-'
@@ -81,12 +94,18 @@ async function loadSources() {
   loading.value = true
   message.value = ''
   try {
-    sources.value = await listIndexQuoteSources()
+    const [sourceRows, symbolRows] = await Promise.all([listIndexQuoteSources(), listIndexQuoteSymbols()])
+    sources.value = sourceRows
+    symbols.value = symbolRows
   } catch (error) {
     message.value = apiErrorMessage(error, '渠道数据加载失败，请确认后端服务。')
   } finally {
     loading.value = false
   }
+}
+
+function sourceName(sourceKey: string) {
+  return sources.value.find((source) => source.source_key === sourceKey)?.source_name || sourceKey
 }
 
 function ruleTypeLabel(type?: string | null) {
@@ -139,6 +158,53 @@ async function saveRule() {
     message.value = apiErrorMessage(error, '渠道规则保存失败，请检查正则或枚举配置。')
   } finally {
     savingSourceKey.value = ''
+  }
+}
+
+function openSymbolDialog(item?: IndexQuoteSymbol) {
+  editingSymbol.value = item || null
+  symbolDialogOpen.value = true
+  symbolForm.value = {
+    index_code: item?.index_code || '',
+    source_key: item?.source_key || indexSources.value[0]?.source_key || '',
+    quote_symbol: item?.quote_symbol || '',
+    supported: item?.supported ?? 1,
+    description: item?.description || '',
+  }
+}
+
+function closeSymbolDialog() {
+  if (savingSymbol.value) return
+  symbolDialogOpen.value = false
+  editingSymbol.value = null
+  symbolForm.value = { index_code: '', source_key: '', quote_symbol: '', supported: 1, description: '' }
+}
+
+async function saveSymbol() {
+  savingSymbol.value = true
+  message.value = ''
+  try {
+    const updated = await upsertIndexQuoteSymbol({
+      index_code: symbolForm.value.index_code,
+      source_key: symbolForm.value.source_key,
+      quote_symbol: symbolForm.value.supported ? symbolForm.value.quote_symbol : null,
+      supported: Number(symbolForm.value.supported),
+      description: symbolForm.value.description,
+    })
+    const index = symbols.value.findIndex(
+      (item) => item.index_code === updated.index_code && item.source_key === updated.source_key,
+    )
+    if (index >= 0) {
+      symbols.value.splice(index, 1, updated)
+    } else {
+      symbols.value.push(updated)
+      symbols.value.sort((a, b) => `${a.index_code}:${a.source_key}`.localeCompare(`${b.index_code}:${b.source_key}`))
+    }
+    closeSymbolDialog()
+  } catch (error) {
+    message.value = apiErrorMessage(error, '指数映射保存失败，请检查代码和 symbol。')
+  } finally {
+    savingSymbol.value = false
   }
 }
 
@@ -235,6 +301,70 @@ onMounted(loadSources)
         </tbody>
       </table>
     </div>
+
+    <section class="mapping-section">
+      <div class="section-toolbar">
+        <div>
+          <p class="eyebrow">Index Symbols</p>
+          <h2>指数代码映射</h2>
+        </div>
+        <button class="ghost" type="button" @click="openSymbolDialog()">新增映射</button>
+      </div>
+      <div class="table-card">
+        <table class="responsive-card-table quote-symbol-table">
+          <thead>
+            <tr>
+              <th>指数代码</th>
+              <th>渠道</th>
+              <th>请求 Symbol</th>
+              <th>状态</th>
+              <th>说明</th>
+              <th>更新时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="symbols.length === 0">
+              <td colspan="7">暂无指数代码映射。</td>
+            </tr>
+            <tr v-for="item in symbols" :key="`${item.index_code}-${item.source_key}`">
+              <td data-label="指数代码">
+                <strong>{{ item.index_code }}</strong>
+              </td>
+              <td data-label="渠道">
+                <strong>{{ sourceName(item.source_key) }}</strong>
+                <span class="muted code-line">{{ item.source_key }}</span>
+              </td>
+              <td data-label="请求 Symbol">
+                <code>{{ item.quote_symbol || '-' }}</code>
+              </td>
+              <td data-label="状态">
+                <span class="status-pill" :class="item.supported ? 'status-ok' : 'status-danger'">
+                  {{ item.supported ? '支持' : '不支持' }}
+                </span>
+              </td>
+              <td
+                data-label="说明"
+                class="log-text-cell"
+                tabindex="0"
+                @mouseenter="showTextPopover($event, item.description)"
+                @mouseleave="hideTextPopover"
+                @focus="showTextPopover($event, item.description)"
+                @blur="hideTextPopover"
+              >
+                <span class="log-text-preview">{{ item.description || '-' }}</span>
+              </td>
+              <td data-label="更新时间">{{ formatDateTime(item.updated_at) }}</td>
+              <td data-label="操作" class="operation-cell">
+                <div class="quick-actions">
+                  <button class="ghost" type="button" @click="openSymbolDialog(item)">编辑</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
     <div
       v-if="popover.visible"
       class="log-text-popover"
@@ -323,12 +453,73 @@ onMounted(loadSources)
         </form>
       </section>
     </div>
+
+    <div v-if="symbolDialogOpen" class="modal-backdrop" @click.self="closeSymbolDialog">
+      <section class="form-dialog source-rule-dialog" role="dialog" aria-modal="true" aria-labelledby="symbol-rule-title">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Index Symbol</p>
+            <h2 id="symbol-rule-title">编辑指数代码映射</h2>
+          </div>
+          <button class="ghost" type="button" :disabled="savingSymbol" @click="closeSymbolDialog">关闭</button>
+        </div>
+        <form class="dialog-form" @submit.prevent="saveSymbol">
+          <label>
+            指数代码
+            <input v-model.trim="symbolForm.index_code" placeholder="930875" :disabled="!!editingSymbol" />
+          </label>
+          <label>
+            渠道
+            <ElSelect v-model="symbolForm.source_key" :disabled="!!editingSymbol">
+              <ElOption
+                v-for="source in indexSources"
+                :key="source.source_key"
+                :label="`${source.source_name}（${source.source_key}）`"
+                :value="source.source_key"
+              />
+            </ElSelect>
+          </label>
+          <label>
+            状态
+            <ElSelect v-model="symbolForm.supported">
+              <ElOption label="支持" :value="1" />
+              <ElOption label="不支持" :value="0" />
+            </ElSelect>
+          </label>
+          <label>
+            请求 Symbol
+            <input
+              v-model.trim="symbolForm.quote_symbol"
+              :disabled="Number(symbolForm.supported) === 0"
+              placeholder="CSI930875 / 2.930875 / s_sz399967"
+            />
+          </label>
+          <label>
+            说明
+            <textarea v-model="symbolForm.description" rows="4" placeholder="说明该渠道的代码规则或不支持原因" />
+          </label>
+          <p class="dialog-copy">
+            支持状态为“不支持”时，调度会跳过该渠道和指数组合，不计入失败次数；支持状态为“支持”时必须填写请求 Symbol。
+          </p>
+          <div class="dialog-actions">
+            <button class="ghost" type="button" :disabled="savingSymbol" @click="closeSymbolDialog">取消</button>
+            <button class="primary" type="submit" :disabled="savingSymbol">
+              {{ savingSymbol ? '保存中...' : '保存' }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   </main>
 </template>
 
 <style scoped>
 .quote-source-table {
   min-width: 1180px;
+}
+
+.quote-symbol-table {
+  min-width: 980px;
 }
 
 .code-line {
@@ -363,6 +554,23 @@ onMounted(loadSources)
 
 .source-group-card {
   margin-bottom: 32px;
+}
+
+.mapping-section {
+  margin-top: 32px;
+}
+
+.section-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.section-toolbar h2 {
+  margin: 0;
+  font-size: 28px;
 }
 
 .operation-cell {
