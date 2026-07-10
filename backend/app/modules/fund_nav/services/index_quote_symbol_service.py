@@ -43,12 +43,30 @@ class IndexQuoteSymbolService:
             if symbol.supported and symbol.quote_symbol
         }
 
-    def list_symbols(self) -> list[IndexQuoteSymbol]:
+    def list_symbols(
+        self,
+        *,
+        index_code: str | None = None,
+        source_key: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[IndexQuoteSymbol]:
         if self.db is None:
             return []
+        statement = select(IndexQuoteSymbol)
+        cleaned_code = (index_code or "").strip().upper()
+        cleaned_source = (source_key or "").strip()
+        if cleaned_code:
+            statement = statement.where(IndexQuoteSymbol.index_code.like(f"{cleaned_code}%"))
+        if cleaned_source:
+            statement = statement.where(IndexQuoteSymbol.source_key == cleaned_source)
+        safe_limit = max(1, min(int(limit or 200), 500))
+        safe_offset = max(0, int(offset or 0))
         return list(
             self.db.scalars(
-                select(IndexQuoteSymbol).order_by(IndexQuoteSymbol.index_code, IndexQuoteSymbol.source_key)
+                statement.order_by(IndexQuoteSymbol.index_code, IndexQuoteSymbol.source_key)
+                .offset(safe_offset)
+                .limit(safe_limit)
             ).all()
         )
 

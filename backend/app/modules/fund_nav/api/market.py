@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -56,8 +56,19 @@ def update_index_quote_source(source_key: str, payload: IndexQuoteSourceRuleIn, 
 
 
 @router.get("/index-quote-symbols", response_model=list[IndexQuoteSymbolOut])
-def index_quote_symbols(db: Session = Depends(get_db)):
-    return IndexQuoteSymbolService(db).list_symbols()
+def index_quote_symbols(
+    index_code: str | None = None,
+    source_key: str | None = None,
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    return IndexQuoteSymbolService(db).list_symbols(
+        index_code=index_code,
+        source_key=source_key,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.put("/index-quote-symbols", response_model=IndexQuoteSymbolOut)

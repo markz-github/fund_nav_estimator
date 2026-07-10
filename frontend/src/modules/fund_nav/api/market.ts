@@ -74,8 +74,15 @@ export interface IndexQuoteSymbolUpdate {
   description?: string | null
 }
 
-export async function listIndexQuoteSymbols(): Promise<IndexQuoteSymbol[]> {
-  const { data } = await apiClient.get<IndexQuoteSymbol[]>('/market/index-quote-symbols')
+export interface IndexQuoteSymbolQuery {
+  index_code?: string
+  source_key?: string
+  limit?: number
+  offset?: number
+}
+
+export async function listIndexQuoteSymbols(params: IndexQuoteSymbolQuery = {}): Promise<IndexQuoteSymbol[]> {
+  const { data } = await apiClient.get<IndexQuoteSymbol[]>('/market/index-quote-symbols', { params })
   return data
 }
 
