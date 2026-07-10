@@ -46,7 +46,6 @@ class IndexQuoteSymbolService:
     def list_symbols(self) -> list[IndexQuoteSymbol]:
         if self.db is None:
             return []
-        seed_default_index_quote_symbols(self.db)
         return list(
             self.db.scalars(
                 select(IndexQuoteSymbol).order_by(IndexQuoteSymbol.index_code, IndexQuoteSymbol.source_key)
@@ -99,12 +98,21 @@ class IndexQuoteSymbolService:
                 MarketIndex.index_code.like("9%"),
             )
         ).all()
+        index_codes = [index.index_code for index in indexes]
+        if not index_codes:
+            return 0
+        existing = {
+            (row.index_code, row.source_key)
+            for row in self.db.scalars(
+                select(IndexQuoteSymbol).where(IndexQuoteSymbol.index_code.in_(index_codes))
+            ).all()
+        }
         created = 0
         for index in indexes:
-            created += self._seed_symbol(index.index_code, "eastmoney_http_spot", f"2.{index.index_code}", 1, "中证 9xxxxx 指数，东财中证市场 secid")
-            created += self._seed_symbol(index.index_code, "xueqiu_spot", f"CSI{index.index_code}", 1, "中证 9xxxxx 指数，雪球 CSI symbol")
-            created += self._seed_symbol(index.index_code, "sina_http_spot", None, 0, "新浪 HTTP 不支持该中证 9xxxxx 指数")
-            created += self._seed_symbol(index.index_code, "tencent_spot", None, 0, "腾讯 HTTP 不支持该中证 9xxxxx 指数")
+            created += self._seed_symbol(index.index_code, "eastmoney_http_spot", f"2.{index.index_code}", 1, "中证 9xxxxx 指数，东财中证市场 secid", existing)
+            created += self._seed_symbol(index.index_code, "xueqiu_spot", f"CSI{index.index_code}", 1, "中证 9xxxxx 指数，雪球 CSI symbol", existing)
+            created += self._seed_symbol(index.index_code, "sina_http_spot", None, 0, "新浪 HTTP 不支持该中证 9xxxxx 指数", existing)
+            created += self._seed_symbol(index.index_code, "tencent_spot", None, 0, "腾讯 HTTP 不支持该中证 9xxxxx 指数", existing)
         self.db.flush()
         return created
 
@@ -115,14 +123,10 @@ class IndexQuoteSymbolService:
         quote_symbol: str | None,
         supported: int,
         description: str,
+        existing: set[tuple[str, str]],
     ) -> int:
-        row = self.db.scalar(
-            select(IndexQuoteSymbol).where(
-                IndexQuoteSymbol.index_code == index_code,
-                IndexQuoteSymbol.source_key == source_key,
-            )
-        )
-        if row is not None:
+        key = (index_code, source_key)
+        if key in existing:
             return 0
         self.db.add(
             IndexQuoteSymbol(
@@ -133,6 +137,7 @@ class IndexQuoteSymbolService:
                 description=description,
             )
         )
+        existing.add(key)
         return 1
 
     def _explicit_symbols(self, source_key: str, index_codes: set[str]) -> dict[str, QuoteSymbol]:
