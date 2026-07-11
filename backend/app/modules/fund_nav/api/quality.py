@@ -118,6 +118,9 @@ def _issue_out(error: DataFetchError, fund: Fund | None) -> FundNavQualityIssueO
         mapping_type=details.get("mapping_type"),
         action=details.get("action"),
         reason=details.get("reason"),
+        index_name=details.get("index_name"),
+        benchmark_text=details.get("benchmark_text"),
+        mapping_source=details.get("mapping_source"),
         occurred_at=error.occurred_at,
         message=error.error_message,
     )

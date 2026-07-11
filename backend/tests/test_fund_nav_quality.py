@@ -298,6 +298,42 @@ class FundNavQualityTests(unittest.TestCase):
         self.assertIn("mapping_type=target_etf", errors[0].error_message)
         self.assertIn("mapping_type=index", errors[1].error_message)
 
+    def test_check_quality_records_unsupported_index_provider_issue(self) -> None:
+        self.db.add_all(
+            [
+                Fund(id=1, fund_code="160643", fund_name="鹏华空天军工指数A", fund_type="指数型-股票"),
+                FundIndexMapping(
+                    id=1,
+                    fund_code="160643",
+                    index_code=None,
+                    index_name="中证空天一体军工指数",
+                    benchmark_text="中证空天一体军工指数收益率*95%+银行活期存款利率*5%",
+                    source="eastmoney",
+                    confidence="medium",
+                ),
+            ]
+        )
+        self.db.commit()
+
+        result = FundNavQualityService(self.db).check_mapping_completeness()
+        self.db.commit()
+
+        self.assertEqual(result, [
+            {
+                "fund_code": "160643",
+                "fund_name": "鹏华空天军工指数A",
+                "mapping_type": "index",
+                "reason": "unsupported_index_provider",
+                "action": "index_provider_support_required",
+                "index_name": "中证空天一体军工指数",
+                "benchmark_text": "中证空天一体军工指数收益率*95%+银行活期存款利率*5%",
+                "mapping_source": "eastmoney",
+            },
+        ])
+        error = self.db.scalar(select(DataFetchError))
+        self.assertIn("reason=unsupported_index_provider", error.error_message)
+        self.assertIn("index_name=中证空天一体军工指数", error.error_message)
+
     def test_manual_mapping_page_lists_and_resolves_pending_mapping_issues(self) -> None:
         self.db.add(Fund(id=1, fund_code="501009", fund_name="汇添富中证生物科技指数(LOF)A", fund_type="指数型-股票"))
         self.db.add(

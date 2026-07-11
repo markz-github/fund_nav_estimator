@@ -48,8 +48,20 @@ function reasonLabel(reason?: string | null) {
   if (reason === 'missing_nav') return '缺少净值'
   if (reason === 'stale_nav') return '净值滞后'
   if (reason === 'missing_index_mapping') return '缺少跟踪指数'
+  if (reason === 'unsupported_index_provider') return '未支持指数体系'
   if (reason === 'missing_target_etf_mapping') return '缺少目标 ETF'
   return reason || '-'
+}
+
+function issueDetail(issue: FundNavQualityReport['issues'][number]) {
+  if (issue.reason === 'unsupported_index_provider') {
+    return [
+      issue.index_name ? `指数：${issue.index_name}` : '',
+      issue.mapping_source ? `来源：${issue.mapping_source}` : '',
+      issue.benchmark_text ? `基准：${issue.benchmark_text}` : '',
+    ].filter(Boolean).join('；') || issue.message
+  }
+  return issue.message
 }
 
 function issueTypeLabel(type?: string | null) {
@@ -218,7 +230,7 @@ onMounted(loadReport)
             <td class="mono" data-label="最新净值日期">{{ issue.latest_nav_date || '-' }}</td>
             <td class="mono" data-label="预期净值日期">{{ issue.expected_nav_date || '-' }}</td>
             <td data-label="发现时间">{{ formatDateTime(issue.occurred_at) }}</td>
-            <td class="quality-message" data-label="详情">{{ issue.message }}</td>
+            <td class="quality-message" data-label="详情">{{ issueDetail(issue) }}</td>
           </tr>
         </tbody>
       </table>

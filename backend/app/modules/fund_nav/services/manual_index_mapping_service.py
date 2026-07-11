@@ -47,6 +47,9 @@ class ManualIndexMappingService:
                     "mapping_type": details.get("mapping_type") or "index",
                     "reason": details.get("reason"),
                     "action": details.get("action"),
+                    "index_name": details.get("index_name"),
+                    "benchmark_text": details.get("benchmark_text"),
+                    "mapping_source": details.get("mapping_source"),
                     "occurred_at": error.occurred_at,
                     "message": error.error_message,
                 }
