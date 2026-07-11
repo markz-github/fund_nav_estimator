@@ -111,21 +111,36 @@ function maintainPending(issue: PendingManualFundMapping) {
     fund_name: issue.fund_name ?? '',
     mapping_type: issue.mapping_type,
     target_code: '',
-    target_name: '',
+    target_name: issue.index_name ?? '',
     target_market: issue.mapping_type === 'target_etf' ? 'CN' : '',
     holding_ratio: issue.mapping_type === 'target_etf' ? '1' : null,
     holding_value: null,
     report_period: '',
-    benchmark_text: '',
-    remark: issue.mapping_type === 'target_etf' ? '巡检提示补充目标 ETF' : '巡检提示补充跟踪指数',
+    benchmark_text: issue.benchmark_text ?? '',
+    remark: issue.mapping_type === 'target_etf'
+      ? '巡检提示补充目标 ETF'
+      : issue.reason === 'unsupported_index_provider'
+        ? '巡检提示：该指数所属体系暂未支持'
+        : '巡检提示补充跟踪指数',
   }
   mappingDialogOpen.value = true
 }
 
 function reasonLabel(reason?: string | null) {
   if (reason === 'missing_index_mapping') return '缺少跟踪指数'
+  if (reason === 'unsupported_index_provider') return '未支持指数体系'
   if (reason === 'missing_target_etf_mapping') return '缺少目标 ETF'
   return reason || '-'
+}
+
+function pendingDetail(issue: PendingManualFundMapping) {
+  if (issue.reason === 'unsupported_index_provider') {
+    return [
+      issue.index_name ? `指数：${issue.index_name}` : '',
+      issue.mapping_source ? `来源：${issue.mapping_source}` : '',
+    ].filter(Boolean).join('；')
+  }
+  return issue.mapping_type === 'target_etf' ? '目标 ETF' : '跟踪指数'
 }
 
 async function submitMapping() {
@@ -239,7 +254,7 @@ onMounted(loadMappings)
             </td>
             <td data-label="缺失类型">
               <span class="status-pill status-danger">{{ reasonLabel(issue.reason) }}</span>
-              <span class="muted">{{ issue.mapping_type === 'target_etf' ? '目标 ETF' : '跟踪指数' }}</span>
+              <span class="muted">{{ pendingDetail(issue) }}</span>
             </td>
             <td data-label="发现时间">{{ formatDateTime(issue.occurred_at) }}</td>
             <td data-label="操作">

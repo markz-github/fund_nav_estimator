@@ -38,6 +38,9 @@ export interface PendingManualFundMapping {
   mapping_type: 'index' | 'target_etf'
   reason?: string | null
   action?: string | null
+  index_name?: string | null
+  benchmark_text?: string | null
+  mapping_source?: string | null
   occurred_at: string
   message: string
 }

@@ -18,6 +18,9 @@ class FundNavQualityIssueOut(BaseModel):
     mapping_type: str | None = None
     action: str | None = None
     reason: str | None = None
+    index_name: str | None = None
+    benchmark_text: str | None = None
+    mapping_source: str | None = None
     occurred_at: datetime
     message: str
 

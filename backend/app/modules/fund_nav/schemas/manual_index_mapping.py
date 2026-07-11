@@ -47,5 +47,8 @@ class PendingManualFundMappingOut(BaseModel):
     mapping_type: str
     reason: str | None = None
     action: str | None = None
+    index_name: str | None = None
+    benchmark_text: str | None = None
+    mapping_source: str | None = None
     occurred_at: datetime
     message: str

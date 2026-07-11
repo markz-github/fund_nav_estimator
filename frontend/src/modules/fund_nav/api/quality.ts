@@ -19,6 +19,9 @@ export interface FundNavQualityIssue {
   mapping_type?: string | null
   action?: string | null
   reason?: string | null
+  index_name?: string | null
+  benchmark_text?: string | null
+  mapping_source?: string | null
   occurred_at: string
   message: string
 }

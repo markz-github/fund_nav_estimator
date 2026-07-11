@@ -52,11 +52,10 @@ class FundNavQualityService:
     def check_mapping_completeness(self) -> list[dict]:
         issues: list[dict] = []
         funds = list(self.db.scalars(select(Fund).where(Fund.enabled == 1).order_by(Fund.fund_code.asc())).all())
-        index_mapping_codes = set(
-            self.db.scalars(
-                select(FundIndexMapping.fund_code).where(FundIndexMapping.index_code.is_not(None))
-            ).all()
-        )
+        index_mappings = {
+            mapping.fund_code: mapping
+            for mapping in self.db.scalars(select(FundIndexMapping)).all()
+        }
         target_etf_codes = set(
             self.db.scalars(
                 select(FundHolding.fund_code).where(
@@ -77,16 +76,12 @@ class FundNavQualityService:
         )
 
         for fund in funds:
-            if self.is_index_tracking_fund(fund) and fund.fund_code not in index_mapping_codes:
-                item = {
-                    "fund_code": fund.fund_code,
-                    "fund_name": fund.fund_name,
-                    "mapping_type": "index",
-                    "reason": "missing_index_mapping",
-                    "action": "manual_index_mapping_required",
-                }
-                issues.append(item)
-                self._log_mapping_issue(item)
+            if self.is_index_tracking_fund(fund):
+                mapping = index_mappings.get(fund.fund_code)
+                if mapping is None or not mapping.index_code:
+                    item = self._index_mapping_issue(fund, mapping)
+                    issues.append(item)
+                    self._log_mapping_issue(item)
 
             if self.is_etf_feeder_fund(fund) and fund.fund_code not in target_etf_codes:
                 item = {
@@ -100,6 +95,27 @@ class FundNavQualityService:
                 self._log_mapping_issue(item)
 
         return issues
+
+    @staticmethod
+    def _index_mapping_issue(fund: Fund, mapping: FundIndexMapping | None) -> dict:
+        if mapping is not None and mapping.index_name:
+            return {
+                "fund_code": fund.fund_code,
+                "fund_name": fund.fund_name,
+                "mapping_type": "index",
+                "reason": "unsupported_index_provider",
+                "action": "index_provider_support_required",
+                "index_name": mapping.index_name,
+                "benchmark_text": mapping.benchmark_text,
+                "mapping_source": mapping.source,
+            }
+        return {
+            "fund_code": fund.fund_code,
+            "fund_name": fund.fund_name,
+            "mapping_type": "index",
+            "reason": "missing_index_mapping",
+            "action": "manual_index_mapping_required",
+        }
 
     def _latest_nav_rows(self) -> list[tuple[Fund, FundNav | None]]:
         latest_nav_dates = (
@@ -143,11 +159,15 @@ class FundNavQualityService:
             log_fetch_error(self.db, "quality_check", "fund_nav", item["fund_code"], message)
 
     def _log_mapping_issue(self, item: dict) -> None:
-        message = (
-            f"mapping_type={item['mapping_type']};"
-            f"reason={item['reason']};"
-            f"action={item['action']}"
-        )
+        message_parts = [
+            f"mapping_type={item['mapping_type']}",
+            f"reason={item['reason']}",
+            f"action={item['action']}",
+        ]
+        for key in ("index_name", "benchmark_text", "mapping_source"):
+            if item.get(key):
+                message_parts.append(f"{key}={self._message_value(item[key])}")
+        message = ";".join(message_parts)
         exists = self.db.scalar(
             select(DataFetchError.id)
             .where(
@@ -161,6 +181,10 @@ class FundNavQualityService:
         )
         if exists is None:
             log_fetch_error(self.db, "quality_check", "fund_mapping", item["fund_code"], message)
+
+    @staticmethod
+    def _message_value(value: object) -> str:
+        return str(value).replace(";", "；").strip()
 
     @classmethod
     def expected_nav_date(cls, reference_time: datetime | None = None) -> date:
