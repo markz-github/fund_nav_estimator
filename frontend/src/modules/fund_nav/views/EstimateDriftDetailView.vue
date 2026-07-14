@@ -13,7 +13,7 @@ import {
   type Time,
 } from 'lightweight-charts'
 import { apiErrorMessage } from '../../../api/client'
-import { formatDateTime } from '../../../utils/datetime'
+import { dateInputValue, formatDateTime, offsetDateInputValue } from '../../../utils/datetime'
 import { routeNames } from '../../../router/routeNames'
 import { getEstimateDriftDetail, type EstimateDriftDetail, type EstimateDriftPoint } from '../api/quality'
 
@@ -22,8 +22,8 @@ const fundCode = computed(() => String(route.params.fundCode || ''))
 const detail = ref<EstimateDriftDetail | null>(null)
 const loading = ref(false)
 const message = ref('')
-const endDate = ref(queryText('end_date') || todayText())
-const startDate = ref(queryText('start_date') || daysAgoText(59))
+const endDate = ref(queryText('end_date') || dateInputValue())
+const startDate = ref(queryText('start_date') || offsetDateInputValue(-30))
 const thresholdPercent = ref(queryText('threshold') || '')
 const chartEl = ref<HTMLElement | null>(null)
 let chart: IChartApi | null = null
@@ -44,16 +44,6 @@ const thresholdDecimal = computed(() => percentInputToDecimal(thresholdPercent.v
 function queryText(key: string) {
   const value = route.query[key]
   return typeof value === 'string' ? value : ''
-}
-
-function todayText() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function daysAgoText(days: number) {
-  const value = new Date()
-  value.setDate(value.getDate() - days)
-  return value.toISOString().slice(0, 10)
 }
 
 function percentInputToDecimal(value: string) {
@@ -103,7 +93,7 @@ function driftRowClass(point: EstimateDriftPoint) {
 
 function chartDateLabel(time: Time) {
   if (typeof time === 'string') return time
-  if (typeof time === 'number') return new Date(time * 1000).toISOString().slice(0, 10)
+  if (typeof time === 'number') return dateInputValue(new Date(time * 1000))
   return `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}`
 }
 

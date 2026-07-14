@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { apiErrorMessage } from '../../../api/client'
+import { dateInputValue, offsetDateInputValue } from '../../../utils/datetime'
 import {
   getHistorySyncStatus,
   listHistorySyncTasks,
@@ -15,7 +16,7 @@ import { routeNames } from '../../../router/routeNames'
 
 const mode = ref<HistorySyncMode>('recent_days')
 const recentDays = ref(10)
-const startDate = ref(dateInputValue(offsetDate(-9)))
+const startDate = ref(offsetDateInputValue(-9))
 const endDate = ref(dateInputValue(new Date()))
 const workers = ref(8)
 const loading = ref(false)
@@ -31,24 +32,14 @@ const runningCount = computed(() => countByStatus('running'))
 const failedCount = computed(() => countByStatus('failed'))
 const totalTracked = computed(() => doneCount.value + runningCount.value + failedCount.value)
 
-function offsetDate(days: number) {
-  const value = new Date()
-  value.setDate(value.getDate() + days)
-  return value
-}
-
-function dateInputValue(value: Date) {
-  return value.toISOString().slice(0, 10)
-}
-
 function syncRecentDateRange() {
   if (mode.value !== 'recent_days') return
   const days = Math.min(3650, Math.max(1, Math.floor(Number(recentDays.value) || 1)))
   if (recentDays.value !== days) {
     recentDays.value = days
   }
-  startDate.value = dateInputValue(offsetDate(-(days - 1)))
-  endDate.value = dateInputValue(new Date())
+  startDate.value = offsetDateInputValue(-(days - 1))
+  endDate.value = dateInputValue()
 }
 
 function countByStatus(targetStatus: string) {

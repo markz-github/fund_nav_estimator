@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
-import { formatDateTime } from '../../../utils/datetime'
+import { dateInputValue, formatDateTime } from '../../../utils/datetime'
 import { routeNames } from '../../../router/routeNames'
 import {
   listAllFundTaskDetailLogs,
@@ -22,10 +22,6 @@ const selectedDate = ref(String(route.query.estimate_date || ''))
 const selectedFund = computed(() =>
   funds.value.find((fund) => fund.fund_code === selectedFundCode.value) ?? null,
 )
-
-function todayText() {
-  return new Date().toISOString().slice(0, 10)
-}
 
 function percent(value?: string | null) {
   if (!value) return '-'
@@ -108,7 +104,7 @@ function clearFilters() {
 }
 
 function useToday() {
-  selectedDate.value = todayText()
+  selectedDate.value = dateInputValue()
   void loadLogs()
 }
 

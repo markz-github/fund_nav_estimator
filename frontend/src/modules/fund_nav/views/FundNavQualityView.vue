@@ -3,13 +3,14 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
+import { dateInputValue, offsetDateInputValue } from '../../../utils/datetime'
 import { getFundNavQualityReport, type FundNavQualityReport } from '../api/quality'
 
 const report = ref<FundNavQualityReport | null>(null)
 const loading = ref(false)
 const message = ref('')
-const endDate = ref(todayText())
-const startDate = ref(daysAgoText(4))
+const endDate = ref(dateInputValue())
+const startDate = ref(offsetDateInputValue(-4))
 
 const latestTask = computed(() => report.value?.latest_task ?? null)
 const issues = computed(() => report.value?.issues ?? [])
@@ -79,16 +80,6 @@ function mappingTypeLabel(type?: string | null) {
   if (type === 'index') return '跟踪指数'
   if (type === 'target_etf') return '目标 ETF'
   return '-'
-}
-
-function todayText() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function daysAgoText(days: number) {
-  const value = new Date()
-  value.setDate(value.getDate() - days)
-  return value.toISOString().slice(0, 10)
 }
 
 async function loadReport() {

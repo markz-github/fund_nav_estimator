@@ -15,7 +15,7 @@ import {
   type Time,
 } from 'lightweight-charts'
 import { apiErrorMessage } from '../../../api/client'
-import { formatDateTime } from '../../../utils/datetime'
+import { dateInputValue, formatDateTime } from '../../../utils/datetime'
 import { routeNames } from '../../../router/routeNames'
 import {
   getFund,
@@ -99,7 +99,7 @@ const navChartData = computed(() =>
 function chartDateLabel(time: Time) {
   if (typeof time === 'string') return time
   if (typeof time === 'number') {
-    return new Date(time * 1000).toISOString().slice(0, 10)
+    return dateInputValue(new Date(time * 1000))
   }
   const month = String(time.month).padStart(2, '0')
   const day = String(time.day).padStart(2, '0')
