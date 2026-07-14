@@ -3,14 +3,15 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
+import { dateInputValue, offsetDateInputValue } from '../../../utils/datetime'
 import { listEstimateDriftFunds, type EstimateDriftFundSummary } from '../api/quality'
 
 const router = useRouter()
 const summaries = ref<EstimateDriftFundSummary[]>([])
 const loading = ref(false)
 const message = ref('')
-const endDate = ref(todayText())
-const startDate = ref(daysAgoText(59))
+const endDate = ref(dateInputValue())
+const startDate = ref(offsetDateInputValue(-30))
 const thresholdPercent = ref('')
 
 const abnormalCount = computed(() =>
@@ -20,16 +21,6 @@ const abnormalCount = computed(() =>
 )
 const comparableFundCount = computed(() => summaries.value.filter((item) => item.comparable_count > 0).length)
 const thresholdDecimal = computed(() => percentInputToDecimal(thresholdPercent.value))
-
-function todayText() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function daysAgoText(days: number) {
-  const value = new Date()
-  value.setDate(value.getDate() - days)
-  return value.toISOString().slice(0, 10)
-}
 
 function percentInputToDecimal(value: string) {
   const numericValue = Number(value)
