@@ -186,9 +186,17 @@ class FundTaskQueueService:
             success = sum(FundService(self.db).refresh_nav(code) is not None for code in self._codes(fund_codes))
             return ("success" if success else "partial"), f"funds={len(self._codes(fund_codes))};success={success}"
         if task.task_type == "check_nav_quality":
-            result = FundNavQualityService(self.db).check_latest_nav_freshness()
+            quality_service = FundNavQualityService(self.db)
+            result = quality_service.check_latest_nav_freshness()
+            strategy_issues = quality_service.check_estimate_strategy_failures()
+            result["strategy_issue_count"] = len(strategy_issues)
+            result["strategy_issues"] = strategy_issues
             return (
-                "success" if result["stale_count"] == 0 and result["mapping_issue_count"] == 0 else "partial",
+                "success"
+                if result["stale_count"] == 0
+                and result["mapping_issue_count"] == 0
+                and result["strategy_issue_count"] == 0
+                else "partial",
                 self._nav_quality_message(result),
             )
         if task.task_type == "refresh_holding":
@@ -266,8 +274,10 @@ class FundTaskQueueService:
         return (
             f"checked={result['checked_count']};stale={result['stale_count']};"
             f"mapping_issues={result.get('mapping_issue_count', 0)};"
+            f"strategy_issues={result.get('strategy_issue_count', 0)};"
             f"expected_nav_date={result['expected_nav_date']};details={examples}"
-            f";mapping_details={mapping_examples}"
+            f";mapping_details={mapping_examples};"
+            f"strategy_details={result.get('strategy_issues', [])[:5]}"
         )
 
     def _quote_status_message(self, quote_count: int, diagnostics: list[FetchDiagnostic]) -> tuple[str, str]:

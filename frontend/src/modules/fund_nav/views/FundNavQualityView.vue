@@ -51,6 +51,7 @@ function reasonLabel(reason?: string | null) {
   if (reason === 'missing_index_mapping') return '缺少跟踪指数'
   if (reason === 'unsupported_index_provider') return '未支持指数体系'
   if (reason === 'missing_target_etf_mapping') return '缺少目标 ETF'
+  if (reason === 'estimate_strategy_failed') return '估算策略失败'
   return reason || '-'
 }
 
@@ -62,12 +63,37 @@ function issueDetail(issue: FundNavQualityReport['issues'][number]) {
       issue.benchmark_text ? `基准：${issue.benchmark_text}` : '',
     ].filter(Boolean).join('；') || issue.message
   }
+  if (issue.reason === 'estimate_strategy_failed') {
+    const failedStrategies = (issue.failed_strategies || '-')
+      .split('|')
+      .map((attempt) => {
+        const [strategy, result] = attempt.split(':')
+        return `${strategyLabel(strategy)}：${resultLabel(result)}`
+      })
+      .join('；')
+    return `失败步骤：${failedStrategies}；最终策略：${strategyLabel(issue.final_strategy)}；最终状态：${statusLabel(issue.final_status)}`
+  }
   return issue.message
 }
 
 function issueTypeLabel(type?: string | null) {
   if (type === 'fund_mapping') return '映射维护'
+  if (type === 'estimate_strategy_failure') return '估算策略'
   return '净值巡检'
+}
+
+function strategyLabel(strategy?: string | null) {
+  if (strategy === 'index_tracking') return '指数法'
+  if (strategy === 'etf_iopv' || strategy === 'etf_quote') return 'ETF 法'
+  return strategy || '-'
+}
+
+function resultLabel(result?: string | null) {
+  if (result === 'missing_index_mapping') return '缺少跟踪指数映射'
+  if (result === 'missing_index_quote') return '缺少指数行情'
+  if (result === 'stale_index_quote') return '指数行情滞后'
+  if (result === 'missing_etf_quote') return '缺少 ETF 行情'
+  return result || '-'
 }
 
 function navRuleLabel(rule?: string | null) {
@@ -108,7 +134,7 @@ onMounted(loadReport)
       <div>
         <p class="eyebrow">Quality Check</p>
         <h1>净值巡检</h1>
-        <p class="subtitle">查看官方净值缺失、日期滞后，以及需要人工维护映射的基金。</p>
+        <p class="subtitle">查看官方净值、映射完整性，以及估算策略回退问题。</p>
       </div>
       <button class="ghost" :disabled="loading" @click="loadReport">
         {{ loading ? '刷新中...' : '刷新结果' }}
@@ -209,7 +235,7 @@ onMounted(loadReport)
             </td>
             <td data-label="原因">
               <span class="status-pill status-warn">{{ reasonLabel(issue.reason) }}</span>
-              <span v-if="issue.issue_type !== 'fund_mapping'" class="muted">{{ navRuleLabel(issue.nav_rule) }}</span>
+              <span v-if="issue.issue_type === 'fund_nav'" class="muted">{{ navRuleLabel(issue.nav_rule) }}</span>
               <RouterLink
                 v-else
                 class="muted"
