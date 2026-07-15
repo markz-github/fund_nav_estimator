@@ -21,6 +21,9 @@ class FundNavQualityIssueOut(BaseModel):
     index_name: str | None = None
     benchmark_text: str | None = None
     mapping_source: str | None = None
+    failed_strategies: str | None = None
+    final_strategy: str | None = None
+    final_status: str | None = None
     occurred_at: datetime
     message: str
 

@@ -9,6 +9,7 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.operations.models.data_fetch_error import DataFetchError
 from app.modules.operations.services.operation_log_service import log_fetch_error
@@ -48,6 +49,37 @@ class FundNavQualityService:
             "stale": stale,
             "mapping_issues": mapping_issues,
         }
+
+    def check_estimate_strategy_failures(self, reference_time: datetime | None = None) -> list[dict]:
+        """Find today's estimate logs containing one or more failed strategy attempts."""
+        estimate_date = (reference_time or datetime.now()).date()
+        rows = self.db.execute(
+            select(FundTaskDetailLog, Fund)
+            .join(Fund, Fund.fund_code == FundTaskDetailLog.fund_code)
+            .where(
+                FundTaskDetailLog.estimate_date == estimate_date,
+            )
+            .order_by(FundTaskDetailLog.fund_code.asc())
+        ).all()
+        issues: list[dict] = []
+        for detail_log, fund in rows:
+            attempts = self._parse_attempts(detail_log.message)
+            failed_attempts = [attempt for attempt in attempts if attempt["result"] != "success"]
+            if not failed_attempts:
+                continue
+            item = {
+                "fund_code": fund.fund_code,
+                "fund_name": fund.fund_name,
+                "estimate_date": estimate_date.isoformat(),
+                "failed_strategies": "|".join(
+                    f"{attempt['strategy']}:{attempt['result']}" for attempt in failed_attempts
+                ),
+                "final_strategy": detail_log.strategy,
+                "final_status": detail_log.status,
+            }
+            issues.append(item)
+            self._log_estimate_strategy_failure(item)
+        return issues
 
     def check_mapping_completeness(self) -> list[dict]:
         issues: list[dict] = []
@@ -181,6 +213,36 @@ class FundNavQualityService:
         )
         if exists is None:
             log_fetch_error(self.db, "quality_check", "fund_mapping", item["fund_code"], message)
+
+    def _log_estimate_strategy_failure(self, item: dict) -> None:
+        message = (
+            f"estimate_date={item['estimate_date']};"
+            "reason=estimate_strategy_failed;"
+            f"failed_strategies={item['failed_strategies']};"
+            f"final_strategy={item['final_strategy']};"
+            f"final_status={item['final_status']}"
+        )
+        exists = self.db.scalar(
+            select(DataFetchError.id)
+            .where(
+                DataFetchError.source == "quality_check",
+                DataFetchError.data_type == "estimate_strategy_failure",
+                DataFetchError.target_code == item["fund_code"],
+                DataFetchError.error_message.like(f"estimate_date={item['estimate_date']};%"),
+            )
+            .limit(1)
+        )
+        if exists is None:
+            log_fetch_error(self.db, "quality_check", "estimate_strategy_failure", item["fund_code"], message)
+
+    @staticmethod
+    def _parse_attempts(message: str | None) -> list[dict[str, str]]:
+        attempts: list[dict[str, str]] = []
+        for part in (message or "").split(";"):
+            strategy, separator, result = part.partition("=")
+            if separator and strategy.strip() and result.strip():
+                attempts.append({"strategy": strategy.strip(), "result": result.strip()})
+        return attempts
 
     @staticmethod
     def _message_value(value: object) -> str:

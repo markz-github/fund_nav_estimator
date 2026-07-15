@@ -20,6 +20,7 @@ from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
+from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
 from app.modules.fund_nav.api.quality import (
     get_estimate_drift_detail,
     get_fund_nav_quality_report,
@@ -123,6 +124,70 @@ class FundNavQualityTests(unittest.TestCase):
 
         self.assertEqual(result["stale_count"], 0)
         self.assertEqual(self.db.query(DataFetchError).count(), 0)
+
+    def test_quality_check_records_any_failed_estimate_strategy_once_per_fund_per_day(self) -> None:
+        estimate_time = datetime(2026, 6, 29, 14, 30)
+        self.db.add_all(
+            [
+                Fund(id=1, fund_code="501009", fund_name="指数基金"),
+                Fund(id=2, fund_code="510300", fund_name="ETF 基金"),
+                Fund(id=3, fund_code="000001", fund_name="普通基金"),
+                FundTaskDetailLog(
+                    id=1,
+                    task_type="refresh_quote_estimate",
+                    fund_code="501009",
+                    fund_name="指数基金",
+                    status="success",
+                    strategy="holding_weighted",
+                    estimate_date=estimate_time.date(),
+                    estimate_time=estimate_time,
+                    message="index_tracking=missing_index_quote;holding_weighted=success",
+                ),
+                FundTaskDetailLog(
+                    id=2,
+                    task_type="refresh_quote_estimate",
+                    fund_code="510300",
+                    fund_name="ETF 基金",
+                    status="skipped",
+                    strategy="etf_iopv",
+                    estimate_date=estimate_time.date(),
+                    estimate_time=estimate_time,
+                    message="etf_iopv=missing_etf_quote",
+                ),
+                FundTaskDetailLog(
+                    id=3,
+                    task_type="refresh_quote_estimate",
+                    fund_code="000001",
+                    fund_name="普通基金",
+                    status="skipped",
+                    strategy="holding_weighted",
+                    estimate_date=estimate_time.date(),
+                    estimate_time=estimate_time,
+                    message="holding_weighted=missing_quotes",
+                ),
+            ]
+        )
+        self.db.commit()
+
+        service = FundNavQualityService(self.db)
+        first = service.check_estimate_strategy_failures(estimate_time)
+        second = service.check_estimate_strategy_failures(estimate_time)
+        self.db.commit()
+
+        errors = self.db.scalars(
+            select(DataFetchError)
+            .where(DataFetchError.data_type == "estimate_strategy_failure")
+            .order_by(DataFetchError.target_code)
+        ).all()
+        self.assertEqual([issue["fund_code"] for issue in first], ["000001", "501009", "510300"])
+        self.assertEqual(first[0]["failed_strategies"], "holding_weighted:missing_quotes")
+        self.assertEqual(first[1]["failed_strategies"], "index_tracking:missing_index_quote")
+        self.assertEqual(first[2]["failed_strategies"], "etf_iopv:missing_etf_quote")
+        self.assertEqual(second, first)
+        self.assertEqual(len(errors), 3)
+        self.assertEqual([error.target_code for error in errors], ["000001", "501009", "510300"])
+        self.assertIn("reason=estimate_strategy_failed", errors[1].error_message)
+        self.assertIn("failed_strategies=index_tracking:missing_index_quote", errors[1].error_message)
 
     def test_qdii_fund_still_reports_nav_older_than_allowed_window(self) -> None:
         self.db.add_all(

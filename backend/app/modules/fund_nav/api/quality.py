@@ -45,7 +45,7 @@ def get_fund_nav_quality_report(
         .outerjoin(Fund, Fund.fund_code == DataFetchError.target_code)
         .where(
             DataFetchError.source == "quality_check",
-            DataFetchError.data_type.in_(("fund_nav", "fund_mapping")),
+            DataFetchError.data_type.in_(("fund_nav", "fund_mapping", "estimate_strategy_failure")),
             DataFetchError.occurred_at >= datetime.combine(start_date, time.min),
             DataFetchError.occurred_at <= datetime.combine(end_date, time.max),
         )
@@ -121,6 +121,9 @@ def _issue_out(error: DataFetchError, fund: Fund | None) -> FundNavQualityIssueO
         index_name=details.get("index_name"),
         benchmark_text=details.get("benchmark_text"),
         mapping_source=details.get("mapping_source"),
+        failed_strategies=details.get("failed_strategies"),
+        final_strategy=details.get("final_strategy"),
+        final_status=details.get("final_status"),
         occurred_at=error.occurred_at,
         message=error.error_message,
     )
