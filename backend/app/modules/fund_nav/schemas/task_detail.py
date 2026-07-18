@@ -101,6 +101,7 @@ class FundTaskDetailLogOut(BaseModel):
     id: int
     task_log_id: int | None = None
     task_type: str
+    origin: str | None = None
     fund_code: str
     fund_name: str | None = None
     status: str

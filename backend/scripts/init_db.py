@@ -16,6 +16,12 @@ from app.modules.fund_nav.services.asset_valuation_config_service import seed_de
 from app.modules.fund_nav.services.index_quote_source_status_service import seed_default_index_quote_source_statuses
 from app.modules.fund_nav.services.index_quote_symbol_service import seed_default_index_quote_symbols
 from app import models  # noqa: F401
+from scripts.sync_a_stock_daily_bars import (
+    create_tables as create_a_stock_tables,
+    database_engine as a_stock_database_engine,
+    ensure_database_exists as ensure_a_stock_database_exists,
+)
+from scripts.sync_fund_nav_history import create_tables as create_fund_history_tables
 
 
 def quote_identifier(identifier: str) -> str:
@@ -109,6 +115,10 @@ def main() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_fund_category_columns()
     ensure_index_quote_source_status_columns()
+    create_fund_history_tables(engine)
+    settings = get_settings()
+    ensure_a_stock_database_exists(settings.a_stock_mysql_database)
+    create_a_stock_tables(a_stock_database_engine(settings.a_stock_mysql_database))
     with SessionLocal() as db:
         seed_default_asset_valuation_configs(db)
         seed_default_index_quote_source_statuses(db)

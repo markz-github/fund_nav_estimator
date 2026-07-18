@@ -90,7 +90,7 @@ onMounted(loadSummaries)
       <div>
         <p class="eyebrow">Estimate Drift</p>
         <h1>估算偏差</h1>
-        <p class="subtitle">按基金汇总已披露官方净值日期上的估算偏差，点击基金查看走势。</p>
+        <p class="subtitle">按基金汇总已披露官方净值日期上的估算偏差，点击基金进入估值详情。</p>
       </div>
       <button class="ghost" :disabled="loading" @click="loadSummaries">
         {{ loading ? '刷新中...' : '刷新列表' }}
@@ -168,9 +168,12 @@ onMounted(loadSummaries)
           </tr>
           <tr v-for="item in summaries" :key="item.fund_code">
             <td data-label="基金">
-              <button class="table-link-button" type="button" @click="openDetail(item.fund_code)">
+              <RouterLink
+                class="fund-name"
+                :to="{ name: routeNames.fundDetail, params: { fundCode: item.fund_code } }"
+              >
                 {{ item.fund_name }}
-              </button>
+              </RouterLink>
               <span class="muted mono">{{ item.fund_code }}</span>
             </td>
             <td data-label="可比较天数">{{ item.comparable_count }}</td>

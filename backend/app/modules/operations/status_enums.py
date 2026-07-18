@@ -14,6 +14,8 @@ TASK_STATUSES = (
     StatusOption("running", "运行中"),
     StatusOption("success", "成功"),
     StatusOption("partial", "部分成功"),
+    StatusOption("no_data", "无数据"),
+    StatusOption("completed_with_issues", "已完成但发现问题"),
     StatusOption("failed", "失败"),
     StatusOption("skipped", "跳过"),
 )

@@ -58,8 +58,12 @@ class EastmoneySource:
 
     def get_fund_holdings(self, fund_code: str) -> list[dict]:
         normalized_code = self._normalize_fund_code(fund_code)
-        holdings = self._fetch_stock_holdings(normalized_code)
-        return [self._to_snapshot(holding) for holding in self._latest_period_holdings(holdings)]
+        stock_holdings = self._latest_period_holdings(self._fetch_stock_holdings(normalized_code))
+        bond_holdings = self._latest_period_holdings(self._fetch_bond_holdings(normalized_code))
+        return [
+            self._to_snapshot(holding)
+            for holding in [*stock_holdings, *bond_holdings]
+        ]
 
     def get_target_fund_holdings(self, fund_code: str) -> list[dict]:
         normalized_code = self._normalize_fund_code(fund_code)
@@ -103,24 +107,50 @@ class EastmoneySource:
         return []
 
     def _fetch_stock_holdings(self, fund_code: str) -> list[ParsedHolding]:
-        text = self._fetch_text(
-            "https://fundf10.eastmoney.com/FundArchivesDatas.aspx",
-            params={"code": fund_code, "type": "jjcc", "topline": "50", "year": ""},
-            headers={"Referer": f"https://fundf10.eastmoney.com/ccmx_{fund_code}.html"},
+        text = self._fetch_archives_text(
+            fund_code,
+            "jjcc",
+            extra_params={"topline": "50"},
+            referer_page="ccmx",
         )
         if not text:
             return []
         return self._parse_fund_archives_holdings(fund_code, text)
 
+    def _fetch_bond_holdings(self, fund_code: str) -> list[ParsedHolding]:
+        text = self._fetch_archives_text(fund_code, "zqcc", referer_page="ccmx1")
+        if not text:
+            return []
+        return self._parse_fund_archives_bond_holdings(fund_code, text)
+
+    def _fetch_archives_text(
+        self,
+        fund_code: str,
+        archive_type: str,
+        *,
+        extra_params: dict[str, str] | None = None,
+        referer_page: str,
+    ) -> str:
+        params = {"code": fund_code, "type": archive_type, "year": "", **(extra_params or {})}
+        return self._fetch_text(
+            "https://fundf10.eastmoney.com/FundArchivesDatas.aspx",
+            params=params,
+            headers={"Referer": f"https://fundf10.eastmoney.com/{referer_page}_{fund_code}.html"},
+        )
+
     def _parse_fund_archives_holdings(
         self, fund_code: str, html_text: str
     ) -> list[ParsedHolding]:
         normalized = self._normalize_response_html(html_text)
-        sections = re.split(r"(?=截止至[:：]\s*\d{4}-\d{2}-\d{2})", normalized)
+        # FundArchivesDatas currently wraps the report date in a <font> tag:
+        # ``截止至：<font class='px12'>2025-12-31</font>``.  Keep accepting
+        # the former plain-text form as well.
+        report_date_pattern = r"截止至[:：](?:\s|<[^>]+>)*(\d{4}-\d{2}-\d{2})"
+        sections = re.split(rf"(?={report_date_pattern})", normalized)
         holdings: list[ParsedHolding] = []
 
         for section in sections:
-            date_match = re.search(r"截止至[:：]\s*(\d{4}-\d{2}-\d{2})", section)
+            date_match = re.search(report_date_pattern, section)
             if not date_match:
                 continue
             report_period = self._report_period_from_date(date_match.group(1))
@@ -128,6 +158,27 @@ class EastmoneySource:
             parser.feed(section)
             for row in parser.rows:
                 holding = self._parse_holding_row(fund_code, report_period, row)
+                if holding is not None:
+                    holdings.append(holding)
+        return holdings
+
+    def _parse_fund_archives_bond_holdings(
+        self, fund_code: str, html_text: str
+    ) -> list[ParsedHolding]:
+        normalized = self._normalize_response_html(html_text)
+        report_date_pattern = r"截止至[:：](?:\s|<[^>]+>)*(\d{4}-\d{2}-\d{2})"
+        sections = re.split(rf"(?={report_date_pattern})", normalized)
+        holdings: list[ParsedHolding] = []
+
+        for section in sections:
+            date_match = re.search(report_date_pattern, section)
+            if not date_match:
+                continue
+            report_period = self._report_period_from_date(date_match.group(1))
+            parser = _TableParser()
+            parser.feed(section)
+            for row in parser.rows:
+                holding = self._parse_bond_holding_row(fund_code, report_period, row)
                 if holding is not None:
                     holdings.append(holding)
         return holdings
@@ -161,6 +212,36 @@ class EastmoneySource:
             market=self._infer_market(asset_code, asset_type),
             holding_ratio=self._percent(row[ratio_index]),
             holding_value=self._optional_decimal(row[ratio_index + 2] if ratio_index + 2 < len(row) else None),
+        )
+
+    @staticmethod
+    def _parse_bond_holding_row(
+        fund_code: str, report_period: str, row: list[str]
+    ) -> ParsedHolding | None:
+        code_index = next(
+            (idx for idx, cell in enumerate(row) if re.fullmatch(r"\d{5,6}", cell.strip())),
+            None,
+        )
+        if code_index is None or code_index + 1 >= len(row):
+            return None
+        ratio_index = next(
+            (idx for idx in range(len(row) - 1, code_index, -1) if row[idx].strip().endswith("%")),
+            None,
+        )
+        if ratio_index is None:
+            return None
+        asset_code = row[code_index].strip().zfill(5 if len(row[code_index].strip()) == 5 else 6)
+        return ParsedHolding(
+            fund_code=fund_code,
+            report_period=report_period,
+            asset_code=asset_code,
+            asset_name=row[code_index + 1].strip(),
+            asset_type="bond",
+            market="CN",
+            holding_ratio=EastmoneySource._percent(row[ratio_index]),
+            holding_value=EastmoneySource._optional_decimal(
+                row[ratio_index + 1] if ratio_index + 1 < len(row) else None
+            ),
         )
 
     def _fetch_pages_text(self, urls: list[str]) -> str:

@@ -479,9 +479,7 @@ def main() -> None:
         log_file_name="fund_nav_history_sync.log",
         console=False,
     )
-    ensure_database_exists()
     engine = database_engine()
-    create_tables(engine)
     fund_pool = get_fund_pool()
     if args.fund_codes:
         target_codes = {str(code).strip().zfill(6) for code in args.fund_codes if str(code).strip()}

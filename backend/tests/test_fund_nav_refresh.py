@@ -36,6 +36,7 @@ from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.fund_profile import FundProfile
 from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
+from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.models.index_quote_source_status import IndexQuoteSourceStatus
 from app.modules.fund_nav.models.index_quote_symbol import IndexQuoteSymbol
 from app.modules.fund_nav.models.manual_fund_index_mapping import ManualFundIndexMapping
@@ -1121,6 +1122,43 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(len(logs), 1)
         self.assertEqual(logs[0].fund_code, "161036")
         self.assertEqual(logs[0].estimate_date, target_date)
+
+    def test_list_task_detail_logs_returns_actual_task_origin(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        target_date = date(2026, 7, 2)
+        db.add_all(
+            [
+                FundTaskQueue(
+                    task_log_id=100,
+                    task_type="refresh_quote_estimate",
+                    task_name="刷新行情并估算",
+                    origin="scheduled",
+                    dedupe_key="scheduled-test",
+                    status="success",
+                ),
+                FundTaskDetailLog(
+                    task_log_id=100,
+                    task_type="refresh_quote_estimate",
+                    fund_code="161036",
+                    status="success",
+                    strategy="index_tracking",
+                    estimate_date=target_date,
+                    estimate_time=datetime(2026, 7, 2, 15, 30),
+                ),
+            ]
+        )
+        db.commit()
+
+        try:
+            logs = list_task_detail_logs(fund_code="161036", estimate_date=target_date, limit=100, db=db)
+            serialized = FundTaskDetailLogOut.model_validate(logs[0])
+        finally:
+            db.close()
+
+        self.assertEqual(serialized.origin, "scheduled")
 
     def test_run_estimates_updates_daily_skipped_fund_detail_log(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -3420,6 +3458,44 @@ class FundNavRefreshTests(unittest.TestCase):
             holdings = EastmoneySource().get_target_fund_holdings("018172")
 
         self.assertEqual(holdings, [])
+
+    def test_eastmoney_holdings_parses_report_date_wrapped_in_font_tag(self) -> None:
+        response_text = """
+            var apidata={ content:"<div class='box'><label>截止至：<font class='px12'>2025-12-31</font></label>
+            <table><tbody><tr><td>1</td><td><a>603179</a></td><td><a>新泉股份</a></td>
+            <td>相关资讯</td><td>9.37%</td><td>100</td><td>147056.42</td></tr></tbody></table></div>" };
+        """
+
+        holdings = EastmoneySource()._parse_fund_archives_holdings("018125", response_text)
+
+        self.assertEqual(len(holdings), 1)
+        self.assertEqual(holdings[0].report_period, "2025Q4")
+        self.assertEqual(holdings[0].asset_code, "603179")
+        self.assertEqual(holdings[0].asset_name, "新泉股份")
+        self.assertEqual(holdings[0].holding_ratio, Decimal("0.0937"))
+
+    def test_eastmoney_holdings_combines_latest_stock_and_bond_holdings(self) -> None:
+        stock_response = """
+            截止至：<font>2026-03-31</font><table><tr><td>1</td><td>603179</td><td>新泉股份</td>
+            <td>相关资讯</td><td>9.37%</td><td>100</td><td>147056.42</td></tr></table>
+        """
+        bond_response = """
+            截止至：<font>2026-03-31</font><table><tr><td>1</td><td>019773</td><td>25国债08</td>
+            <td>0.73%</td><td>11480.40</td></tr></table>
+        """
+
+        with patch.object(
+            EastmoneySource,
+            "_fetch_archives_text",
+            side_effect=[stock_response, bond_response],
+        ) as fetch_archives:
+            holdings = EastmoneySource().get_fund_holdings("018125")
+
+        self.assertEqual(fetch_archives.call_count, 2)
+        self.assertEqual([holding["asset_type"] for holding in holdings], ["stock", "bond"])
+        self.assertEqual(holdings[0]["asset_code"], "603179")
+        self.assertEqual(holdings[1]["asset_code"], "019773")
+        self.assertEqual(holdings[1]["holding_value"], Decimal("11480.40"))
 
     def test_holdings_are_deduplicated_by_unique_key_before_insert(self) -> None:
         snapshots = [

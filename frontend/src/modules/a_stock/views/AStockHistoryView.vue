@@ -20,6 +20,7 @@ const startDate = ref(offsetDateInputValue(-9))
 const endDate = ref(dateInputValue(new Date()))
 const workers = ref(8)
 const loading = ref(false)
+const taskListLoading = ref(false)
 const starting = ref(false)
 const stopping = ref(false)
 const message = ref('')
@@ -68,14 +69,24 @@ function durationText(value?: number | null) {
 async function refreshStatus() {
   loading.value = true
   try {
-    const [nextStatus, nextTasks] = await Promise.all([getHistorySyncStatus(), listHistorySyncTasks()])
-    status.value = nextStatus
-    tasks.value = nextTasks
+    status.value = await getHistorySyncStatus()
     updateAutoRefresh()
+    void loadTasks()
   } catch (error) {
     message.value = apiErrorMessage(error, 'A 股行情同步状态加载失败，请确认后端服务。')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadTasks() {
+  taskListLoading.value = true
+  try {
+    tasks.value = await listHistorySyncTasks()
+  } catch (error) {
+    message.value = apiErrorMessage(error, '同步任务列表加载失败，请确认后端服务。')
+  } finally {
+    taskListLoading.value = false
   }
 }
 
@@ -258,7 +269,7 @@ onUnmounted(() => {
         <p class="eyebrow">Tasks</p>
         <h2>同步任务</h2>
       </div>
-      <span>{{ tasks.length }} 条</span>
+      <span>{{ taskListLoading ? '加载中...' : `${tasks.length} 条` }}</span>
     </section>
     <div class="table-card">
       <table class="a-stock-table responsive-card-table">

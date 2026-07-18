@@ -63,6 +63,7 @@ export interface FundTaskDetailLog {
   id: number
   task_log_id?: number | null
   task_type: string
+  origin?: string | null
   fund_code: string
   fund_name?: string | null
   status: string

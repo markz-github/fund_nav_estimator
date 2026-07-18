@@ -193,7 +193,7 @@ class FundTaskQueueTests(unittest.TestCase):
         fetch_error = self.db.scalar(select(DataFetchError))
         self.assertEqual(fetch_error.source, "akshare")
 
-    def test_check_nav_quality_task_records_partial_when_stale_nav_exists(self) -> None:
+    def test_check_nav_quality_task_records_completed_with_issues_when_stale_nav_exists(self) -> None:
         self.db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))
         self.db.commit()
         submitted = self.service.submit("check_nav_quality", "检查基金官方净值新鲜度", origin="scheduled")
@@ -209,7 +209,7 @@ class FundTaskQueueTests(unittest.TestCase):
 
         task_log = self.db.get(TaskLog, submitted.task_log_id)
         fetch_error = self.db.scalar(select(DataFetchError))
-        self.assertEqual(task_log.status, "partial")
+        self.assertEqual(task_log.status, "completed_with_issues")
         self.assertIn("stale=1", task_log.message)
         self.assertEqual(fetch_error.source, "quality_check")
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
+from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.schemas.fund import FundCreate, FundNavOut, FundOut, RefreshFundNavsRequest
 from app.modules.fund_nav.schemas.holding import FundHoldingOut
 from app.modules.fund_nav.schemas.manual_index_mapping import (
@@ -26,6 +27,25 @@ from app.modules.fund_nav.services.manual_index_mapping_service import ManualInd
 from app.modules.operations.services.operation_log_service import log_task
 
 router = APIRouter(prefix="/funds", tags=["funds"])
+
+
+def _task_detail_log_statement():
+    origin = (
+        select(FundTaskQueue.origin)
+        .where(FundTaskQueue.task_log_id == FundTaskDetailLog.task_log_id)
+        .order_by(FundTaskQueue.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    return select(FundTaskDetailLog, origin.label("origin"))
+
+
+def _task_detail_logs_with_origin(db: Session, statement) -> list[FundTaskDetailLog]:
+    logs: list[FundTaskDetailLog] = []
+    for detail_log, origin in db.execute(statement).all():
+        detail_log.origin = origin
+        logs.append(detail_log)
+    return logs
 
 
 @router.get("", response_model=list[FundOut])
@@ -141,7 +161,7 @@ def list_task_detail_logs(
     limit: int = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    statement = select(FundTaskDetailLog).order_by(
+    statement = _task_detail_log_statement().order_by(
         FundTaskDetailLog.estimate_time.desc(),
         FundTaskDetailLog.created_at.desc(),
         FundTaskDetailLog.id.desc(),
@@ -150,7 +170,7 @@ def list_task_detail_logs(
         statement = statement.where(FundTaskDetailLog.fund_code == str(fund_code).strip().zfill(6))
     if estimate_date:
         statement = statement.where(FundTaskDetailLog.estimate_date == estimate_date)
-    return list(db.scalars(statement.limit(limit)).all())
+    return _task_detail_logs_with_origin(db, statement.limit(limit))
 
 
 @router.get("/{fund_code}", response_model=FundOut)
@@ -184,7 +204,7 @@ def list_fund_task_detail_logs(
 ):
     normalized_code = str(fund_code).strip().zfill(6)
     statement = (
-        select(FundTaskDetailLog)
+        _task_detail_log_statement()
         .where(FundTaskDetailLog.fund_code == normalized_code)
         .order_by(
             FundTaskDetailLog.estimate_time.desc(),
@@ -195,7 +215,7 @@ def list_fund_task_detail_logs(
     )
     if task_type:
         statement = statement.where(FundTaskDetailLog.task_type == task_type)
-    return list(db.scalars(statement).all())
+    return _task_detail_logs_with_origin(db, statement)
 
 
 @router.get("/{fund_code}/navs", response_model=list[FundNavOut])

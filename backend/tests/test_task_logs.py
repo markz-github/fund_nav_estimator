@@ -34,7 +34,7 @@ class TaskLogTests(unittest.TestCase):
 
         self.assertEqual(
             [option["value"] for option in options["task_statuses"]],
-            ["pending", "running", "success", "partial", "failed", "skipped"],
+            ["pending", "running", "success", "partial", "no_data", "completed_with_issues", "failed", "skipped"],
         )
         self.assertEqual(task_status_from_counts(success=1, failed=1), "partial")
         self.assertEqual(task_status_from_counts(), "skipped")
