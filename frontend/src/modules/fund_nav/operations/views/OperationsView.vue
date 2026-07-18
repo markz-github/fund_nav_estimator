@@ -36,6 +36,7 @@ function formatDateTime(value?: string | null) {
 function statusClass(status: string) {
   if (status === 'success') return 'status-ok'
   if (status === 'failed') return 'status-danger'
+  if (status === 'completed_with_issues' || status === 'partial') return 'status-warn'
   return 'status-warn'
 }
 
@@ -156,7 +157,7 @@ watch(
       <div>
         <p class="eyebrow">Operations</p>
         <h1>基金运行状态</h1>
-        <p class="subtitle">查看基金净值、持仓、行情和估算相关任务日志。</p>
+        <p class="subtitle">查看基金净值、持仓、行情和估算相关任务日志；状态说明见任务摘要。</p>
       </div>
       <button class="ghost" :disabled="loading" @click="loadOperations">
         {{ loading ? '刷新中...' : '刷新状态' }}

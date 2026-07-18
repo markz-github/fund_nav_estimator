@@ -248,6 +248,7 @@ def create_tables(engine: Engine) -> None:
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uk_task_symbol_range (task_id, symbol, start_date, end_date),
         INDEX idx_task_status (task_id, status),
+        INDEX idx_task_status_updated (task_id, status, updated_at),
         INDEX idx_status (status),
         INDEX idx_symbol_status (symbol, status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -1184,9 +1185,7 @@ def main() -> None:
         log_file_name="a_stock_daily_sync.log",
         console=False,
     )
-    ensure_database_exists(args.database)
     engine = database_engine(args.database)
-    create_tables(engine)
     if args.import_completed_from_logs is not None:
         imported_count = import_completed_from_logs(
             engine=engine,

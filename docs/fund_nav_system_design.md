@@ -266,7 +266,7 @@ fund_task_queue
 | `origin` | `manual`、`scheduled`、`new_fund` |
 | `payload_json` | 规范化后的任务参数 |
 | `dedupe_key` | 任务类型和规范化参数生成的去重键 |
-| `status` | `pending`、`running`、`success`、`partial`、`failed` |
+| `status` | `pending`、`running`、`success`、`partial`、`no_data`、`completed_with_issues`、`failed`、`skipped` |
 | `queued_at` | 入队时间 |
 | `started_at` | 开始执行时间 |
 | `finished_at` | 结束时间 |
@@ -385,7 +385,7 @@ dedupe_key = task_type + SHA256(规范化参数)
 - 复用任务提示“已有相同任务等待执行”。
 - 不等待后台任务完成。
 - 不自动轮询。
-- 运行状态页展示 `pending`、`running`、`success`、`partial`、`failed` 中文状态。
+- 运行状态页展示 `pending`、`running`、`success`、`partial`、`no_data`、`completed_with_issues`、`failed`、`skipped` 中文状态；其中 `partial` 仅表示同批目标有成有败，巡检发现业务问题使用 `completed_with_issues`，正常执行但未获得可写入数据使用 `no_data`。
 
 ## 6. AkShare 调用规范
 

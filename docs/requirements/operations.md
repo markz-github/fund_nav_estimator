@@ -15,8 +15,8 @@
 - 任务日志：
   - 定时任务和手动任务应记录任务名称、类型、状态、开始时间、结束时间、耗时和摘要。
   - 任务日志可记录目标类型、目标 ID 和外部任务 ID。
-  - 状态统一使用 `running`、`success`、`partial`、`failed`、`skipped`。
-  - `running` 只表示本地后端任务正在执行且尚未写入结束时间；`success` 表示本次后端任务完成且无失败；`partial` 表示成功与失败或跳过并存；`failed` 表示全部失败或任务级异常；`skipped` 表示没有可处理对象或业务跳过。
+  - 状态统一使用 `pending`、`running`、`success`、`partial`、`no_data`、`completed_with_issues`、`failed`、`skipped`。
+  - `partial` 仅表示同一批目标中成功与失败或跳过并存；`no_data` 表示任务完成但没有可写入数据；`completed_with_issues` 表示巡检等任务已完成但发现业务问题；`failed` 表示任务级异常或全部目标因上游错误失败；`skipped` 表示没有可处理对象或业务跳过。
 - 服务运行日志：
   - 控制台和文件日志应使用统一格式，包含时间、级别、进程号、线程号、logger 名称和消息。
   - Uvicorn 默认日志和项目业务日志应保持同一格式，避免同一输出中出现两套格式。

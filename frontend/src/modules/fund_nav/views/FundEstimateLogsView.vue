@@ -60,11 +60,11 @@ function resultClass(result?: string | null) {
   return 'status-muted'
 }
 
-function taskTypeLabel(taskType?: string | null) {
-  if (taskType === 'estimate_nav') return '自动估算'
-  if (taskType === 'refresh_quote_estimate') return '手动刷新并估算'
-  if (taskType === 'sync_new_fund_data') return '新增基金同步'
-  return taskType || '-'
+function originLabel(origin?: string | null) {
+  if (origin === 'scheduled') return '定时任务'
+  if (origin === 'manual') return '手动操作'
+  if (origin === 'new_fund') return '新增基金同步'
+  return '未知来源'
 }
 
 function indexQuoteWarning(log: FundTaskDetailLog) {
@@ -214,7 +214,7 @@ onMounted(async () => {
               </RouterLink>
               <span class="muted mono">{{ log.fund_code }}</span>
             </td>
-            <td data-label="来源">{{ taskTypeLabel(log.task_type) }}</td>
+            <td data-label="来源">{{ originLabel(log.origin) }}</td>
             <td data-label="执行时间">{{ formatDateTime(log.estimate_time || log.created_at) }}</td>
             <td data-label="状态">
               <span class="status-pill" :class="statusClass(log.status)">{{ log.status_label || log.status }}</span>

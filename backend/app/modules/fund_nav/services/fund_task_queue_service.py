@@ -183,8 +183,10 @@ class FundTaskQueueService:
                 FundService(self.db).refresh_profile(code)
             return "success", f"profiles={count}"
         if task.task_type == "refresh_nav":
-            success = sum(FundService(self.db).refresh_nav(code) is not None for code in self._codes(fund_codes))
-            return ("success" if success else "partial"), f"funds={len(self._codes(fund_codes))};success={success}"
+            codes = self._codes(fund_codes)
+            success = sum(FundService(self.db).refresh_nav(code) is not None for code in codes)
+            status = "success" if success == len(codes) else "partial" if success else "no_data"
+            return status, f"funds={len(codes)};success={success}"
         if task.task_type == "check_nav_quality":
             quality_service = FundNavQualityService(self.db)
             result = quality_service.check_latest_nav_freshness()
@@ -192,16 +194,18 @@ class FundTaskQueueService:
             result["strategy_issue_count"] = len(strategy_issues)
             result["strategy_issues"] = strategy_issues
             return (
-                "success"
+                "skipped"
+                if result["checked_count"] == 0
+                else "success"
                 if result["stale_count"] == 0
                 and result["mapping_issue_count"] == 0
                 and result["strategy_issue_count"] == 0
-                else "partial",
+                else "completed_with_issues",
                 self._nav_quality_message(result),
             )
         if task.task_type == "refresh_holding":
             holding_total, mapping_total = self._refresh_holdings_and_index_mappings(fund_codes)
-            return ("success" if holding_total or mapping_total else "partial"), (
+            return ("success" if holding_total or mapping_total else "no_data"), (
                 f"holdings={holding_total};index_mappings={mapping_total}"
             )
         if task.task_type == "refresh_quote":
@@ -210,7 +214,7 @@ class FundTaskQueueService:
             return self._quote_status_message(len(quotes), market_service.last_refresh_diagnostics)
         if task.task_type == "estimate_nav":
             result = EstimateService(self.db).run_estimates(fund_codes, task_log_id=task.task_log_id, task_type=task.task_type)
-            return ("success" if not result["skipped_count"] else "partial"), self._estimate_message(result)
+            return self._estimate_status(result), self._estimate_message(result)
         if task.task_type == "refresh_quote_estimate":
             market_service = MarketService(self.db)
             quotes = market_service.refresh_quotes_for_holdings(fund_codes)
@@ -220,16 +224,16 @@ class FundTaskQueueService:
                 task_type=task.task_type,
             )
             quote_status, quote_message = self._quote_status_message(len(quotes), market_service.last_refresh_diagnostics)
-            status = "success" if not result["skipped_count"] else "partial"
+            status = self._estimate_status(result)
             if quote_status == "failed" and not result["estimated_count"]:
                 status = "failed"
             return status, f"{quote_message};{self._estimate_message(result)}"
         if task.task_type == "refresh_index_mapping":
             refreshed = FundIndexMappingService(self.db).refresh_mapping(payload["fund_code"])
-            return ("success" if refreshed else "partial"), f"fund_code={payload['fund_code']};refreshed={refreshed is not None}"
+            return ("success" if refreshed else "no_data"), f"fund_code={payload['fund_code']};refreshed={refreshed is not None}"
         if task.task_type == "refresh_index_catalog":
             indexes = IndexCatalogService(self.db).refresh_indexes()
-            return ("success" if indexes else "partial"), f"indexes={len(indexes)}"
+            return ("success" if indexes else "no_data"), f"indexes={len(indexes)}"
         if task.task_type == "sync_new_fund_data":
             return self._sync_new_fund(payload["fund_code"], task.task_log_id)
         raise ValueError(f"Unsupported fund task type: {task.task_type}")
@@ -268,6 +272,16 @@ class FundTaskQueueService:
         return f"estimated={result['estimated_count']};skipped={result['skipped_count']};details={result['skipped']}"
 
     @staticmethod
+    def _estimate_status(result: dict) -> str:
+        estimated = result["estimated_count"]
+        skipped = result["skipped_count"]
+        if estimated and skipped:
+            return "partial"
+        if estimated:
+            return "success"
+        return "no_data" if skipped else "skipped"
+
+    @staticmethod
     def _nav_quality_message(result: dict) -> str:
         examples = result["stale"][:5]
         mapping_examples = result.get("mapping_issues", [])[:5]
@@ -290,9 +304,9 @@ class FundTaskQueueService:
         if error_count:
             status = "partial" if quote_count else "failed"
         elif warning_count:
-            status = "partial"
+            status = "completed_with_issues" if quote_count else "no_data"
         elif not quote_count:
-            status = "partial"
+            status = "no_data"
         parts = [f"quotes={quote_count}"]
         if diagnostics:
             examples = "|".join(f"{item.source}:{item.target}:{item.message}" for item in diagnostics[:3])

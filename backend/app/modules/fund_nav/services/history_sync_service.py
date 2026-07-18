@@ -156,7 +156,7 @@ class FundNavHistorySyncService:
 
     def list_tasks(self, limit: int = 20) -> list[dict[str, object]]:
         try:
-            self._ensure_task_table()
+            self._require_sync_tables()
             with self.engine().connect() as connection:
                 rows = connection.execute(
                     text(
@@ -184,7 +184,7 @@ class FundNavHistorySyncService:
         return {**task, **progress}
 
     def get_task(self, task_id: int) -> dict[str, object] | None:
-        self._ensure_task_table()
+        self._require_sync_tables()
         with self.engine().connect() as connection:
             row = connection.execute(
                 text(
@@ -323,7 +323,7 @@ class FundNavHistorySyncService:
         return {**record, "started": True, "message": message}
 
     def _create_task(self, start_date: str, end_date: str, workers: int) -> int:
-        self._ensure_task_table()
+        self._require_sync_tables()
         with self.engine().begin() as connection:
             result = connection.execute(
                 text(
@@ -436,6 +436,22 @@ class FundNavHistorySyncService:
                 ),
                 {"task_id": task_id},
             )
+
+    def _require_sync_tables(self) -> None:
+        required = {TASK_TABLE, PROGRESS_TABLE, HISTORY_TABLE}
+        try:
+            with self.engine().connect() as connection:
+                existing = {
+                    row[0]
+                    for row in connection.execute(
+                        text("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()")
+                    )
+                }
+        except Exception as exc:
+            raise RuntimeError("无法校验基金历史同步表，请先手工运行 scripts/init_db.py") from exc
+        missing = required - existing
+        if missing:
+            raise RuntimeError(f"缺少基金历史同步表：{', '.join(sorted(missing))}；请先手工运行 scripts/init_db.py")
 
     def _ensure_task_table(self) -> None:
         self.ensure_database_exists()

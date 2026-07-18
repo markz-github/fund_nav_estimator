@@ -91,6 +91,7 @@ cd <project-root>\backend
 ```
 
 脚本会根据 `.env` 连接 MySQL，创建数据库，并根据 SQLAlchemy 模型创建或确认数据表。
+同时会初始化 A 股历史行情和基金历史同步所需的数据表与索引。Web 页面、定时任务和同步子进程不会执行 `CREATE TABLE`、`ALTER TABLE` 或 `DROP INDEX`；缺少表结构时会提示先手工运行本脚本。
 
 ### 5. 启动后端
 

@@ -33,12 +33,14 @@ function statusClass(status?: string | null) {
   if (status === 'success') return 'status-ok'
   if (status === 'failed') return 'status-danger'
   if (status === 'partial') return 'status-warn'
+  if (status === 'completed_with_issues') return 'status-warn'
   return 'status-muted'
 }
 
 function statusLabel(status?: string | null) {
   if (status === 'success') return '正常'
   if (status === 'partial') return '发现问题'
+  if (status === 'completed_with_issues') return '发现问题'
   if (status === 'failed') return '执行失败'
   if (status === 'running') return '运行中'
   if (status === 'pending') return '待执行'

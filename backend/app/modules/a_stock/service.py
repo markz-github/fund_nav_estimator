@@ -184,7 +184,12 @@ class AStockHistorySyncService:
         process = self.current_process()
         effective_start = start_date or process.get("start_date") or ymd(date.today() - timedelta(days=9))
         effective_end = end_date or process.get("end_date") or ymd(date.today())
-        progress = self.progress(str(effective_start), str(effective_end))
+        task_id = process.get("task_id")
+        try:
+            task = self.get_task(task_id) if isinstance(task_id, int) else None
+        except Exception:
+            task = None
+        progress = self._task_progress_summary(task) if task is not None else self._empty_progress()
         return {
             **process,
             "start_date": str(effective_start),
@@ -220,7 +225,6 @@ class AStockHistorySyncService:
 
     def list_tasks(self, limit: int = 20) -> list[dict[str, object]]:
         try:
-            self._ensure_task_table()
             with self.engine().connect() as connection:
                 rows = connection.execute(
                     text(
@@ -269,7 +273,6 @@ class AStockHistorySyncService:
         return {**task, **progress}
 
     def get_task(self, task_id: int) -> dict[str, object] | None:
-        self._ensure_task_table()
         with self.engine().connect() as connection:
             row = connection.execute(
                 text(
@@ -431,7 +434,7 @@ class AStockHistorySyncService:
         retry_count: int = 0,
         total_count: int = 0,
     ) -> int:
-        self._ensure_task_table()
+        self._require_sync_tables()
         with self.engine().begin() as connection:
             result = connection.execute(
                 text(
@@ -541,6 +544,26 @@ class AStockHistorySyncService:
                 ),
                 {"task_id": task_id},
             )
+
+    def _require_sync_tables(self) -> None:
+        required = {TASK_TABLE, PROGRESS_TABLE}
+        try:
+            with self.engine().connect() as connection:
+                existing = {
+                    row[0]
+                    for row in connection.execute(
+                        text(
+                            "SELECT table_name FROM information_schema.tables "
+                            "WHERE table_schema = DATABASE() AND table_name IN (:task_table, :progress_table)"
+                        ),
+                        {"task_table": TASK_TABLE, "progress_table": PROGRESS_TABLE},
+                    )
+                }
+        except Exception as exc:
+            raise RuntimeError("无法校验 A 股同步表，请先手工运行 scripts/init_db.py") from exc
+        missing = required - existing
+        if missing:
+            raise RuntimeError(f"缺少 A 股同步表：{', '.join(sorted(missing))}；请先手工运行 scripts/init_db.py")
 
     def _ensure_task_table(self) -> None:
         with self.engine().begin() as connection:
@@ -652,6 +675,15 @@ class AStockHistorySyncService:
     @staticmethod
     def _empty_progress() -> dict[str, list[object]]:
         return {"counts": [], "latest_done": [], "running_items": [], "failed_items": []}
+
+    @staticmethod
+    def _task_progress_summary(task: dict[str, object]) -> dict[str, list[object]]:
+        counts = [
+            {"status": "done", "count": int(task.get("success_count") or 0)},
+            {"status": "failed", "count": int(task.get("failed_count") or 0)},
+            {"status": "running", "count": int(task.get("running_count") or 0)},
+        ]
+        return {"counts": counts, "latest_done": [], "running_items": [], "failed_items": []}
 
     @staticmethod
     def _display_path(path: Path) -> str:

@@ -197,7 +197,7 @@ async function waitForTaskLog(taskLogId: number, maxAttempts = 30): Promise<Task
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const page = await listTaskLogs('fund_nav', { page: 1, pageSize: 20 })
     const task = page.items.find((item) => item.id === taskLogId)
-    if (task && ['success', 'failed', 'partial'].includes(task.status)) return task
+    if (task && ['success', 'failed', 'partial', 'no_data', 'completed_with_issues', 'skipped'].includes(task.status)) return task
     await sleep(2000)
   }
   return null
