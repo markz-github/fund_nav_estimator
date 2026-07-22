@@ -37,7 +37,13 @@ DEFAULT_INDEX_QUOTE_SOURCES = (
     IndexQuoteSourceDefinition("stock_history_quote", "AkShare 历史行情兜底", "stock", 90, "股票历史行情兜底，仅在实时行情缺失时使用。"),
     IndexQuoteSourceDefinition("fund_etf_spot_em", "ETF 东财 AkShare 实时行情", "etf", 10, "AkShare 东财 ETF 实时行情主源。"),
     IndexQuoteSourceDefinition("eastmoney_etf", "东财 HTTP ETF 行情", "etf", 20, "东财 HTTP ETF 单标的行情兜底。"),
-    IndexQuoteSourceDefinition("sina_etf_quote", "新浪 HTTP ETF 行情", "etf", 30, "新浪 HTTP ETF 行情兜底。"),
+    IndexQuoteSourceDefinition(
+        "sina_etf_quote",
+        "新浪 HTTP ETF 行情",
+        "etf",
+        30,
+        "新浪 HTTP ETF 单标的行情兜底；仅处理东财渠道仍未命中的代码，成功率表示剩余代码命中率，不代表接口独立可用率。",
+    ),
     IndexQuoteSourceDefinition("etf_history_quote", "AkShare ETF 历史行情兜底", "etf", 90, "ETF 历史行情兜底，仅在实时行情缺失时使用。"),
 )
 DEFAULT_INDEX_QUOTE_SOURCE_KEYS = {definition.source_key for definition in DEFAULT_INDEX_QUOTE_SOURCES}

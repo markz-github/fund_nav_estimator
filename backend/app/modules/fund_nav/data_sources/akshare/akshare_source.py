@@ -1065,8 +1065,10 @@ class AkshareSource:
                 },
                 timeout=60,
             )
+            response.raise_for_status()
             response.encoding = "gbk"
-        except requests.RequestException:
+        except requests.RequestException as exc:
+            self._record_fetch_diagnostic("error", "sina_quote", asset_code, repr(exc))
             return None
 
         match = re.search(r'="(?P<payload>[^"]*)"', response.text)
@@ -1115,7 +1117,7 @@ class AkshareSource:
         market_id = "1" if asset_code.startswith("5") else "0"
         try:
             response = requests.get(
-                "https://push2.eastmoney.com/api/qt/stock/get",
+                "https://push2delay.eastmoney.com/api/qt/stock/get",
                 params={
                     "secid": f"{market_id}.{asset_code}",
                     "fields": "f43,f58,f60,f86,f170",
