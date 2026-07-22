@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 import sys
@@ -461,6 +461,38 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(len(navs), 2)
         self.assertEqual([item.nav_date for item in history], [date(2026, 6, 3), date(2026, 6, 4)])
         self.assertEqual(history[-1].unit_nav, Decimal("1.010000"))
+
+    def test_list_nav_history_returns_all_rows_by_default_and_supports_an_explicit_limit(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        first_date = date(2024, 1, 1)
+        db.add_all(
+            [
+                FundNav(
+                    fund_code="018125",
+                    nav_date=first_date + timedelta(days=index),
+                    unit_nav=Decimal("1") + Decimal(index) / Decimal("10000"),
+                    source="test",
+                )
+                for index in range(501)
+            ]
+        )
+        db.commit()
+
+        try:
+            all_history = FundService(db, source).list_nav_history("018125")
+            limited_history = FundService(db, source).list_nav_history("018125", limit=500)
+        finally:
+            db.close()
+
+        self.assertEqual(len(all_history), 501)
+        self.assertEqual(all_history[0].nav_date, first_date)
+        self.assertEqual(len(limited_history), 500)
+        self.assertEqual(limited_history[0].nav_date, first_date + timedelta(days=1))
 
     def test_refresh_nav_refetches_fresh_local_nav_without_growth_rate(self) -> None:
         engine = create_engine("sqlite:///:memory:")
