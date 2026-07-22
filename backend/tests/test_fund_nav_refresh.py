@@ -3401,7 +3401,10 @@ class FundNavRefreshTests(unittest.TestCase):
                 "app.modules.fund_nav.data_sources.akshare.akshare_source.ak.fund_etf_spot_em",
                 side_effect=RuntimeError("remote disconnected"),
             ),
-            patch("app.modules.fund_nav.data_sources.akshare.akshare_source.requests.get", return_value=response),
+            patch(
+                "app.modules.fund_nav.data_sources.akshare.akshare_source.requests.get",
+                return_value=response,
+            ) as eastmoney_get,
             patch.object(AkshareSource, "_get_sina_quote", return_value=None),
             patch.object(AkshareSource, "_get_latest_history_quote", return_value=None),
         ):
@@ -3414,6 +3417,32 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(snapshots[0].latest_price, Decimal("1.49"))
         self.assertEqual(snapshots[0].prev_close, Decimal("1.513"))
         self.assertEqual(snapshots[0].change_rate, Decimal("-0.0152"))
+        self.assertEqual(
+            eastmoney_get.call_args.args[0],
+            "https://push2delay.eastmoney.com/api/qt/stock/get",
+        )
+
+    def test_sina_single_quote_supports_etf_realtime_quote(self) -> None:
+        response = Mock()
+        fields = ["电力ETF华泰柏瑞", "1.300", "1.303", "1.323", *(["0"] * 26), "2026-07-22", "15:00:00"]
+        response.text = f'var hq_str_sh561560="{",".join(fields)}";'
+        response.raise_for_status.return_value = None
+
+        with patch(
+            "app.modules.fund_nav.data_sources.akshare.akshare_source.requests.get",
+            return_value=response,
+        ) as sina_get:
+            snapshot = AkshareSource()._get_sina_quote("561560", datetime(2026, 7, 22, 15, 1))
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.asset_code, "561560")
+        self.assertEqual(snapshot.asset_name, "电力ETF华泰柏瑞")
+        self.assertEqual(snapshot.asset_type, "etf")
+        self.assertEqual(snapshot.latest_price, Decimal("1.323"))
+        self.assertEqual(snapshot.prev_close, Decimal("1.303"))
+        self.assertEqual(snapshot.trade_date, date(2026, 7, 22))
+        self.assertEqual(sina_get.call_args.args[0], "https://hq.sinajs.cn/list=sh561560")
+        response.raise_for_status.assert_called_once_with()
 
     def test_akshare_holdings_mark_etf_assets(self) -> None:
         holding_df = pd.DataFrame(
