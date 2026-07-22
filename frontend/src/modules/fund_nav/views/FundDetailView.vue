@@ -6,6 +6,7 @@ import {
   ColorType,
   CrosshairMode,
   LineStyle,
+  TickMarkType,
   createChart,
   type IChartApi,
   type IPriceLine,
@@ -105,6 +106,14 @@ function chartDateLabel(time: Time) {
   const month = String(time.month).padStart(2, '0')
   const day = String(time.day).padStart(2, '0')
   return `${time.year}-${month}-${day}`
+}
+
+function chartTickLabel(time: Time, tickMarkType: TickMarkType) {
+  const [year, month, day] = chartDateLabel(time).split('-')
+  if (tickMarkType === TickMarkType.Year) return year
+  if (tickMarkType === TickMarkType.Month) return `${year}-${month}`
+  if (tickMarkType === TickMarkType.DayOfMonth) return `${month}-${day}`
+  return `${month}-${day}`
 }
 
 function latestReportPeriod(items: FundHolding[]) {
@@ -248,7 +257,7 @@ function ensureNavChart() {
       minBarSpacing: 0.1,
       fixLeftEdge: true,
       fixRightEdge: true,
-      tickMarkFormatter: (time: Time) => chartDateLabel(time),
+      tickMarkFormatter: chartTickLabel,
     },
     localization: {
       locale: 'zh-CN',
