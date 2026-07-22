@@ -243,15 +243,16 @@ class FundService:
         logger.info("refresh_nav_history saved fund_code=%s rows=%s", normalized_code, len(navs))
         return navs
 
-    def list_nav_history(self, fund_code: str, limit: int = 500) -> list[FundNav]:
+    def list_nav_history(self, fund_code: str, limit: int | None = None) -> list[FundNav]:
         normalized_code = self.source._normalize_fund_code(fund_code)
-        safe_limit = min(5000, max(1, limit))
-        rows = self.db.scalars(
+        statement = (
             select(FundNav)
             .where(FundNav.fund_code == normalized_code)
             .order_by(FundNav.nav_date.desc())
-            .limit(safe_limit)
-        ).all()
+        )
+        if limit is not None:
+            statement = statement.limit(max(1, limit))
+        rows = self.db.scalars(statement).all()
         return list(reversed(rows))
 
     def _upsert_nav_snapshot(self, snapshot: FundNavSnapshot) -> FundNav:

@@ -113,9 +113,9 @@ export async function listFundHoldings(fundCode: string): Promise<FundHolding[]>
   return data
 }
 
-export async function listFundNavHistory(fundCode: string, limit = 500): Promise<FundNav[]> {
+export async function listFundNavHistory(fundCode: string, limit?: number): Promise<FundNav[]> {
   const { data } = await apiClient.get<FundNav[]>(`/funds/${fundCode}/navs`, {
-    params: { limit },
+    params: limit == null ? undefined : { limit },
   })
   return data
 }

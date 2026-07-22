@@ -221,7 +221,7 @@ def list_fund_task_detail_logs(
 @router.get("/{fund_code}/navs", response_model=list[FundNavOut])
 def list_nav_history(
     fund_code: str,
-    limit: int = Query(default=500, ge=1, le=5000),
+    limit: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
 ):
     return FundService(db).list_nav_history(fund_code, limit=limit)

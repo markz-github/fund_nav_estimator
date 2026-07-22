@@ -50,6 +50,7 @@ let navSeries: ISeriesApi<'Area'> | null = null
 let selectedNavPriceLine: IPriceLine | null = null
 let navChartResizeObserver: ResizeObserver | null = null
 let adjustingNavChartRange = false
+const initialNavChartPointCount = 500
 
 const reportPeriods = computed(() =>
   Array.from(new Set(holdings.value.map((holding) => holding.report_period))).sort((a, b) =>
@@ -244,7 +245,7 @@ function ensureNavChart() {
       timeVisible: false,
       secondsVisible: false,
       rightOffset: 0,
-      minBarSpacing: 2,
+      minBarSpacing: 0.1,
       fixLeftEdge: true,
       fixRightEdge: true,
       tickMarkFormatter: (time: Time) => chartDateLabel(time),
@@ -268,7 +269,6 @@ function ensureNavChart() {
     const width = entries[0]?.contentRect.width
     if (width && navChart) {
       navChart.applyOptions({ width })
-      requestAnimationFrame(fitNavChartToDataEdges)
     }
   })
   navChartResizeObserver.observe(navChartEl.value)
@@ -382,11 +382,12 @@ function applyPriceLineMode() {
   updateSelectedNavPriceLine()
 }
 
-function fitNavChartToDataEdges() {
+function showInitialNavChartRange() {
   if (!navChart || navChartData.value.length <= 1) return
+  const lastIndex = navChartData.value.length - 1
   navChart.timeScale().setVisibleLogicalRange({
-    from: 0,
-    to: navChartData.value.length - 1,
+    from: Math.max(0, navChartData.value.length - initialNavChartPointCount),
+    to: lastIndex,
   })
 }
 
@@ -398,8 +399,7 @@ async function renderNavChart() {
   }
   ensureNavChart()
   navSeries?.setData(navChartData.value)
-  navChart?.timeScale().fitContent()
-  fitNavChartToDataEdges()
+  showInitialNavChartRange()
   keepNavChartRangeInsideData()
 }
 
