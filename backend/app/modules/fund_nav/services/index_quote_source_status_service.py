@@ -164,6 +164,7 @@ class IndexQuoteSourceStatusService:
         self,
         source_key: str,
         *,
+        enabled: int | None = None,
         source_description: str | None = None,
         exclude_rule_type: str = "none",
         exclude_rule_value: str | None = None,
@@ -176,6 +177,17 @@ class IndexQuoteSourceStatusService:
         rule_type = (exclude_rule_type or "none").strip().lower()
         rule_value = (exclude_rule_value or "").strip()
         self._validate_exclude_rule(rule_type, rule_value)
+        if enabled not in (None, 0, 1):
+            raise ValueError("enabled must be 0 or 1")
+        was_enabled = row.enabled == 1
+        if enabled == 1 and not was_enabled:
+            row.enabled = 1
+            row.consecutive_failures = 0
+            row.auto_disabled_until = None
+            row.last_error = None
+        elif enabled == 0:
+            row.enabled = 0
+            row.auto_disabled_until = None
         row.source_description = (source_description or "").strip()[:1000] or None
         row.exclude_rule_type = rule_type
         row.exclude_rule_value = rule_value[:1000] if rule_type != "none" else None

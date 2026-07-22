@@ -44,6 +44,7 @@ def update_index_quote_source(source_key: str, payload: IndexQuoteSourceRuleIn, 
     try:
         result = service.update_rules(
             source_key,
+            enabled=payload.enabled,
             source_description=payload.source_description,
             exclude_rule_type=payload.exclude_rule_type,
             exclude_rule_value=payload.exclude_rule_value,

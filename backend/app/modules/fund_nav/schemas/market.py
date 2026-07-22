@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -46,6 +47,7 @@ class IndexQuoteSourceStatusOut(BaseModel):
 
 
 class IndexQuoteSourceRuleIn(BaseModel):
+    enabled: Literal[0, 1] | None = None
     source_description: str | None = None
     exclude_rule_type: str = "none"
     exclude_rule_value: str | None = None

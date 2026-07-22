@@ -491,6 +491,8 @@ class AkshareSource:
         if not target_codes:
             return []
 
+        active_source_keys = self._active_market_quote_source_keys()
+
         quote_time = datetime.now()
         trade_date = quote_time.date()
         snapshots: dict[str, MarketQuoteSnapshot] = {}
@@ -524,6 +526,8 @@ class AkshareSource:
                 if not missing_targets:
                     break
                 source_key = self._market_fetcher_source_key(fetcher)
+                if source_key not in active_source_keys:
+                    continue
                 fetcher_name = getattr(fetcher, "__name__", source_key)
                 logging.getLogger("app.performance").info(
                     "akshare_source endpoint=%s market=%s fallback=%s missing=%s",
@@ -580,26 +584,29 @@ class AkshareSource:
         missing_codes = target_codes - set(snapshots.keys())
         for asset_code in missing_codes:
             fallback = None
-            if self._is_etf_asset_code(asset_code):
+            is_etf = self._is_etf_asset_code(asset_code)
+            if is_etf and "eastmoney_etf" in active_source_keys:
                 fallback = self._get_eastmoney_etf_quote(asset_code, quote_time)
                 if fallback is not None:
                     self._record_quote_source_success("eastmoney_etf")
                 else:
                     self._record_quote_source_failure("eastmoney_etf")
             if fallback is None:
-                fallback = self._get_sina_quote(asset_code, quote_time)
-                sina_source_key = "sina_etf_quote" if self._is_etf_asset_code(asset_code) else "sina_quote"
-                if fallback is not None:
-                    self._record_quote_source_success(sina_source_key)
-                else:
-                    self._record_quote_source_failure(sina_source_key)
+                sina_source_key = "sina_etf_quote" if is_etf else "sina_quote"
+                if sina_source_key in active_source_keys:
+                    fallback = self._get_sina_quote(asset_code, quote_time)
+                    if fallback is not None:
+                        self._record_quote_source_success(sina_source_key)
+                    else:
+                        self._record_quote_source_failure(sina_source_key)
             if fallback is None:
-                fallback = self._get_latest_history_quote(asset_code, quote_time)
-                history_source_key = "etf_history_quote" if self._is_etf_asset_code(asset_code) else "stock_history_quote"
-                if fallback is not None:
-                    self._record_quote_source_success(history_source_key)
-                else:
-                    self._record_quote_source_failure(history_source_key)
+                history_source_key = "etf_history_quote" if is_etf else "stock_history_quote"
+                if history_source_key in active_source_keys:
+                    fallback = self._get_latest_history_quote(asset_code, quote_time)
+                    if fallback is not None:
+                        self._record_quote_source_success(history_source_key)
+                    else:
+                        self._record_quote_source_failure(history_source_key)
             if fallback is not None:
                 snapshots[asset_code] = fallback
 
@@ -1219,6 +1226,16 @@ class AkshareSource:
             "_get_hk_stock_spot_em_dataframe": "stock_hk_spot_em",
             "_get_etf_spot_dataframe": "fund_etf_spot_em",
         }.get(getattr(fetcher, "__name__", ""), getattr(fetcher, "__name__", "unknown"))
+
+    def _active_market_quote_source_keys(self) -> set[str]:
+        from app.modules.fund_nav.services.index_quote_source_status_service import IndexQuoteSourceStatusService
+
+        service = IndexQuoteSourceStatusService(self.db)
+        return {
+            row.source_key
+            for source_type in ("stock", "etf")
+            for row in service.ordered_sources(source_type)
+        }
 
     @staticmethod
     def _normalize_index_code(index_code: str) -> str:
