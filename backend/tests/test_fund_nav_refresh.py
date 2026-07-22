@@ -2142,6 +2142,77 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(status.enabled, 0)
         self.assertNotIn("eastmoney_spot", [item.source_key for item in ordered_sources])
 
+    def test_enabling_quote_source_clears_runtime_failure_state_but_keeps_totals(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        service = IndexQuoteSourceStatusService(db)
+        service.seed_defaults()
+        status = db.scalar(
+            select(IndexQuoteSourceStatus).where(IndexQuoteSourceStatus.source_key == "sina_etf_quote")
+        )
+        status.enabled = 0
+        status.success_count = 3
+        status.failure_count = 20
+        status.consecutive_failures = 20
+        status.auto_disabled_until = datetime(2026, 7, 22, 16, 0)
+        status.last_error = "no quote matched"
+
+        try:
+            unchanged = service.update_rules(
+                "sina_etf_quote",
+                source_description=status.source_description,
+            )
+            self.assertEqual(unchanged["enabled"], 0)
+            result = service.update_rules(
+                "sina_etf_quote",
+                enabled=1,
+                source_description=status.source_description,
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(result["enabled"], 1)
+        self.assertEqual(result["status_label"], "启用")
+        self.assertEqual(result["success_count"], 3)
+        self.assertEqual(result["failure_count"], 20)
+        self.assertEqual(result["consecutive_failures"], 0)
+        self.assertIsNone(result["auto_disabled_until"])
+        self.assertIsNone(result["last_error"])
+
+    def test_disabled_etf_quote_sources_are_not_called(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        service = IndexQuoteSourceStatusService(db)
+        service.seed_defaults()
+        for source_key in (
+            "fund_etf_spot_em",
+            "eastmoney_etf",
+            "sina_etf_quote",
+            "etf_history_quote",
+        ):
+            service.update_rules(source_key, enabled=0)
+
+        try:
+            with (
+                patch.object(AkshareSource, "_get_etf_spot_dataframe") as etf_spot,
+                patch.object(AkshareSource, "_get_eastmoney_etf_quote") as eastmoney_etf,
+                patch.object(AkshareSource, "_get_sina_quote") as sina_quote,
+                patch.object(AkshareSource, "_get_latest_history_quote") as history_quote,
+            ):
+                quotes = AkshareSource(db).get_market_quotes(["561560"])
+        finally:
+            db.close()
+
+        self.assertEqual(quotes, [])
+        etf_spot.assert_not_called()
+        eastmoney_etf.assert_not_called()
+        sina_quote.assert_not_called()
+        history_quote.assert_not_called()
+
     def test_index_quote_source_status_api_returns_default_sources(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)

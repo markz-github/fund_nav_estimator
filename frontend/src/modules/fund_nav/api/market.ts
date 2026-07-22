@@ -60,6 +60,7 @@ export async function listIndexQuoteSources(): Promise<IndexQuoteSourceStatus[]>
 }
 
 export interface IndexQuoteSourceRuleUpdate {
+  enabled: 0 | 1
   source_description?: string | null
   exclude_rule_type: string
   exclude_rule_value?: string | null

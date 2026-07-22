@@ -28,7 +28,12 @@ const viewingSource = ref<IndexQuoteSourceStatus | null>(null)
 const editingSource = ref<IndexQuoteSourceStatus | null>(null)
 const editingSymbol = ref<IndexQuoteSymbol | null>(null)
 const symbolDialogOpen = ref(false)
-const ruleForm = ref({ source_description: '', exclude_rule_type: 'none', exclude_rule_value: '' })
+const ruleForm = ref<{ enabled: 0 | 1; source_description: string; exclude_rule_type: string; exclude_rule_value: string }>({
+  enabled: 1,
+  source_description: '',
+  exclude_rule_type: 'none',
+  exclude_rule_value: '',
+})
 const symbolForm = ref({ index_code: '', source_key: '', quote_symbol: '', supported: 1, description: '' })
 const symbolQuery = ref({ index_code: '', source_key: '' })
 
@@ -172,6 +177,7 @@ function closeViewDialog() {
 function openRuleDialog(item: IndexQuoteSourceStatus) {
   editingSource.value = item
   ruleForm.value = {
+    enabled: item.enabled ? 1 : 0,
     source_description: item.source_description || '',
     exclude_rule_type: item.exclude_rule_type || 'none',
     exclude_rule_value: item.exclude_rule_value || '',
@@ -190,6 +196,7 @@ async function saveRule() {
   message.value = ''
   try {
     const updated = await updateIndexQuoteSource(item.source_key, {
+      enabled: ruleForm.value.enabled,
       source_description: ruleForm.value.source_description,
       exclude_rule_type: ruleForm.value.exclude_rule_type,
       exclude_rule_value: ruleForm.value.exclude_rule_value,
@@ -493,6 +500,16 @@ onMounted(loadSources)
             <input :value="`${editingSource.source_name}（${editingSource.source_key}）`" disabled />
           </label>
           <label>
+            状态
+            <ElSwitch
+              v-model="ruleForm.enabled"
+              :active-value="1"
+              :inactive-value="0"
+              active-text="启用"
+              inactive-text="禁用"
+            />
+          </label>
+          <label>
             说明
             <textarea v-model="ruleForm.source_description" rows="4" placeholder="说明渠道覆盖范围和适用场景" />
           </label>
@@ -514,7 +531,7 @@ onMounted(loadSources)
             />
           </label>
           <p class="dialog-copy">
-            正则规则会匹配指数代码；枚举规则支持逗号或换行分隔。命中的代码会在调度前跳过，不计入失败次数。
+            正则规则会匹配指数代码；枚举规则支持逗号或换行分隔。命中的代码会在调度前跳过，不计入失败次数。重新启用渠道会清除连续失败、冷却时间和最近错误，累计成功/失败次数保留。
           </p>
           <div class="dialog-actions">
             <button class="ghost" type="button" :disabled="!!savingSourceKey" @click="closeRuleDialog">取消</button>
