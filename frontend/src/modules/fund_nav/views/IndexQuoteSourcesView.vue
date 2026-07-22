@@ -494,20 +494,22 @@ onMounted(loadSources)
           </div>
           <button class="ghost" type="button" :disabled="!!savingSourceKey" @click="closeRuleDialog">关闭</button>
         </div>
-        <form class="dialog-form" @submit.prevent="saveRule">
+        <form class="dialog-form source-rule-form" @submit.prevent="saveRule">
           <label>
             渠道
             <input :value="`${editingSource.source_name}（${editingSource.source_key}）`" disabled />
           </label>
           <label>
             状态
-            <ElSwitch
-              v-model="ruleForm.enabled"
-              :active-value="1"
-              :inactive-value="0"
-              active-text="启用"
-              inactive-text="禁用"
-            />
+            <span class="source-status-control" :class="{ 'is-disabled': !ruleForm.enabled }">
+              <ElSwitch
+                v-model="ruleForm.enabled"
+                :active-value="1"
+                :inactive-value="0"
+              />
+              <strong>{{ ruleForm.enabled ? '启用' : '禁用' }}</strong>
+              <span>{{ ruleForm.enabled ? '该渠道会参与行情获取' : '该渠道不会发起行情请求' }}</span>
+            </span>
           </label>
           <label>
             说明
@@ -768,6 +770,44 @@ onMounted(loadSources)
 
 .source-rule-dialog {
   max-width: 680px;
+}
+
+.source-rule-form {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.source-status-control {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid rgba(36, 63, 47, 0.18);
+  border-radius: 8px;
+  background: rgba(230, 239, 230, 0.55);
+  color: var(--text-main);
+}
+
+.source-status-control.is-disabled {
+  border-color: rgba(144, 76, 65, 0.2);
+  background: rgba(245, 232, 228, 0.7);
+}
+
+.source-status-control strong {
+  color: var(--text-main);
+  font-size: 0.95rem;
+}
+
+.source-status-control > span {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.source-status-control :deep(.el-switch) {
+  --el-switch-on-color: var(--accent);
+  --el-switch-off-color: #a7afa9;
 }
 
 .source-rule-dialog textarea {
