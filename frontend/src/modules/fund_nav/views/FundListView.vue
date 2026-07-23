@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import FundTable from '../components/FundTable.vue'
 import { apiErrorMessage, isRequestTimeout } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
@@ -9,8 +9,8 @@ import {
   createFund,
   deleteFund,
   listFunds,
-  refreshFundNav,
   refreshFundNavs,
+  updateFundFavorite,
   type Fund,
   type FundSortBy,
   type SortOrder,
@@ -22,8 +22,11 @@ const funds = ref<Fund[]>([])
 const selectedFundCodes = ref<string[]>([])
 const fundCode = ref('')
 const remark = ref('')
+const searchKeyword = ref('')
+const favoritesOnly = ref(false)
 const loading = ref(false)
 const saving = ref(false)
+const favoriteUpdatingCode = ref<string | null>(null)
 const estimating = ref(false)
 const refreshingNavs = ref(false)
 const message = ref('')
@@ -33,6 +36,14 @@ const addFundOpen = ref(false)
 const initialSort = readSavedSort()
 const sortBy = ref<FundSortBy | null>(initialSort.sortBy)
 const sortOrder = ref<SortOrder>(initialSort.sortOrder)
+
+const filteredFunds = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  return funds.value.filter((fund) => {
+    if (favoritesOnly.value && fund.is_favorite !== 1) return false
+    return !keyword || fund.fund_code.toLowerCase().includes(keyword) || fund.fund_name.toLowerCase().includes(keyword)
+  })
+})
 
 function readSavedSort(): { sortBy: FundSortBy | null; sortOrder: SortOrder } {
   try {
@@ -91,6 +102,7 @@ async function submitFund() {
     message.value = '基金已添加，净值和持仓正在后台同步。'
     fundCode.value = ''
     remark.value = ''
+    addFundOpen.value = false
     await loadFunds({ keepMessage: true })
   } catch (error) {
     if (isRequestTimeout(error)) {
@@ -111,6 +123,20 @@ async function removeFund(code: string) {
     fund_code: code,
     fund_name: code,
     enabled: 1,
+    is_favorite: 0,
+  }
+}
+
+async function toggleFavorite(fund: Fund) {
+  favoriteUpdatingCode.value = fund.fund_code
+  try {
+    const updated = await updateFundFavorite(fund.fund_code, fund.is_favorite !== 1)
+    const index = funds.value.findIndex((item) => item.fund_code === updated.fund_code)
+    if (index !== -1) funds.value[index] = updated
+  } catch (error) {
+    message.value = apiErrorMessage(error, '更新基金关注状态失败，请稍后重试。')
+  } finally {
+    favoriteUpdatingCode.value = null
   }
 }
 
@@ -123,22 +149,6 @@ async function confirmDeleteFund() {
     await loadFunds()
   } catch (error) {
     message.value = apiErrorMessage(error, '删除基金失败，请稍后重试。')
-  }
-}
-
-async function refreshNav(code: string) {
-  try {
-    const result = await refreshFundNav(code)
-    message.value = taskSubmitMessage(result)
-    const task = await waitForTaskLog(result.task_log_id)
-    if (task) {
-      message.value = task.status === 'success'
-        ? `任务 ${result.task_id} 已完成，列表已更新。`
-        : `任务 ${result.task_id} ${task.status_label}，列表已更新。`
-      await loadFunds({ keepMessage: true })
-    }
-  } catch (error) {
-    message.value = apiErrorMessage(error, '官方净值刷新失败，请查看运行状态。')
   }
 }
 
@@ -215,7 +225,7 @@ onMounted(loadFunds)
         </div>
       </header>
 
-      <div class="toolbar">
+      <div class="toolbar fund-list-toolbar">
         <section class="mobile-collapsible" :class="{ 'is-open': batchActionsOpen }">
           <button
             class="mobile-collapsible-toggle"
@@ -241,32 +251,30 @@ onMounted(loadFunds)
             <RouterLink class="link-button" :to="{ name: routeNames.operations }">查看运行状态</RouterLink>
           </div>
         </section>
-        <section class="mobile-collapsible" :class="{ 'is-open': addFundOpen }">
-          <button
-            class="mobile-collapsible-toggle"
-            type="button"
-            :aria-expanded="addFundOpen"
-            @click="addFundOpen = !addFundOpen"
-          >
-            添加基金
-          </button>
-          <form class="inline-add-form mobile-collapsible-content" @submit.prevent="submitFund">
-            <input v-model="fundCode" class="code-input" placeholder="基金代码" />
-            <input v-model="remark" class="remark-input" placeholder="备注" />
-            <button type="submit" :disabled="saving">{{ saving ? '添加中...' : '添加基金' }}</button>
-          </form>
-        </section>
+        <div class="fund-list-filters">
+          <label class="fund-search">
+            <span class="sr-only">搜索基金</span>
+            <input v-model="searchKeyword" type="search" placeholder="搜索基金代码或名称" />
+          </label>
+          <label class="favorite-filter">
+            <input v-model="favoritesOnly" type="checkbox" />
+            仅看特别关注
+          </label>
+        </div>
+        <button class="add-fund-button" type="button" @click="addFundOpen = true">添加基金</button>
       </div>
 
       <p v-if="message" class="message">{{ message }}</p>
       <FundTable
         v-model:selected-fund-codes="selectedFundCodes"
-        :funds="funds"
+        :funds="filteredFunds"
         :loading="loading"
         :sort-by="sortBy"
         :sort-order="sortOrder"
+        :favorite-updating-code="favoriteUpdatingCode"
+        :empty-text="searchKeyword.trim() || favoritesOnly ? '没有匹配的基金。' : undefined"
         @delete="removeFund"
-        @refresh="refreshNav"
+        @favorite="toggleFavorite"
         @sort="updateSort"
       />
     </section>
@@ -283,6 +291,27 @@ onMounted(loadFunds)
           <button class="ghost" type="button" @click="pendingDeleteFund = null">取消</button>
           <button class="danger" type="button" @click="confirmDeleteFund">删除</button>
         </div>
+      </section>
+    </div>
+
+    <div v-if="addFundOpen" class="modal-backdrop" @click.self="addFundOpen = false">
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="add-fund-title">
+        <p class="eyebrow">Add Fund</p>
+        <h2 id="add-fund-title">添加基金</h2>
+        <form class="add-fund-form" @submit.prevent="submitFund">
+          <label>
+            基金代码
+            <input v-model="fundCode" class="code-input" placeholder="例如：000001" autofocus />
+          </label>
+          <label>
+            备注（可选）
+            <input v-model="remark" class="remark-input" placeholder="例如：长期持有" />
+          </label>
+          <div class="dialog-actions">
+            <button class="ghost" type="button" :disabled="saving" @click="addFundOpen = false">取消</button>
+            <button type="submit" :disabled="saving || !fundCode.trim()">{{ saving ? '添加中...' : '添加基金' }}</button>
+          </div>
+        </form>
       </section>
     </div>
   </main>

@@ -13,6 +13,7 @@ class FundCreate(BaseModel):
 
 class FundUpdate(BaseModel):
     enabled: int | None = None
+    is_favorite: int | None = Field(default=None, ge=0, le=1)
     remark: str | None = None
 
 
@@ -42,6 +43,7 @@ class FundOut(BaseModel):
     fund_category_source: str | None = None
     fund_category_updated_at: datetime | None = None
     enabled: int
+    is_favorite: int
     remark: str | None = None
     tracked_index_code: str | None = None
     tracked_index_name: str | None = None

@@ -12,7 +12,7 @@ from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
-from app.modules.fund_nav.schemas.fund import FundCreate
+from app.modules.fund_nav.schemas.fund import FundCreate, FundUpdate
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
@@ -131,6 +131,21 @@ class FundService:
         self.db.delete(fund)
         self.db.commit()
         return True
+
+    def update_fund(self, fund_code: str, payload: FundUpdate) -> Fund | None:
+        normalized_code = self.source._normalize_fund_code(fund_code)
+        fund = self.db.scalar(select(Fund).where(Fund.fund_code == normalized_code))
+        if fund is None:
+            return None
+        if payload.enabled is not None:
+            fund.enabled = payload.enabled
+        if payload.is_favorite is not None:
+            fund.is_favorite = payload.is_favorite
+        if payload.remark is not None:
+            fund.remark = payload.remark
+        self.db.commit()
+        self.db.refresh(fund)
+        return fund
 
     @timed()
     def refresh_nav(self, fund_code: str) -> FundNav | None:
@@ -293,6 +308,7 @@ class FundService:
             "fund_category_source": fund.fund_category_source,
             "fund_category_updated_at": fund.fund_category_updated_at,
             "enabled": fund.enabled,
+            "is_favorite": fund.is_favorite,
             "remark": fund.remark,
             "tracked_index_code": index_mapping.index_code if index_mapping else None,
             "tracked_index_name": index_mapping.index_name if index_mapping else None,

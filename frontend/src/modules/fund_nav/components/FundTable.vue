@@ -12,11 +12,13 @@ const props = defineProps<{
   selectedFundCodes: string[]
   sortBy?: FundSortBy | null
   sortOrder?: SortOrder
+  favoriteUpdatingCode?: string | null
+  emptyText?: string
 }>()
 
 const emit = defineEmits<{
   delete: [fundCode: string]
-  refresh: [fundCode: string]
+  favorite: [fund: Fund]
   sort: [sortBy: FundSortBy]
   'update:selectedFundCodes': [fundCodes: string[]]
 }>()
@@ -114,9 +116,9 @@ function sortIndicator(sortBy: FundSortBy) {
           <td colspan="7">正在加载基金池...</td>
         </tr>
         <tr v-else-if="funds.length === 0">
-          <td colspan="7">还没有自选基金，先添加一只试试。</td>
+          <td colspan="7">{{ emptyText ?? '还没有自选基金，先添加一只试试。' }}</td>
         </tr>
-        <tr v-for="fund in funds" :key="fund.fund_code">
+        <tr v-for="fund in funds" :key="fund.fund_code" :class="{ 'is-favorite': fund.is_favorite === 1 }">
           <td data-label="选择" class="mobile-select-cell">
             <input
               class="row-check"
@@ -127,7 +129,21 @@ function sortIndicator(sortBy: FundSortBy) {
           </td>
           <td class="fund-cell" data-label="基金资产">
             <RouterLink class="fund-name" :to="{ name: routeNames.fundDetail, params: { fundCode: fund.fund_code } }">{{ fund.fund_name }}</RouterLink>
-            <span class="muted mono">{{ fund.fund_code }}</span>
+            <span v-if="fund.is_favorite === 1" class="favorite-badge">特别关注</span>
+            <span class="fund-code-line">
+              <span class="muted mono">{{ fund.fund_code }}</span>
+              <button
+                class="favorite-star"
+                type="button"
+                :class="{ 'is-favorite': fund.is_favorite === 1 }"
+                :disabled="favoriteUpdatingCode === fund.fund_code"
+                :aria-label="fund.is_favorite === 1 ? `取消关注 ${fund.fund_name}` : `关注 ${fund.fund_name}`"
+                :title="fund.is_favorite === 1 ? '取消关注' : '特别关注'"
+                @click="emit('favorite', fund)"
+              >
+                {{ fund.is_favorite === 1 ? '★' : '☆' }}
+              </button>
+            </span>
           </td>
           <td class="mobile-hidden-cell" data-label="最新估算数据">
             <strong class="metric">{{ fund.latest_estimated_nav ?? '-' }}</strong>
@@ -159,7 +175,6 @@ function sortIndicator(sortBy: FundSortBy) {
           <td class="mobile-hidden-cell" data-label="快捷操作">
             <div class="quick-actions">
               <RouterLink class="link-button" :to="{ name: routeNames.fundDetail, params: { fundCode: fund.fund_code } }">详情</RouterLink>
-              <button class="ghost" @click="emit('refresh', fund.fund_code)">更新净值</button>
               <button class="danger" @click="emit('delete', fund.fund_code)">删除</button>
             </div>
           </td>
