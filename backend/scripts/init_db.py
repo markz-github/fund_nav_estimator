@@ -82,6 +82,16 @@ def ensure_fund_category_columns() -> None:
         ensure_index(connection, "fund_profiles", "idx_fund_profiles_category", "`fund_category`")
 
 
+def ensure_fund_favorite_column() -> None:
+    with engine.begin() as connection:
+        ensure_column(
+            connection,
+            "funds",
+            "is_favorite",
+            "`is_favorite` INT NOT NULL DEFAULT 0 COMMENT '是否特别关注：0 否，1 是'",
+        )
+
+
 def ensure_index_quote_source_status_columns() -> None:
     with engine.begin() as connection:
         ensure_column(
@@ -114,6 +124,7 @@ def main() -> None:
     ensure_database_exists()
     Base.metadata.create_all(bind=engine)
     ensure_fund_category_columns()
+    ensure_fund_favorite_column()
     ensure_index_quote_source_status_columns()
     create_fund_history_tables(engine)
     settings = get_settings()

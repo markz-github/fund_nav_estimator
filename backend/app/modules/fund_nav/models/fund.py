@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Index, String, func
+from sqlalchemy import BigInteger, DateTime, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -21,6 +21,7 @@ class Fund(Base):
     fund_category_source: Mapped[Optional[str]] = mapped_column(String(30))
     fund_category_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     enabled: Mapped[int] = mapped_column(default=1, nullable=False)
+    is_favorite: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     remark: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

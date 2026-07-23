@@ -10,6 +10,7 @@ export interface Fund {
   fund_category_source?: string | null
   fund_category_updated_at?: string | null
   enabled: number
+  is_favorite: number
   remark?: string | null
   tracked_index_code?: string | null
   tracked_index_name?: string | null
@@ -164,6 +165,13 @@ export async function refreshFundHoldings(fundCode: string): Promise<FundTaskSub
 
 export async function deleteFund(fundCode: string): Promise<void> {
   await apiClient.delete(`/funds/${fundCode}`)
+}
+
+export async function updateFundFavorite(fundCode: string, isFavorite: boolean): Promise<Fund> {
+  const { data } = await apiClient.patch<Fund>(`/funds/${fundCode}`, {
+    is_favorite: isFavorite ? 1 : 0,
+  })
+  return data
 }
 
 export async function refreshFundNav(fundCode: string): Promise<FundTaskSubmitResult> {

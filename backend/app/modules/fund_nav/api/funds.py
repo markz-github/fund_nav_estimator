@@ -10,7 +10,7 @@ from app.database import get_db
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
 from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
-from app.modules.fund_nav.schemas.fund import FundCreate, FundNavOut, FundOut, RefreshFundNavsRequest
+from app.modules.fund_nav.schemas.fund import FundCreate, FundNavOut, FundOut, FundUpdate, RefreshFundNavsRequest
 from app.modules.fund_nav.schemas.holding import FundHoldingOut
 from app.modules.fund_nav.schemas.manual_index_mapping import (
     ManualFundIndexMappingIn,
@@ -152,6 +152,15 @@ def delete_fund(fund_code: str, db: Session = Depends(get_db)) -> Response:
     if not deleted:
         raise HTTPException(status_code=404, detail="Fund not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.patch("/{fund_code}", response_model=FundOut)
+def update_fund(fund_code: str, payload: FundUpdate, db: Session = Depends(get_db)) -> dict:
+    service = FundService(db)
+    fund = service.update_fund(fund_code, payload)
+    if fund is None:
+        raise HTTPException(status_code=404, detail="Fund not found")
+    return service._fund_with_latest_data(fund)
 
 
 @router.get("/task-detail-logs", response_model=list[FundTaskDetailLogOut])

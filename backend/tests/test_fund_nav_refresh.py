@@ -43,7 +43,7 @@ from app.modules.fund_nav.models.manual_fund_index_mapping import ManualFundInde
 from app.modules.fund_nav.models.market_index import MarketIndex
 from app.modules.fund_nav.models.market_quote import MarketQuote
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
-from app.modules.fund_nav.schemas.fund import FundCreate
+from app.modules.fund_nav.schemas.fund import FundCreate, FundUpdate
 from app.modules.fund_nav.schemas.manual_index_mapping import ManualFundIndexMappingIn
 from app.modules.fund_nav.schemas.task_detail import FundTaskDetailLogOut
 from app.modules.fund_nav.api.funds import list_task_detail_logs
@@ -127,6 +127,29 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(restored.id, created.id)
         self.assertEqual(restored.is_deleted, 0)
         self.assertEqual(restored.remark, "restored")
+
+    def test_update_fund_persists_favorite_status(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        service = FundService(db, source)
+
+        try:
+            db.add(Fund(id=1, fund_code="000001", fund_name="测试基金"))
+            db.commit()
+            updated = service.update_fund("000001", FundUpdate(is_favorite=1))
+            db.expire_all()
+            persisted = db.scalar(select(Fund).where(Fund.fund_code == "000001"))
+        finally:
+            db.close()
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.is_favorite, 1)
+        self.assertIsNotNone(persisted)
+        self.assertEqual(persisted.is_favorite, 1)
 
     def test_list_funds_includes_latest_estimate_date(self) -> None:
         engine = create_engine("sqlite:///:memory:")
