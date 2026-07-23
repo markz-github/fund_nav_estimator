@@ -1351,6 +1351,12 @@ class FundNavRefreshTests(unittest.TestCase):
         db = SessionLocal()
         db.add_all(
             [
+                Fund(
+                    id=1,
+                    fund_code="018125",
+                    fund_name="兴业聚华混合A",
+                    fund_type="混合型",
+                ),
                 FundHolding(
                     id=1,
                     fund_code="018125",
@@ -1387,6 +1393,82 @@ class FundNavRefreshTests(unittest.TestCase):
             db.close()
 
         source.get_market_quotes.assert_called_once_with(["000001"])
+
+    def test_latest_holding_assets_exclude_soft_deleted_or_disabled_funds(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add_all(
+            [
+                Fund(
+                    id=1,
+                    fund_code="008163",
+                    fund_name="南方标普红利低波50ETF联接A",
+                    fund_type="指数型-股票",
+                    enabled=1,
+                    is_deleted=1,
+                ),
+                Fund(
+                    id=2,
+                    fund_code="016186",
+                    fund_name="广发电力ETF联接C",
+                    fund_type="指数型-股票",
+                    enabled=0,
+                ),
+                Fund(
+                    id=3,
+                    fund_code="018172",
+                    fund_name="华泰柏瑞中证电力全指ETF发起式联接A",
+                    fund_type="指数型-股票",
+                    enabled=1,
+                ),
+                FundHolding(
+                    id=1,
+                    fund_code="008163",
+                    report_period="2026Q2",
+                    asset_code="187381",
+                    asset_name="0ETF联接A基金吧",
+                    asset_type="etf",
+                    market="CN",
+                    holding_ratio=Decimal("1"),
+                    holding_value=None,
+                    source="eastmoney:target_hint",
+                ),
+                FundHolding(
+                    id=2,
+                    fund_code="016186",
+                    report_period="2026Q2",
+                    asset_code="130026",
+                    asset_name="力ETF联接C基金资产配置",
+                    asset_type="etf",
+                    market="CN",
+                    holding_ratio=Decimal("1"),
+                    holding_value=None,
+                    source="eastmoney:target_hint",
+                ),
+                FundHolding(
+                    id=3,
+                    fund_code="018172",
+                    report_period="2026Q2",
+                    asset_code="561560",
+                    asset_name="电力ETF华泰柏瑞",
+                    asset_type="etf",
+                    market="CN",
+                    holding_ratio=Decimal("1"),
+                    holding_value=None,
+                    source="local:fund_name_match",
+                ),
+            ]
+        )
+        db.commit()
+
+        try:
+            assets = MarketService(db, Mock())._assets_from_latest_holdings()
+        finally:
+            db.close()
+
+        self.assertEqual(set(assets), {"561560"})
 
     def test_refresh_quotes_for_holdings_includes_etf_fund_itself(self) -> None:
         engine = create_engine("sqlite:///:memory:")
