@@ -46,9 +46,14 @@ const message = ref('')
 const navChartEl = ref<HTMLElement | null>(null)
 const selectedHistoryNav = ref<FundNav | null>(null)
 const priceLineMode = ref<'point' | 'mouse'>('point')
+const measurementEnabled = ref(false)
+const measurementStartNav = ref<FundNav | null>(null)
+const measurementEndNav = ref<FundNav | null>(null)
 let navChart: IChartApi | null = null
 let navSeries: ISeriesApi<'Area'> | null = null
 let selectedNavPriceLine: IPriceLine | null = null
+let measurementStartPriceLine: IPriceLine | null = null
+let measurementEndPriceLine: IPriceLine | null = null
 let navChartResizeObserver: ResizeObserver | null = null
 let adjustingNavChartRange = false
 const initialNavChartPointCount = 500
@@ -97,6 +102,50 @@ const navChartData = computed(() =>
     value: Number(item.unit_nav),
   })),
 )
+
+const measurementResult = computed(() => {
+  const start = measurementStartNav.value
+  const end = measurementEndNav.value
+  if (!start || !end) return null
+  const startValue = Number(start.unit_nav)
+  const endValue = Number(end.unit_nav)
+  if (!Number.isFinite(startValue) || !Number.isFinite(endValue) || startValue === 0) return null
+  const difference = endValue - startValue
+  return {
+    difference,
+    growthRate: difference / startValue,
+    durationText: calendarDurationText(start.nav_date, end.nav_date),
+  }
+})
+
+function calendarDurationText(firstDate: string, secondDate: string) {
+  const first = new Date(`${firstDate}T00:00:00`)
+  const second = new Date(`${secondDate}T00:00:00`)
+  const [start, end] = first <= second ? [first, second] : [second, first]
+  const addMonthsClamped = (source: Date, months: number) => {
+    const monthIndex = source.getFullYear() * 12 + source.getMonth() + months
+    const year = Math.floor(monthIndex / 12)
+    const month = monthIndex % 12
+    const lastDay = new Date(year, month + 1, 0).getDate()
+    return new Date(year, month, Math.min(source.getDate(), lastDay))
+  }
+
+  let years = end.getFullYear() - start.getFullYear()
+  let anchor = addMonthsClamped(start, years * 12)
+  if (anchor > end) {
+    years -= 1
+    anchor = addMonthsClamped(start, years * 12)
+  }
+  let months = (end.getFullYear() - anchor.getFullYear()) * 12 + end.getMonth() - anchor.getMonth()
+  let monthAnchor = addMonthsClamped(anchor, months)
+  if (monthAnchor > end) {
+    months -= 1
+    monthAnchor = addMonthsClamped(anchor, months)
+  }
+  const days = Math.round((end.getTime() - monthAnchor.getTime()) / 86_400_000)
+  const parts = [years ? `${years}年` : '', months ? `${months}个月` : '', days ? `${days}天` : ''].filter(Boolean)
+  return parts.join('') || '0天'
+}
 
 function chartDateLabel(time: Time) {
   if (typeof time === 'string') return time
@@ -282,6 +331,7 @@ function ensureNavChart() {
   })
   navChartResizeObserver.observe(navChartEl.value)
   navChart.subscribeCrosshairMove(handleNavCrosshairMove)
+  navChart.subscribeClick(handleNavChartClick)
   navChart.timeScale().subscribeVisibleLogicalRangeChange(keepNavChartRangeInsideData)
   applyPriceLineMode()
 }
@@ -324,6 +374,64 @@ function handleNavCrosshairMove(param: MouseEventParams<Time>) {
   const navDate = chartDateLabel(param.time)
   selectedHistoryNav.value = chartNavs.value.find((item) => item.nav_date === navDate) ?? null
   updateSelectedNavPriceLine()
+}
+
+function handleNavChartClick(param: MouseEventParams<Time>) {
+  if (!measurementEnabled.value || !param.time) return
+  const navDate = chartDateLabel(param.time)
+  const selectedNav = chartNavs.value.find((item) => item.nav_date === navDate)
+  if (!selectedNav) return
+  if (!measurementStartNav.value || measurementEndNav.value) {
+    measurementStartNav.value = selectedNav
+    measurementEndNav.value = null
+  } else {
+    measurementEndNav.value = selectedNav
+  }
+  updateMeasurementPriceLines()
+}
+
+function toggleMeasurement() {
+  measurementEnabled.value = !measurementEnabled.value
+  if (!measurementEnabled.value) clearMeasurement()
+}
+
+function clearMeasurement() {
+  measurementStartNav.value = null
+  measurementEndNav.value = null
+  updateMeasurementPriceLines()
+}
+
+function updateMeasurementPriceLines() {
+  if (!navSeries) return
+  const updateLine = (
+    currentLine: IPriceLine | null,
+    nav: FundNav | null,
+    color: string,
+    title: string,
+  ): IPriceLine | null => {
+    if (!nav || !Number.isFinite(Number(nav.unit_nav))) {
+      if (currentLine) navSeries?.removePriceLine(currentLine)
+      return null
+    }
+    const options = {
+      price: Number(nav.unit_nav),
+      color,
+      lineWidth: 1 as const,
+      lineStyle: LineStyle.Dashed,
+      lineVisible: true,
+      axisLabelVisible: true,
+      axisLabelColor: color,
+      axisLabelTextColor: '#ffffff',
+      title,
+    }
+    if (currentLine) {
+      currentLine.applyOptions(options)
+      return currentLine
+    }
+    return navSeries?.createPriceLine(options) ?? null
+  }
+  measurementStartPriceLine = updateLine(measurementStartPriceLine, measurementStartNav.value, '#287356', '起点')
+  measurementEndPriceLine = updateLine(measurementEndPriceLine, measurementEndNav.value, '#c57a19', '终点')
 }
 
 function updateSelectedNavPriceLine() {
@@ -372,10 +480,14 @@ function disposeNavChart() {
   navChartResizeObserver?.disconnect()
   navChartResizeObserver = null
   selectedNavPriceLine = null
+  measurementStartPriceLine = null
+  measurementEndPriceLine = null
   navChart?.remove()
   navChart = null
   navSeries = null
   selectedHistoryNav.value = null
+  measurementStartNav.value = null
+  measurementEndNav.value = null
   adjustingNavChartRange = false
 }
 
@@ -408,6 +520,7 @@ async function renderNavChart() {
   }
   ensureNavChart()
   navSeries?.setData(navChartData.value)
+  updateMeasurementPriceLines()
   showInitialNavChartRange()
   keepNavChartRangeInsideData()
 }
@@ -549,24 +662,43 @@ onBeforeUnmount(disposeNavChart)
           <strong>{{ displayedHistoryNav?.nav_date ?? '-' }}</strong>
         </div>
         <div class="nav-chart-toolbar">
-          <span>价格线</span>
-          <div class="segmented-control" aria-label="价格线模式">
-            <button
-              type="button"
-              :class="{ active: priceLineMode === 'point' }"
-              @click="priceLineMode = 'point'"
-            >
-              点位
+          <div class="chart-tool-group">
+            <div class="segmented-control" aria-label="价格线模式">
+              <button
+                type="button"
+                :class="{ active: priceLineMode === 'point' }"
+                @click="priceLineMode = 'point'"
+              >
+                点位
+              </button>
+              <button
+                type="button"
+                :class="{ active: priceLineMode === 'mouse' }"
+                @click="priceLineMode = 'mouse'"
+              >
+                鼠标
+              </button>
+            </div>
+          </div>
+          <div class="chart-tool-group">
+            <button type="button" class="ghost measurement-toggle" :class="{ active: measurementEnabled }" @click="toggleMeasurement">
+              两点测量
             </button>
-            <button
-              type="button"
-              :class="{ active: priceLineMode === 'mouse' }"
-              @click="priceLineMode = 'mouse'"
-            >
-              鼠标
-            </button>
+            <button v-if="measurementStartNav" type="button" class="measurement-clear" @click="clearMeasurement">清除</button>
           </div>
         </div>
+      </div>
+      <div v-if="measurementEnabled" class="measurement-panel">
+        <template v-if="measurementResult && measurementStartNav && measurementEndNav">
+          <span>{{ measurementStartNav.nav_date }} → {{ measurementEndNav.nav_date }}</span>
+          <strong :class="measurementResult.difference >= 0 ? 'up' : 'down'">
+            {{ measurementResult.difference >= 0 ? '+' : '' }}{{ measurementResult.difference.toFixed(4) }}
+            （{{ measurementResult.growthRate >= 0 ? '+' : '' }}{{ (measurementResult.growthRate * 100).toFixed(2) }}%）
+          </strong>
+          <span>相隔 {{ measurementResult.durationText }}</span>
+        </template>
+        <span v-else-if="measurementStartNav">已选择起点 {{ measurementStartNav.nav_date }}，请点击终点。</span>
+        <span v-else>请依次点击图表中的起点和终点进行测量。</span>
       </div>
       <div v-if="navChartData.length" ref="navChartEl" class="nav-chart" aria-label="历史净值走势"></div>
       <p v-else class="empty-chart">暂无历史净值数据，点击“更新历史净值”从 akshare 同步。</p>

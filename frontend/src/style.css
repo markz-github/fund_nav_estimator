@@ -822,15 +822,18 @@ tbody tr {
   display: inline-grid;
   grid-auto-flow: column;
   border: 1px solid rgba(36, 63, 47, 0.16);
-  border-radius: 8px;
-  padding: 3px;
+  border-radius: 7px;
+  padding: 2px;
   background: rgba(255, 255, 255, 0.8);
 }
 
 .segmented-control button {
-  min-height: 30px;
-  border-radius: 6px;
-  padding: 0.35rem 0.62rem;
+  display: inline-grid;
+  place-items: center;
+  height: 32px;
+  min-height: 32px;
+  border-radius: 5px;
+  padding: 0.25rem 0.58rem;
   color: #52645a;
   background: transparent;
   font-size: 0.88rem;
@@ -845,9 +848,75 @@ tbody tr {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
+  flex: 1 1 0;
+  min-height: 36px;
+  padding-right: 12px;
   color: #5c6a4f;
   font-size: 0.9rem;
+}
+
+.chart-tool-group {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  gap: 6px;
+}
+
+.measurement-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border: 1px solid rgba(40, 115, 86, 0.16);
+  border-radius: 7px;
+  padding: 0.25rem 0.62rem;
+  color: #286047;
+  background: #edf4ea;
+  line-height: 1;
+  font-size: 0.88rem;
+}
+
+.measurement-toggle.active {
+  color: #ffffff;
+  border-color: #287356;
+  background: #287356;
+}
+
+.measurement-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0.25rem 0.2rem;
+  color: #52645a;
+  background: transparent;
+  line-height: 1;
+  font-size: 0.88rem;
+}
+
+.measurement-clear:hover {
+  color: #1f3f35;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.measurement-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: -6px 18px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(40, 115, 86, 0.18);
+  border-radius: 8px;
+  background: rgba(235, 245, 232, 0.72);
+  color: #43584b;
+  font-size: 0.9rem;
+}
+
+.measurement-panel strong {
+  font-size: 1rem;
 }
 
 .nav-chart-panel {
@@ -862,17 +931,19 @@ tbody tr {
 }
 
 .nav-chart-meta {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  align-items: center;
   gap: 12px;
   padding: 18px 22px 0 18px;
 }
 
-.nav-chart-meta > div {
+.nav-chart-meta > div:not(.nav-chart-toolbar) {
   display: grid;
+  flex: 1 1 0;
   gap: 6px;
   min-width: 0;
 }
+
 
 .nav-chart-meta span {
   color: #5c6a4f;
@@ -1444,6 +1515,7 @@ tbody tr:hover {
   }
 
   .nav-chart-meta {
+    display: grid;
     grid-template-columns: 1fr;
   }
 
@@ -1451,6 +1523,10 @@ tbody tr:hover {
     align-items: flex-start;
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .measurement-panel {
+    margin: -6px 14px 0;
   }
 
   .section-title,
