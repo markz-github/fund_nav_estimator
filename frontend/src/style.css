@@ -1499,9 +1499,15 @@ tbody tr:hover {
     width: 100%;
   }
 
-  .fund-list-filters {
+  .fund-list-toolbar .fund-list-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
     align-items: stretch;
-    flex-direction: column;
+    flex: none;
+    height: auto;
+    min-height: 0;
+    justify-content: start;
     gap: 10px;
   }
 
