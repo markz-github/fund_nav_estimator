@@ -56,6 +56,12 @@ data_sources/
 - 部分行情接口可能返回重复 quote_time，写入 `market_quotes` 时需要处理唯一键冲突。
 - ETF 作为基金持仓参与联接基金估算时，采用目标 ETF 二级市场行情涨跌幅；估算前需要校验行情交易日期，避免外部数据源返回的旧行情被当成当日行情。
 
+### A 股历史日线
+
+- 日线同步按“东方财富 `stock_zh_a_hist` → 腾讯 `stock_zh_a_hist_tx` → 新浪 `stock_zh_a_daily`”顺序获取。
+- 腾讯日线作为东财失败后的补充，可覆盖科创板存托凭证等新浪历史接口不稳定的证券。
+- 腾讯日线没有成交量、换手率等部分字段时，仍写入可用的开高低收和成交额；缺失字段保持为空。
+
 ### 指数行情
 
 指数行情通过 `AkshareSource.get_index_quotes()` 对外提供，内部由 `CompositeIndexQuoteSource` 按 `index_quote_source_status` 中 `source_type = index` 的渠道配置和成功率动态排序尝试。净值估算只使用实时指数行情，默认渠道为：

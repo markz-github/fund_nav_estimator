@@ -151,6 +151,22 @@ def fetch_history_dataframe(symbol: str, start_date: str, end_date: str, adjust:
                     _hist_source_available = False
 
         try:
+            dataframe = ak.stock_zh_a_hist_tx(
+                symbol=prefixed_symbol(symbol),
+                start_date=start_date,
+                end_date=end_date,
+                adjust=adjust,
+            )
+            return dataframe, "akshare:stock_zh_a_hist_tx"
+        except Exception:
+            logger.warning(
+                "akshare_history_fallback_failed endpoint=stock_zh_a_hist_tx symbol=%s adjust=%s",
+                symbol,
+                adjust or "none",
+                exc_info=True,
+            )
+
+        try:
             dataframe = ak.stock_zh_a_daily(
                 symbol=prefixed_symbol(symbol),
                 start_date=start_date,
