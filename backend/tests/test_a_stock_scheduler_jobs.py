@@ -6,15 +6,38 @@ import sys
 import unittest
 from unittest.mock import Mock, patch
 
+import pandas as pd
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.modules.a_stock.service import AStockHistorySyncService, previous_weekday
 from app.scheduler.a_stock_jobs import sync_previous_a_stock_trading_day_job
+from scripts import sync_a_stock_daily_bars
 
 
 class AStockSchedulerJobTests(unittest.TestCase):
+    def test_history_fetch_uses_tencent_before_sina_fallback(self) -> None:
+        dataframe = pd.DataFrame(
+            [{"date": date(2026, 7, 24), "open": 39, "close": 38.18, "high": 39.15, "low": 38.15, "amount": 1}]
+        )
+        previous_available = sync_a_stock_daily_bars._hist_source_available
+        sync_a_stock_daily_bars._hist_source_available = False
+        try:
+            with (
+                patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist_tx", return_value=dataframe) as tencent,
+                patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_daily") as sina,
+            ):
+                result, source = sync_a_stock_daily_bars.fetch_history_dataframe("689009", "20260724", "20260724", "")
+        finally:
+            sync_a_stock_daily_bars._hist_source_available = previous_available
+
+        self.assertEqual(source, "akshare:stock_zh_a_hist_tx")
+        self.assertIs(result, dataframe)
+        tencent.assert_called_once_with(symbol="sh689009", start_date="20260724", end_date="20260724", adjust="")
+        sina.assert_not_called()
+
     def test_scheduler_job_checks_and_starts_missing_previous_trading_day(self) -> None:
         service = Mock()
         service.sync_previous_trading_day_if_missing.return_value = {"started": True, "trade_date": "20260609"}
