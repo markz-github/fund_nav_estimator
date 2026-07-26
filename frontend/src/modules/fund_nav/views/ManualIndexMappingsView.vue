@@ -345,7 +345,7 @@ onMounted(loadMappings)
           </label>
           <label>
             基金代码
-            <input v-model="form.fund_code" placeholder="160218" />
+            <input v-model="form.fund_code" placeholder="基金代码" />
           </label>
           <label>
             基金名称
@@ -353,7 +353,7 @@ onMounted(loadMappings)
           </label>
           <label>
             {{ targetCodeLabel }}
-            <input v-model="form.target_code" :placeholder="form.mapping_type === 'target_etf' ? '513380' : '399393'" />
+            <input v-model="form.target_code" :placeholder="form.mapping_type === 'target_etf' ? '目标 ETF 代码' : '指数代码'" />
           </label>
           <label>
             {{ targetNameLabel }}

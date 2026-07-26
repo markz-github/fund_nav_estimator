@@ -529,7 +529,7 @@ onMounted(loadSources)
               v-model="ruleForm.exclude_rule_value"
               rows="5"
               :disabled="ruleForm.exclude_rule_type === 'none'"
-              :placeholder="ruleForm.exclude_rule_type === 'regex' ? '^9' : '930875,931027 或每行一个代码'"
+              :placeholder="ruleForm.exclude_rule_type === 'regex' ? '^9' : '指数代码，使用逗号或每行一个代码'"
             />
           </label>
           <p class="dialog-copy">
@@ -557,7 +557,7 @@ onMounted(loadSources)
         <form class="dialog-form" @submit.prevent="saveSymbol">
           <label>
             指数代码
-            <input v-model.trim="symbolForm.index_code" placeholder="930875" :disabled="!!editingSymbol" />
+            <input v-model.trim="symbolForm.index_code" placeholder="指数代码" :disabled="!!editingSymbol" />
           </label>
           <label>
             渠道
@@ -582,7 +582,7 @@ onMounted(loadSources)
             <input
               v-model.trim="symbolForm.quote_symbol"
               :disabled="Number(symbolForm.supported) === 0"
-              placeholder="CSI930875 / 2.930875 / s_sz399967"
+              placeholder="渠道代码"
             />
           </label>
           <label>

@@ -301,7 +301,7 @@ onMounted(loadFunds)
         <form class="add-fund-form" @submit.prevent="submitFund">
           <label>
             基金代码
-            <input v-model="fundCode" class="code-input" placeholder="例如：000001" autofocus />
+            <input v-model="fundCode" class="code-input" placeholder="请输入基金代码" autofocus />
           </label>
           <label>
             备注（可选）

@@ -253,39 +253,6 @@ class IndexQuoteSymbolService:
 
 
 def seed_default_index_quote_symbols(db: Session) -> None:
-    defaults = (
-        ("930875", "eastmoney_http_spot", "2.930875", 1, "中证空天一体军工指数，东财中证市场 secid"),
-        ("930875", "xueqiu_spot", "CSI930875", 1, "雪球中证指数 symbol"),
-        ("930875", "sina_http_spot", None, 0, "新浪 HTTP 不支持该中证 9xxxxx 指数"),
-        ("930875", "tencent_spot", None, 0, "腾讯 HTTP 不支持该中证 9xxxxx 指数"),
-        ("930997", "eastmoney_http_spot", "2.930997", 1, "中证新能源车，东财中证市场 secid"),
-        ("930997", "xueqiu_spot", "CSI930997", 1, "雪球中证指数 symbol"),
-        ("930997", "sina_http_spot", None, 0, "新浪 HTTP 不支持该中证 9xxxxx 指数"),
-        ("930997", "tencent_spot", None, 0, "腾讯 HTTP 不支持该中证 9xxxxx 指数"),
-        ("931027", "eastmoney_http_spot", "2.931027", 1, "中证港股通大消费，东财中证市场 secid"),
-        ("931027", "xueqiu_spot", "CSI931027", 1, "雪球中证指数 symbol"),
-        ("931027", "sina_http_spot", None, 0, "新浪 HTTP 不支持该中证 9xxxxx 指数"),
-        ("931027", "tencent_spot", None, 0, "腾讯 HTTP 不支持该中证 9xxxxx 指数"),
-    )
-    existing = {
-        (row.index_code, row.source_key): row
-        for row in db.scalars(select(IndexQuoteSymbol)).all()
-    }
-    for index_code, source_key, quote_symbol, supported, description in defaults:
-        row = existing.get((index_code, source_key))
-        if row is None:
-            db.add(
-                IndexQuoteSymbol(
-                    index_code=index_code,
-                    source_key=source_key,
-                    quote_symbol=quote_symbol,
-                    supported=supported,
-                    description=description,
-                )
-            )
-            continue
-        if row.quote_symbol is None and quote_symbol is not None:
-            row.quote_symbol = quote_symbol
-        row.description = row.description or description
+    # 中证 9xxxxx 指数由市场指数目录动态生成渠道映射，不维护个别指数的固定列表。
     IndexQuoteSymbolService(db).seed_csindex_symbols()
     db.flush()
