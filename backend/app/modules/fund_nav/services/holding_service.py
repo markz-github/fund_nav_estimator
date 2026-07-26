@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource
 from app.modules.fund_nav.data_sources.web.eastmoney_source import EastmoneySource
 from app.modules.fund_nav.data_sources.web.etf88_source import Etf88Source
-from app.modules.fund_nav.data_sources.web.fund_company_source import FundCompanySource
 from app.modules.fund_nav.data_sources.web.public_fund_source import PublicWebFundSource
 from app.modules.fund_nav.data_sources.web.sina_fund_source import SinaFundSource
 from app.modules.fund_nav.models.fund import Fund
@@ -40,7 +39,6 @@ class HoldingService:
         self.target_fund_sources = target_fund_sources or [
             etf88_source or Etf88Source(),
             EastmoneySource(),
-            FundCompanySource(),
             SinaFundSource(),
             PublicWebFundSource(),
         ]
