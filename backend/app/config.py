@@ -86,6 +86,7 @@ class Settings(AppConfig):
         )
 
 
+
 def _config_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "config"
 

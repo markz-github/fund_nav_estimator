@@ -440,7 +440,7 @@ def list_stale_running_progress(
           {task_filter}
           AND (
               started_at IS NULL
-              OR TIMESTAMPDIFF(MINUTE, started_at, NOW()) >= :stale_minutes
+              OR TIMESTAMPDIFF(MINUTE, started_at, :now) >= :stale_minutes
           )
         ORDER BY symbol ASC
         """
@@ -453,6 +453,7 @@ def list_stale_running_progress(
                 "end_date": end_date,
                 "stale_minutes": PROGRESS_RUNNING_STALE_MINUTES,
                 "task_id": task_id,
+                "now": datetime.now(),
             },
         ).mappings()
         return [StockInfo(symbol=row["symbol"], name=row["stock_name"]) for row in rows]
@@ -488,7 +489,7 @@ def claim_progress_running(
             task_id, symbol, stock_name, start_date, end_date, status, started_at, finished_at,
             duration_seconds, error, run_count
         ) VALUES (
-            :task_id, :symbol, :stock_name, :start_date, :end_date, 'running', NOW(), NULL,
+            :task_id, :symbol, :stock_name, :start_date, :end_date, 'running', :now, NULL,
             NULL, NULL, 1
         )
         """
@@ -499,7 +500,7 @@ def claim_progress_running(
         SET task_id = :task_id,
             stock_name = :stock_name,
             status = 'running',
-            started_at = NOW(),
+            started_at = :now,
             finished_at = NULL,
             duration_seconds = NULL,
             error = NULL,
@@ -517,6 +518,7 @@ def claim_progress_running(
             "start_date": start_date,
             "end_date": end_date,
             "task_id": task_id,
+            "now": datetime.now(),
         }
         row = connection.execute(select_statement, params).mappings().first()
         if row is None:
@@ -526,8 +528,8 @@ def claim_progress_running(
             return "done"
         if row["status"] == "running" and row["started_at"] is not None:
             stale = connection.execute(
-                text("SELECT TIMESTAMPDIFF(MINUTE, :started_at, NOW())"),
-                {"started_at": row["started_at"]},
+                text("SELECT TIMESTAMPDIFF(MINUTE, :started_at, :now)"),
+                {"started_at": row["started_at"], "now": datetime.now()},
             ).scalar()
             if stale is not None and int(stale) < PROGRESS_RUNNING_STALE_MINUTES:
                 return "running"
@@ -555,7 +557,7 @@ def mark_progress_done(
             rows_none = :rows_none,
             rows_qfq = :rows_qfq,
             rows_hfq = :rows_hfq,
-            finished_at = NOW(),
+            finished_at = :finished_at,
             duration_seconds = :duration_seconds,
             error = NULL
         WHERE symbol = :symbol
@@ -572,7 +574,7 @@ def mark_progress_done(
             duration_seconds, error, run_count
         ) VALUES (
             :task_id, :symbol, :stock_name, :start_date, :end_date, 'done',
-            :rows_none, :rows_qfq, :rows_hfq, NOW(), NOW(),
+            :rows_none, :rows_qfq, :rows_hfq, :finished_at, :finished_at,
             :duration_seconds, NULL, 1
         )
         """
@@ -588,6 +590,7 @@ def mark_progress_done(
             "rows_qfq": counts.get("stock_daily_bars_qfq"),
             "rows_hfq": counts.get("stock_daily_bars_hfq"),
             "duration_seconds": round(duration_seconds, 3),
+            "finished_at": datetime.now(),
         }
         result = connection.execute(update_statement, params)
         if result.rowcount == 0:
@@ -612,7 +615,7 @@ def mark_progress_failed(
         SET task_id = :task_id,
             stock_name = :stock_name,
             status = 'failed',
-            finished_at = NOW(),
+            finished_at = :finished_at,
             duration_seconds = :duration_seconds,
             error = :error
         WHERE symbol = :symbol
@@ -627,7 +630,7 @@ def mark_progress_failed(
             task_id, symbol, stock_name, start_date, end_date, status, started_at, finished_at,
             duration_seconds, error, run_count
         ) VALUES (
-            :task_id, :symbol, :stock_name, :start_date, :end_date, 'failed', NOW(), NOW(),
+            :task_id, :symbol, :stock_name, :start_date, :end_date, 'failed', :finished_at, :finished_at,
             :duration_seconds, :error, 1
         )
         """
@@ -641,6 +644,7 @@ def mark_progress_failed(
             "task_id": task_id,
             "duration_seconds": round(duration_seconds, 3),
             "error": error[:4000],
+            "finished_at": datetime.now(),
         }
         result = connection.execute(update_statement, params)
         if result.rowcount == 0:
@@ -905,7 +909,7 @@ def import_completed_from_logs(engine: Engine, log_paths: list[str], start_date:
             duration_seconds, error, run_count
         ) VALUES (
             :symbol, NULL, :start_date, :end_date, 'done',
-            :rows_none, :rows_qfq, :rows_hfq, NOW(), NOW(),
+            :rows_none, :rows_qfq, :rows_hfq, :finished_at, :finished_at,
             NULL, NULL, 0
         )
         ON DUPLICATE KEY UPDATE
@@ -913,7 +917,7 @@ def import_completed_from_logs(engine: Engine, log_paths: list[str], start_date:
             rows_none = VALUES(rows_none),
             rows_qfq = VALUES(rows_qfq),
             rows_hfq = VALUES(rows_hfq),
-            finished_at = IF(status = 'done', finished_at, NOW()),
+            finished_at = IF(status = 'done', finished_at, :finished_at),
             error = NULL
         """
     )
@@ -935,6 +939,7 @@ def import_completed_from_logs(engine: Engine, log_paths: list[str], start_date:
                 "rows_none": int(match.group("rows_none")),
                 "rows_qfq": int(match.group("rows_qfq")),
                 "rows_hfq": int(match.group("rows_hfq")),
+                "finished_at": datetime.now(),
             }
     if not imported:
         return 0
@@ -954,13 +959,16 @@ def mark_task_running(engine: Engine, task_id: int | None, total_count: int) -> 
         UPDATE {quote_identifier(TASK_TABLE)}
         SET status = 'running',
             total_count = :total_count,
-            started_at = COALESCE(started_at, NOW()),
+            started_at = COALESCE(started_at, :started_at),
             message = '任务执行中'
         WHERE id = :task_id
         """
     )
     with engine.begin() as connection:
-        connection.execute(statement, {"task_id": task_id, "total_count": total_count})
+        connection.execute(
+            statement,
+            {"task_id": task_id, "total_count": total_count, "started_at": datetime.now()},
+        )
 
 
 def finish_task(engine: Engine, task_id: int | None, start_date: str, end_date: str, message: str | None = None) -> None:
@@ -988,10 +996,10 @@ def finish_task(engine: Engine, task_id: int | None, start_date: str, end_date: 
             failed_count = :failed_count,
             running_count = :running_count,
             skipped_count = :skipped_count,
-            finished_at = NOW(),
+            finished_at = :finished_at,
             duration_seconds = CASE
                 WHEN started_at IS NULL THEN duration_seconds
-                ELSE TIMESTAMPDIFF(SECOND, started_at, NOW())
+                ELSE TIMESTAMPDIFF(SECOND, started_at, :finished_at)
             END,
             message = :message
         WHERE id = :task_id
@@ -1009,6 +1017,7 @@ def finish_task(engine: Engine, task_id: int | None, start_date: str, end_date: 
                 "running_count": running_count,
                 "skipped_count": counts.get("skipped", 0),
                 "message": message or f"done={done_count};failed={failed_count};running={running_count}",
+                "finished_at": datetime.now(),
             },
         )
 

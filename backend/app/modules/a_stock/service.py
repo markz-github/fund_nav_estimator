@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import json
 import logging
 import os
@@ -441,10 +441,10 @@ class AStockHistorySyncService:
                     f"""
                     INSERT INTO {TASK_TABLE} (
                         task_type, status, start_date, end_date, workers, total_count,
-                        retry_count, message
+                        retry_count, message, created_at
                     ) VALUES (
                         'history_sync', 'pending', :start_date, :end_date, :workers, :total_count,
-                        :retry_count, '任务已提交'
+                        :retry_count, '任务已提交', :created_at
                     )
                     """
                 ),
@@ -454,11 +454,13 @@ class AStockHistorySyncService:
                     "workers": workers,
                     "total_count": total_count,
                     "retry_count": retry_count,
+                    "created_at": datetime.now(),
                 },
             )
             return int(result.lastrowid)
 
     def _mark_task_started(self, task_id: int, pid: int, stdout_log: str, stderr_log: str) -> None:
+        started_at = datetime.now()
         with self.engine().begin() as connection:
             connection.execute(
                 text(
@@ -467,11 +469,18 @@ class AStockHistorySyncService:
                     SET pid = :pid,
                         stdout_log = :stdout_log,
                         stderr_log = :stderr_log,
+                        started_at = :started_at,
                         message = '任务进程已启动'
                     WHERE id = :task_id
                     """
                 ),
-                {"task_id": task_id, "pid": pid, "stdout_log": stdout_log, "stderr_log": stderr_log},
+                {
+                    "task_id": task_id,
+                    "pid": pid,
+                    "stdout_log": stdout_log,
+                    "stderr_log": stderr_log,
+                    "started_at": started_at,
+                },
             )
 
     def _mark_task_restarting(self, task_id: int) -> None:
@@ -492,24 +501,26 @@ class AStockHistorySyncService:
             )
 
     def _mark_task_failed_to_start(self, task_id: int, message: str) -> None:
+        finished_at = datetime.now()
         with self.engine().begin() as connection:
             connection.execute(
                 text(
                     f"""
                     UPDATE {TASK_TABLE}
                     SET status = 'failed',
-                        finished_at = NOW(),
+                        finished_at = :finished_at,
                         message = :message
                     WHERE id = :task_id
                     """
                 ),
-                {"task_id": task_id, "message": message[:2000]},
+                {"task_id": task_id, "message": message[:2000], "finished_at": finished_at},
             )
 
     def _mark_task_stopped(self, task_id: int) -> None:
         task = self.get_task(task_id)
         start_date = str(task["start_date"]) if task else ""
         end_date = str(task["end_date"]) if task else ""
+        finished_at = datetime.now()
         with self.engine().begin() as connection:
             if start_date and end_date:
                 connection.execute(
@@ -517,7 +528,7 @@ class AStockHistorySyncService:
                         f"""
                         UPDATE {PROGRESS_TABLE}
                         SET status = 'failed',
-                            finished_at = NOW(),
+                            finished_at = :finished_at,
                             error = '任务已手动停止'
                         WHERE task_id = :task_id
                           AND start_date = :start_date
@@ -525,7 +536,12 @@ class AStockHistorySyncService:
                           AND status = 'running'
                         """
                     ),
-                    {"task_id": task_id, "start_date": start_date, "end_date": end_date},
+                    {
+                        "task_id": task_id,
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "finished_at": finished_at,
+                    },
                 )
             connection.execute(
                 text(
@@ -533,16 +549,16 @@ class AStockHistorySyncService:
                     UPDATE {TASK_TABLE}
                     SET status = 'stopped',
                         running_count = 0,
-                        finished_at = NOW(),
+                        finished_at = :finished_at,
                         duration_seconds = CASE
                             WHEN started_at IS NULL THEN duration_seconds
-                            ELSE TIMESTAMPDIFF(SECOND, started_at, NOW())
+                            ELSE TIMESTAMPDIFF(SECOND, started_at, :finished_at)
                         END,
                         message = '任务已手动停止'
                     WHERE id = :task_id
                     """
                 ),
-                {"task_id": task_id},
+                {"task_id": task_id, "finished_at": finished_at},
             )
 
     def _require_sync_tables(self) -> None:
