@@ -40,6 +40,13 @@ class ManualFundIndexMappingOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ManualFundIndexMappingPageOut(BaseModel):
+    items: list[ManualFundIndexMappingOut]
+    total: int
+    page: int
+    page_size: int
+
+
 class PendingManualFundMappingOut(BaseModel):
     id: int
     fund_code: str

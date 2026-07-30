@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import pandas as pd
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -33,6 +33,7 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
+from app.modules.fund_nav.models.fund_latest_snapshot import FundLatestSnapshot
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.fund_profile import FundProfile
 from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
@@ -183,6 +184,13 @@ class FundNavRefreshTests(unittest.TestCase):
                 source_snapshot="test",
             )
         )
+        db.add(
+            FundLatestSnapshot(
+                fund_code="000001",
+                latest_nav_id=1,
+                latest_estimate_id=1,
+            )
+        )
         db.commit()
 
         try:
@@ -231,6 +239,35 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(fund.fund_category, "index_tracking")
         self.assertEqual(rows[0]["fund_category"], "index_tracking")
         self.assertEqual(rows[0]["fund_category_label"], "指数跟踪基金")
+
+    def test_list_funds_uses_fixed_number_of_queries(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add_all(
+            [
+                Fund(id=index, fund_code=f"{index:06d}", fund_name=f"基金{index}")
+                for index in range(1, 11)
+            ]
+        )
+        db.commit()
+        select_count = 0
+
+        def count_selects(_connection, _cursor, statement, _parameters, _context, _executemany):
+            nonlocal select_count
+            if statement.lstrip().upper().startswith("SELECT"):
+                select_count += 1
+
+        event.listen(engine, "before_cursor_execute", count_selects)
+        try:
+            rows = FundService(db).list_funds()
+        finally:
+            event.remove(engine, "before_cursor_execute", count_selects)
+            db.close()
+
+        self.assertEqual(len(rows), 10)
+        self.assertEqual(select_count, 1)
 
     def test_fund_classifier_prefers_saved_category(self) -> None:
         fund = Fund(
@@ -478,12 +515,15 @@ class FundNavRefreshTests(unittest.TestCase):
         try:
             navs = FundService(db, source).refresh_nav_history("18125")
             history = FundService(db, source).list_nav_history("018125")
+            snapshot = db.get(FundLatestSnapshot, "018125")
         finally:
             db.close()
 
         self.assertEqual(len(navs), 2)
         self.assertEqual([item.nav_date for item in history], [date(2026, 6, 3), date(2026, 6, 4)])
         self.assertEqual(history[-1].unit_nav, Decimal("1.010000"))
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.latest_nav_id, history[-1].id)
 
     def test_list_nav_history_returns_all_rows_by_default_and_supports_an_explicit_limit(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -1020,12 +1060,21 @@ class FundNavRefreshTests(unittest.TestCase):
             )
             detail_logs = db.scalars(select(FundTaskDetailLog).where(FundTaskDetailLog.fund_code == "501009")).all()
             detail_log = detail_logs[0]
+            snapshot = db.get(FundLatestSnapshot, "501009")
+            latest_estimate = db.scalar(
+                select(FundEstimate)
+                .where(FundEstimate.fund_code == "501009")
+                .order_by(FundEstimate.estimate_time.desc())
+                .limit(1)
+            )
         finally:
             db.close()
 
         self.assertEqual(result["estimated_count"], 1)
         self.assertEqual(result["skipped_count"], 0)
         self.assertEqual(second_result["estimated_count"], 1)
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.latest_estimate_id, latest_estimate.id)
         self.assertEqual(len(detail_logs), 1)
         self.assertIsNotNone(detail_log)
         self.assertEqual(detail_log.id, first_detail_log_id)
@@ -1170,13 +1219,19 @@ class FundNavRefreshTests(unittest.TestCase):
         db.commit()
 
         try:
-            logs = list_task_detail_logs(fund_code="161036", estimate_date=target_date, limit=100, db=db)
+            result = list_task_detail_logs(
+                fund_code="161036",
+                estimate_date=target_date,
+                page=1,
+                page_size=30,
+                db=db,
+            )
         finally:
             db.close()
 
-        self.assertEqual(len(logs), 1)
-        self.assertEqual(logs[0].fund_code, "161036")
-        self.assertEqual(logs[0].estimate_date, target_date)
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0].fund_code, "161036")
+        self.assertEqual(result["items"][0].estimate_date, target_date)
 
     def test_list_task_detail_logs_returns_actual_task_origin(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -1208,8 +1263,14 @@ class FundNavRefreshTests(unittest.TestCase):
         db.commit()
 
         try:
-            logs = list_task_detail_logs(fund_code="161036", estimate_date=target_date, limit=100, db=db)
-            serialized = FundTaskDetailLogOut.model_validate(logs[0])
+            result = list_task_detail_logs(
+                fund_code="161036",
+                estimate_date=target_date,
+                page=1,
+                page_size=30,
+                db=db,
+            )
+            serialized = FundTaskDetailLogOut.model_validate(result["items"][0])
         finally:
             db.close()
 
@@ -2642,6 +2703,7 @@ class FundNavRefreshTests(unittest.TestCase):
                 target_fund_sources=[target_source],
             ).refresh_holdings("12805")
             detail = FundService(db, normalize_source).get_fund_detail("012805")
+            snapshot = db.get(FundLatestSnapshot, "012805")
         finally:
             db.close()
 
@@ -2651,6 +2713,8 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(refreshed[0].source, "manual:target_etf")
         self.assertEqual(detail["target_etf_code"], "513380")
         self.assertEqual(detail["target_etf_source"], "manual:target_etf")
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.target_etf_holding_id, refreshed[0].id)
 
     def test_fund_detail_includes_target_etf_from_target_holding(self) -> None:
         engine = create_engine("sqlite:///:memory:")

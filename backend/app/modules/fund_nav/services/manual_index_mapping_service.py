@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.modules.fund_nav.models.fund import Fund
@@ -15,15 +15,22 @@ class ManualIndexMappingService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list_mappings(self) -> list[ManualFundIndexMapping]:
-        return list(
+    def list_mappings(self, *, page: int = 1, page_size: int = 30) -> dict:
+        total = self.db.scalar(select(func.count()).select_from(ManualFundIndexMapping)) or 0
+        items = list(
             self.db.scalars(
                 select(ManualFundIndexMapping).order_by(
                     ManualFundIndexMapping.mapping_type.asc(),
                     ManualFundIndexMapping.fund_code.asc(),
-                )
+                ).offset((page - 1) * page_size).limit(page_size)
             ).all()
         )
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
     def list_pending_mappings(self) -> list[dict]:
         rows = self.db.execute(

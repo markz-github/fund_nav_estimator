@@ -24,15 +24,28 @@ class EstimateDriftService:
         start_date: date | None = None,
         end_date: date | None = None,
         threshold: Decimal | None = None,
-    ) -> list[dict]:
+        page: int = 1,
+        page_size: int = 30,
+    ) -> dict:
         start_date, end_date = self._date_range(start_date, end_date)
+        fund_filter = Fund.enabled == 1
+        total = self.db.scalar(select(func.count()).select_from(Fund).where(fund_filter)) or 0
+        funds = self.db.scalars(
+            select(Fund)
+            .where(fund_filter)
+            .order_by(Fund.fund_code.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+        fund_codes = [fund.fund_code for fund in funds]
         points_by_fund: dict[str, list[dict]] = {}
-        for point in self._comparison_points(start_date=start_date, end_date=end_date):
+        for point in self._comparison_points(
+            start_date=start_date,
+            end_date=end_date,
+            fund_codes=fund_codes,
+        ):
             points_by_fund.setdefault(point["fund_code"], []).append(point)
 
-        funds = self.db.scalars(
-            select(Fund).where(Fund.enabled == 1).order_by(Fund.fund_code.asc())
-        ).all()
         summaries: list[dict] = []
         for fund in funds:
             points = points_by_fund.get(fund.fund_code, [])
@@ -66,7 +79,12 @@ class EstimateDriftService:
                     "threshold_exceeded_count": exceeded_count,
                 }
             )
-        return summaries
+        return {
+            "items": summaries,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
     def get_fund_drift_points(
         self,
@@ -109,6 +127,7 @@ class EstimateDriftService:
         start_date: date,
         end_date: date,
         fund_code: str | None = None,
+        fund_codes: list[str] | None = None,
     ) -> list[dict]:
         latest_estimate_times = (
             select(
@@ -146,6 +165,10 @@ class EstimateDriftService:
         )
         if fund_code:
             statement = statement.where(FundEstimate.fund_code == fund_code)
+        elif fund_codes is not None:
+            if not fund_codes:
+                return []
+            statement = statement.where(FundEstimate.fund_code.in_(fund_codes))
 
         points = []
         for estimate, nav in self.db.execute(statement).all():

@@ -15,6 +15,7 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
+from app.modules.fund_nav.services.fund_latest_snapshot_service import FundLatestSnapshotService
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
 from app.utils.performance import timed
@@ -99,6 +100,8 @@ class HoldingService:
                 holding.source = snapshot["source"]
             refreshed.append(holding)
 
+        self.db.flush()
+        FundLatestSnapshotService(self.db).refresh_target_etf(normalized_code)
         self.db.commit()
         for holding in refreshed:
             self.db.refresh(holding)

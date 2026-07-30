@@ -82,6 +82,15 @@ export interface EstimateDriftFilters {
   startDate?: string
   endDate?: string
   threshold?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface EstimateDriftFundSummaryPage {
+  items: EstimateDriftFundSummary[]
+  total: number
+  page: number
+  page_size: number
 }
 
 export async function getFundNavQualityReport(filters?: FundNavQualityFilters): Promise<FundNavQualityReport> {
@@ -94,12 +103,14 @@ export async function getFundNavQualityReport(filters?: FundNavQualityFilters): 
   return data
 }
 
-export async function listEstimateDriftFunds(filters?: EstimateDriftFilters): Promise<EstimateDriftFundSummary[]> {
-  const { data } = await apiClient.get<EstimateDriftFundSummary[]>('/fund-nav/quality/estimate-drift/funds', {
+export async function listEstimateDriftFunds(filters?: EstimateDriftFilters): Promise<EstimateDriftFundSummaryPage> {
+  const { data } = await apiClient.get<EstimateDriftFundSummaryPage>('/fund-nav/quality/estimate-drift/funds', {
     params: {
       start_date: filters?.startDate || undefined,
       end_date: filters?.endDate || undefined,
       threshold: filters?.threshold || undefined,
+      page: filters?.page ?? 1,
+      page_size: filters?.pageSize ?? 30,
     },
   })
   return data
