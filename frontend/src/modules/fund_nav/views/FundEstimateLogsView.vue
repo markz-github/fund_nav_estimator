@@ -18,6 +18,10 @@ const loading = ref(false)
 const message = ref('')
 const selectedFundCode = ref(String(route.query.fund_code || ''))
 const selectedDate = ref(String(route.query.estimate_date || ''))
+const currentPage = ref(1)
+const pageSize = 30
+const totalLogs = ref(0)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalLogs.value / pageSize)))
 
 const selectedFund = computed(() =>
   funds.value.find((fund) => fund.fund_code === selectedFundCode.value) ?? null,
@@ -85,11 +89,15 @@ async function loadLogs() {
   loading.value = true
   message.value = ''
   try {
-    logs.value = await listAllFundTaskDetailLogs({
+    const result = await listAllFundTaskDetailLogs({
       fundCode: selectedFundCode.value,
       estimateDate: selectedDate.value,
-      limit: 200,
+      page: currentPage.value,
+      pageSize,
     })
+    logs.value = result.items
+    totalLogs.value = result.total
+    currentPage.value = result.page
   } catch (error) {
     message.value = apiErrorMessage(error, '估算执行日志加载失败，请稍后重试。')
   } finally {
@@ -100,16 +108,29 @@ async function loadLogs() {
 function clearFilters() {
   selectedFundCode.value = ''
   selectedDate.value = ''
+  currentPage.value = 1
   void loadLogs()
 }
 
 function useToday() {
   selectedDate.value = dateInputValue()
+  currentPage.value = 1
   void loadLogs()
 }
 
 function clearDate() {
   selectedDate.value = ''
+  currentPage.value = 1
+  void loadLogs()
+}
+
+function applyFilters() {
+  currentPage.value = 1
+  void loadLogs()
+}
+
+function goToPage(page: number) {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value)
   void loadLogs()
 }
 
@@ -140,7 +161,7 @@ onMounted(async () => {
 
     <p v-if="message" class="message">{{ message }}</p>
 
-    <form class="filter-bar compact-filter" @submit.prevent="loadLogs">
+    <form class="filter-bar compact-filter" @submit.prevent="applyFilters">
       <label>
         基金
         <ElSelect v-model="selectedFundCode" filterable clearable placeholder="全部基金">
@@ -184,7 +205,7 @@ onMounted(async () => {
       </article>
       <article class="info-card">
         <span>日志数量</span>
-        <strong>{{ logs.length }}</strong>
+        <strong>{{ totalLogs }}</strong>
       </article>
     </section>
 
@@ -248,5 +269,14 @@ onMounted(async () => {
         </tbody>
       </table>
     </div>
+    <nav class="pagination-bar" aria-label="估算日志分页">
+      <button class="ghost" type="button" :disabled="loading || currentPage <= 1" @click="goToPage(currentPage - 1)">
+        上一页
+      </button>
+      <span>第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalLogs }} 条</span>
+      <button class="ghost" type="button" :disabled="loading || currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+        下一页
+      </button>
+    </nav>
   </main>
 </template>

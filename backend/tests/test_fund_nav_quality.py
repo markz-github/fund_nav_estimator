@@ -543,9 +543,9 @@ class FundNavQualityTests(unittest.TestCase):
             db=self.db,
         )
 
-        self.assertEqual(len(summaries), 1)
-        self.assertEqual(summaries[0]["comparable_count"], 2)
-        self.assertEqual(summaries[0]["threshold_exceeded_count"], 1)
+        self.assertEqual(summaries["total"], 1)
+        self.assertEqual(summaries["items"][0]["comparable_count"], 2)
+        self.assertEqual(summaries["items"][0]["threshold_exceeded_count"], 1)
         self.assertEqual(detail["comparable_count"], 2)
         self.assertEqual([point["estimate_date"] for point in detail["points"]], [date(2026, 6, 8), date(2026, 6, 9)])
         self.assertEqual(detail["points"][0]["estimated_nav"], Decimal("1.010000"))
@@ -594,9 +594,12 @@ class FundNavQualityTests(unittest.TestCase):
             db=self.db,
         )
 
-        self.assertEqual(summaries[0]["comparable_count"], 8)
-        self.assertEqual(summaries[0]["avg_difference_rate"], Decimal("0.045000"))
-        self.assertEqual(summaries[0]["recent_7_trading_day_difference_rate"], Decimal("0.050000"))
+        self.assertEqual(summaries["items"][0]["comparable_count"], 8)
+        self.assertEqual(summaries["items"][0]["avg_difference_rate"], Decimal("0.045000"))
+        self.assertEqual(
+            summaries["items"][0]["recent_7_trading_day_difference_rate"],
+            Decimal("0.050000"),
+        )
 
 
 if __name__ == "__main__":

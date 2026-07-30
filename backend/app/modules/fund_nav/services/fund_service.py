@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 import logging
 
-from sqlalchemy import Select, asc, desc, func, select
+from sqlalchemy import Select, asc, desc, select
 from sqlalchemy.orm import Session
 
 from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource, FundNavSnapshot
@@ -11,9 +11,11 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
+from app.modules.fund_nav.models.fund_latest_snapshot import FundLatestSnapshot
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.schemas.fund import FundCreate, FundUpdate
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
+from app.modules.fund_nav.services.fund_latest_snapshot_service import FundLatestSnapshotService
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
 
@@ -28,42 +30,34 @@ class FundService:
 
     @timed()
     def list_funds(self, sort_by: str | None = None, sort_order: str = "desc") -> list[dict]:
-        query = select(Fund)
+        query = (
+            select(Fund, FundNav, FundEstimate, FundIndexMapping, FundHolding)
+            .outerjoin(FundLatestSnapshot, FundLatestSnapshot.fund_code == Fund.fund_code)
+            .outerjoin(FundNav, FundNav.id == FundLatestSnapshot.latest_nav_id)
+            .outerjoin(FundEstimate, FundEstimate.id == FundLatestSnapshot.latest_estimate_id)
+            .outerjoin(FundIndexMapping, FundIndexMapping.fund_code == Fund.fund_code)
+            .outerjoin(FundHolding, FundHolding.id == FundLatestSnapshot.target_etf_holding_id)
+        )
         if sort_by == "latest_estimated_growth_rate":
-            latest_estimate_times = (
-                select(
-                    FundEstimate.fund_code,
-                    func.max(FundEstimate.estimate_time).label("latest_estimate_time"),
-                )
-                .group_by(FundEstimate.fund_code)
-                .subquery()
-            )
-            latest_estimates = (
-                select(
-                    FundEstimate.fund_code,
-                    FundEstimate.estimated_growth_rate,
-                )
-                .join(
-                    latest_estimate_times,
-                    (FundEstimate.fund_code == latest_estimate_times.c.fund_code)
-                    & (FundEstimate.estimate_time == latest_estimate_times.c.latest_estimate_time),
-                )
-                .subquery()
-            )
             direction = asc if sort_order == "asc" else desc
-            query = (
-                query.outerjoin(latest_estimates, Fund.fund_code == latest_estimates.c.fund_code)
-                .order_by(
-                    latest_estimates.c.estimated_growth_rate.is_(None),
-                    direction(latest_estimates.c.estimated_growth_rate),
-                    Fund.created_at.desc(),
-                )
+            query = query.order_by(
+                FundEstimate.estimated_growth_rate.is_(None),
+                direction(FundEstimate.estimated_growth_rate),
+                Fund.created_at.desc(),
             )
         else:
             query = query.order_by(Fund.created_at.desc())
 
-        funds = self.db.scalars(query).all()
-        return [self._fund_with_latest_data(fund) for fund in funds]
+        return [
+            self._fund_data(
+                fund,
+                latest_nav=latest_nav,
+                latest_estimate=latest_estimate,
+                index_mapping=index_mapping,
+                target_etf=target_etf,
+            )
+            for fund, latest_nav, latest_estimate, index_mapping, target_etf in self.db.execute(query).all()
+        ]
 
     @timed()
     def get_fund_detail(self, fund_code: str) -> dict | None:
@@ -231,6 +225,9 @@ class FundService:
         nav.daily_growth_rate = daily_growth_rate
         nav.source = snapshot.source
 
+        self.db.flush()
+        if latest_nav is None or nav.nav_date >= latest_nav.nav_date:
+            FundLatestSnapshotService(self.db).set_latest_nav(normalized_code, nav.id)
         self.db.commit()
         self.db.refresh(nav)
         logger.info(
@@ -254,6 +251,10 @@ class FundService:
             return []
 
         navs = [self._upsert_nav_snapshot(snapshot) for snapshot in snapshots]
+        self.db.flush()
+        if navs:
+            latest_nav = max(navs, key=lambda item: item.nav_date)
+            FundLatestSnapshotService(self.db).set_latest_nav(normalized_code, latest_nav.id)
         self.db.commit()
         logger.info("refresh_nav_history saved fund_code=%s rows=%s", normalized_code, len(navs))
         return navs
@@ -298,6 +299,23 @@ class FundService:
         latest_estimate = self.db.scalar(self._latest_estimate_query(fund.fund_code))
         index_mapping = self.db.scalar(self._index_mapping_query(fund.fund_code))
         target_etf = self.db.scalar(self._target_etf_query(fund.fund_code))
+        return self._fund_data(
+            fund,
+            latest_nav=latest_nav,
+            latest_estimate=latest_estimate,
+            index_mapping=index_mapping,
+            target_etf=target_etf,
+        )
+
+    @staticmethod
+    def _fund_data(
+        fund: Fund,
+        *,
+        latest_nav: FundNav | None,
+        latest_estimate: FundEstimate | None,
+        index_mapping: FundIndexMapping | None,
+        target_etf: FundHolding | None,
+    ) -> dict:
         return {
             "id": fund.id,
             "fund_code": fund.fund_code,

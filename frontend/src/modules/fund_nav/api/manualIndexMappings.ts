@@ -31,6 +31,13 @@ export interface ManualFundIndexMappingPayload {
   remark?: string | null
 }
 
+export interface ManualFundIndexMappingPage {
+  items: ManualFundIndexMapping[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface PendingManualFundMapping {
   id: number
   fund_code: string
@@ -45,8 +52,16 @@ export interface PendingManualFundMapping {
   message: string
 }
 
-export async function listManualIndexMappings(): Promise<ManualFundIndexMapping[]> {
-  const { data } = await apiClient.get<ManualFundIndexMapping[]>('/funds/index-mappings/manual')
+export async function listManualIndexMappings(options?: {
+  page?: number
+  pageSize?: number
+}): Promise<ManualFundIndexMappingPage> {
+  const { data } = await apiClient.get<ManualFundIndexMappingPage>('/funds/index-mappings/manual', {
+    params: {
+      page: options?.page ?? 1,
+      page_size: options?.pageSize ?? 30,
+    },
+  })
   return data
 }
 

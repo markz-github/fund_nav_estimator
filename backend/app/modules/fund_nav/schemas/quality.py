@@ -54,6 +54,13 @@ class EstimateDriftFundSummaryOut(BaseModel):
     threshold_exceeded_count: int = 0
 
 
+class EstimateDriftFundSummaryPageOut(BaseModel):
+    items: list[EstimateDriftFundSummaryOut]
+    total: int
+    page: int
+    page_size: int
+
+
 class EstimateDriftPointOut(BaseModel):
     fund_code: str
     estimate_date: date

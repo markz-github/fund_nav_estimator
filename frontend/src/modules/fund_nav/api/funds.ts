@@ -84,6 +84,13 @@ export interface FundTaskDetailLog {
   created_at: string
 }
 
+export interface FundTaskDetailLogPage {
+  items: FundTaskDetailLog[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export async function listFunds(options?: { sortBy?: FundSortBy | null; sortOrder?: SortOrder }): Promise<Fund[]> {
   const { data } = await apiClient.get<Fund[]>('/funds', {
     params: options?.sortBy
@@ -131,13 +138,15 @@ export async function listFundTaskDetailLogs(fundCode: string, limit = 50): Prom
 export async function listAllFundTaskDetailLogs(options?: {
   fundCode?: string
   estimateDate?: string
-  limit?: number
-}): Promise<FundTaskDetailLog[]> {
-  const { data } = await apiClient.get<FundTaskDetailLog[]>('/funds/task-detail-logs', {
+  page?: number
+  pageSize?: number
+}): Promise<FundTaskDetailLogPage> {
+  const { data } = await apiClient.get<FundTaskDetailLogPage>('/funds/task-detail-logs', {
     params: {
       fund_code: options?.fundCode || undefined,
       estimate_date: options?.estimateDate || undefined,
-      limit: options?.limit ?? 100,
+      page: options?.page ?? 1,
+      page_size: options?.pageSize ?? 30,
     },
   })
   return data

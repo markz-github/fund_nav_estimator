@@ -22,6 +22,10 @@ const saving = ref(false)
 const message = ref('')
 const editingFundCode = ref<string | null>(null)
 const mappingDialogOpen = ref(false)
+const currentPage = ref(1)
+const pageSize = 30
+const totalMappings = ref(0)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalMappings.value / pageSize)))
 const form = ref<ManualFundIndexMappingPayload>({
   fund_code: '',
   fund_name: '',
@@ -46,16 +50,23 @@ async function loadMappings() {
   message.value = ''
   try {
     const [manualRows, pendingRows] = await Promise.all([
-      listManualIndexMappings(),
+      listManualIndexMappings({ page: currentPage.value, pageSize }),
       listPendingManualIndexMappings(),
     ])
-    mappings.value = manualRows
+    mappings.value = manualRows.items
+    totalMappings.value = manualRows.total
+    currentPage.value = manualRows.page
     pendingMappings.value = pendingRows
   } catch (error) {
     message.value = apiErrorMessage(error, '人工映射加载失败，请确认后端服务。')
   } finally {
     loading.value = false
   }
+}
+
+function goToPage(page: number) {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value)
+  void loadMappings()
 }
 
 function editMapping(mapping: ManualFundIndexMapping) {
@@ -273,7 +284,7 @@ onMounted(loadMappings)
         <p class="eyebrow">Manual Records</p>
         <h2>映射记录</h2>
       </div>
-      <span>{{ mappings.length }} 条</span>
+      <span>共 {{ totalMappings }} 条</span>
     </section>
 
     <div class="table-card">
@@ -324,6 +335,15 @@ onMounted(loadMappings)
         </tbody>
       </table>
     </div>
+    <nav class="pagination-bar" aria-label="映射记录分页">
+      <button class="ghost" type="button" :disabled="loading || currentPage <= 1" @click="goToPage(currentPage - 1)">
+        上一页
+      </button>
+      <span>第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalMappings }} 条</span>
+      <button class="ghost" type="button" :disabled="loading || currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+        下一页
+      </button>
+    </nav>
 
     <div v-if="mappingDialogOpen" class="modal-backdrop" @click.self="closeMappingDialog">
       <section class="form-dialog" role="dialog" aria-modal="true" aria-labelledby="mapping-dialog-title">

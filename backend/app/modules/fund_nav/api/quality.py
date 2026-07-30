@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,7 +12,7 @@ from app.database import get_db
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.schemas.quality import (
     EstimateDriftDetailOut,
-    EstimateDriftFundSummaryOut,
+    EstimateDriftFundSummaryPageOut,
     FundNavQualityIssueOut,
     FundNavQualityReportOut,
     FundNavQualityTaskOut,
@@ -63,17 +64,21 @@ def get_fund_nav_quality_report(
     }
 
 
-@router.get("/estimate-drift/funds", response_model=list[EstimateDriftFundSummaryOut])
+@router.get("/estimate-drift/funds", response_model=EstimateDriftFundSummaryPageOut)
 def list_estimate_drift_funds(
     start_date: date | None = None,
     end_date: date | None = None,
     threshold: Decimal | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 30,
     db: Session = Depends(get_db),
 ):
     return EstimateDriftService(db).list_fund_drift_summaries(
         start_date=start_date,
         end_date=end_date,
         threshold=threshold,
+        page=page,
+        page_size=page_size,
     )
 
 

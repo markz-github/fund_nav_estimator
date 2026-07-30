@@ -13,6 +13,10 @@ const message = ref('')
 const endDate = ref(dateInputValue())
 const startDate = ref(offsetDateInputValue(-30))
 const thresholdPercent = ref('')
+const currentPage = ref(1)
+const pageSize = 30
+const totalSummaries = ref(0)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalSummaries.value / pageSize)))
 
 const abnormalCount = computed(() =>
   thresholdDecimal.value
@@ -59,16 +63,36 @@ async function loadSummaries() {
   loading.value = true
   message.value = ''
   try {
-    summaries.value = await listEstimateDriftFunds({
+    const result = await listEstimateDriftFunds({
       startDate: startDate.value,
       endDate: endDate.value,
       threshold: thresholdDecimal.value,
+      page: currentPage.value,
+      pageSize,
     })
+    summaries.value = result.items
+    totalSummaries.value = result.total
+    currentPage.value = result.page
   } catch (error) {
     message.value = apiErrorMessage(error, '估算偏差列表加载失败，请确认后端服务是否正常。')
   } finally {
     loading.value = false
   }
+}
+
+function applyFilters() {
+  currentPage.value = 1
+  void loadSummaries()
+}
+
+function clearThreshold() {
+  thresholdPercent.value = ''
+  applyFilters()
+}
+
+function goToPage(page: number) {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value)
+  void loadSummaries()
 }
 
 function openDetail(fundCode: string) {
@@ -99,7 +123,7 @@ onMounted(loadSummaries)
 
     <p v-if="message" class="message">{{ message }}</p>
 
-    <form class="filter-bar compact-filter" @submit.prevent="loadSummaries">
+    <form class="filter-bar compact-filter" @submit.prevent="applyFilters">
       <label>
         开始日期
         <ElDatePicker
@@ -128,13 +152,13 @@ onMounted(loadSummaries)
       </label>
       <div class="filter-actions">
         <button class="ghost" type="submit" :disabled="loading">应用</button>
-        <button class="ghost" type="button" :disabled="loading" @click="thresholdPercent = ''; loadSummaries()">清空阈值</button>
+        <button class="ghost" type="button" :disabled="loading" @click="clearThreshold">清空阈值</button>
       </div>
     </form>
 
     <section class="info-grid quality-summary-grid">
       <article class="info-card">
-        <span>有可比较数据的基金</span>
+        <span>当前页有可比较数据</span>
         <strong>{{ comparableFundCount }}</strong>
       </article>
       <article class="info-card">
@@ -211,5 +235,14 @@ onMounted(loadSummaries)
         </tbody>
       </table>
     </div>
+    <nav class="pagination-bar" aria-label="估算偏差分页">
+      <button class="ghost" type="button" :disabled="loading || currentPage <= 1" @click="goToPage(currentPage - 1)">
+        上一页
+      </button>
+      <span>第 {{ currentPage }} / {{ totalPages }} 页，共 {{ totalSummaries }} 只基金</span>
+      <button class="ghost" type="button" :disabled="loading || currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+        下一页
+      </button>
+    </nav>
   </main>
 </template>

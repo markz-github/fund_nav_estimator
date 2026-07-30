@@ -137,3 +137,10 @@ class FundTaskDetailLogOut(BaseModel):
         return parse_attempts(self.message)
 
     model_config = {"from_attributes": True}
+
+
+class FundTaskDetailLogPageOut(BaseModel):
+    items: list[FundTaskDetailLogOut]
+    total: int
+    page: int
+    page_size: int

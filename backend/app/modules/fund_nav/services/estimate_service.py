@@ -22,6 +22,7 @@ from app.modules.fund_nav.services.asset_valuation_config_service import (
     load_asset_valuation_config_map,
 )
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
+from app.modules.fund_nav.services.fund_latest_snapshot_service import FundLatestSnapshotService
 from app.modules.fund_nav.services.nav_quality_service import FundNavQualityService
 from app.utils.performance import timed
 
@@ -215,6 +216,10 @@ class EstimateService:
             )
 
         commit_started = perf_counter()
+        self.db.flush()
+        snapshot_service = FundLatestSnapshotService(self.db)
+        for estimate in estimates:
+            snapshot_service.set_latest_estimate(estimate.fund_code, estimate.id)
         self.db.commit()
         for estimate in estimates:
             self.db.refresh(estimate)

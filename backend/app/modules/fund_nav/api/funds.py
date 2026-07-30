@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -15,12 +16,13 @@ from app.modules.fund_nav.schemas.holding import FundHoldingOut
 from app.modules.fund_nav.schemas.manual_index_mapping import (
     ManualFundIndexMappingIn,
     ManualFundIndexMappingOut,
+    ManualFundIndexMappingPageOut,
     PendingManualFundMappingOut,
 )
 from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
-from app.modules.fund_nav.schemas.task_detail import FundTaskDetailLogOut
+from app.modules.fund_nav.schemas.task_detail import FundTaskDetailLogOut, FundTaskDetailLogPageOut
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
@@ -107,9 +109,13 @@ def initialize_fund_categories(db: Session = Depends(get_db)) -> dict:
     return FundProfileService(db).initialize_fund_categories()
 
 
-@router.get("/index-mappings/manual", response_model=list[ManualFundIndexMappingOut])
-def list_manual_index_mappings(db: Session = Depends(get_db)):
-    return ManualIndexMappingService(db).list_mappings()
+@router.get("/index-mappings/manual", response_model=ManualFundIndexMappingPageOut)
+def list_manual_index_mappings(
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 30,
+    db: Session = Depends(get_db),
+):
+    return ManualIndexMappingService(db).list_mappings(page=page, page_size=page_size)
 
 
 @router.get("/index-mappings/manual/pending", response_model=list[PendingManualFundMappingOut])
@@ -163,23 +169,37 @@ def update_fund(fund_code: str, payload: FundUpdate, db: Session = Depends(get_d
     return service._fund_with_latest_data(fund)
 
 
-@router.get("/task-detail-logs", response_model=list[FundTaskDetailLogOut])
+@router.get("/task-detail-logs", response_model=FundTaskDetailLogPageOut)
 def list_task_detail_logs(
     fund_code: str | None = Query(default=None),
     estimate_date: date | None = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=1000),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 30,
     db: Session = Depends(get_db),
 ):
-    statement = _task_detail_log_statement().order_by(
+    filters = []
+    if fund_code:
+        filters.append(FundTaskDetailLog.fund_code == str(fund_code).strip().zfill(6))
+    if estimate_date:
+        filters.append(FundTaskDetailLog.estimate_date == estimate_date)
+
+    total_statement = select(func.count()).select_from(FundTaskDetailLog)
+    statement = _task_detail_log_statement()
+    if filters:
+        total_statement = total_statement.where(*filters)
+        statement = statement.where(*filters)
+    total = db.scalar(total_statement) or 0
+    statement = statement.order_by(
         FundTaskDetailLog.estimate_time.desc(),
         FundTaskDetailLog.created_at.desc(),
         FundTaskDetailLog.id.desc(),
-    )
-    if fund_code:
-        statement = statement.where(FundTaskDetailLog.fund_code == str(fund_code).strip().zfill(6))
-    if estimate_date:
-        statement = statement.where(FundTaskDetailLog.estimate_date == estimate_date)
-    return _task_detail_logs_with_origin(db, statement.limit(limit))
+    ).offset((page - 1) * page_size).limit(page_size)
+    return {
+        "items": _task_detail_logs_with_origin(db, statement),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/{fund_code}", response_model=FundOut)

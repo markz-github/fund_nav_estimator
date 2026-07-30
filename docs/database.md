@@ -84,6 +84,22 @@ CREATE TABLE fund_navs (
 );
 ```
 
+## fund_latest_snapshots
+
+基金列表最新数据指针表，每只基金一行。净值、估算和持仓写入时同步维护，列表通过主键普通关联读取。
+
+```sql
+CREATE TABLE fund_latest_snapshots (
+    fund_code VARCHAR(20) PRIMARY KEY,
+    latest_nav_id BIGINT NULL,
+    latest_estimate_id BIGINT NULL,
+    target_etf_holding_id BIGINT NULL,
+    is_deleted INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
 ## fund_index_mappings
 
 指数基金与跟踪指数映射表。
