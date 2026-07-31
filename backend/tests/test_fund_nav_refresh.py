@@ -21,7 +21,7 @@ from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSour
 from app.modules.fund_nav.data_sources.akshare.eastmoney_index_source import EastmoneyIndexSource
 from app.modules.fund_nav.data_sources.web.eastmoney_source import EastmoneySource
 from app.modules.fund_nav.data_sources.web.eastmoney_index_source import EastmoneyHttpIndexSource
-from app.modules.fund_nav.data_sources.akshare.index_catalog_source import MarketIndexSnapshot
+from app.modules.fund_nav.data_sources.akshare.index_catalog_source import IndexCatalogSource, MarketIndexSnapshot
 from app.modules.fund_nav.data_sources.akshare.sina_index_source import SinaIndexSource
 from app.modules.fund_nav.data_sources.web.sina_index_source import SinaHttpIndexSource
 from app.modules.fund_nav.data_sources.web.tencent_index_source import TencentIndexSource
@@ -74,6 +74,51 @@ class FundNavRefreshTests(unittest.TestCase):
     def test_latest_completed_quarter_period_does_not_use_unfinished_quarter(self) -> None:
         self.assertEqual(latest_completed_quarter_period(date(2026, 6, 5)), "2026Q1")
         self.assertEqual(latest_completed_quarter_period(date(2026, 1, 5)), "2025Q4")
+
+    def test_cni_index_catalog_parses_named_fields_when_upstream_adds_columns(self) -> None:
+        row = {
+            "id": "1",
+            "docchannel": "1",
+            "indexcode": "399001",
+            "indextype": "1",
+            "showcnindex": "1",
+            "indexsource": "1",
+            "realtimemarket": "1",
+            "remark": None,
+            "indexname": "深证成指",
+            "indexename": "Shenzhen Index",
+            "indexfullename": "Shenzhen Component Index",
+            "indexfullcname": "深证成份指数",
+            "samplesize": 500,
+            "closeingPoint": 10000,
+            "percent": 0.01,
+            "peStatic": 10,
+            "peDynamic": 11,
+            "pb": 2,
+            "volume": 100,
+            "amount": 200,
+            "totalMarketValue": 300,
+            "freeMarketValue": 250,
+            "sampleshowdate": "2026-07-30",
+            "prefixmonth": None,
+            "showDetail": "1",
+            "dataSource": "cnindex",
+        }
+        response = Mock()
+        response.json.return_value = {"data": {"rows": [row]}}
+
+        with patch(
+            "app.modules.fund_nav.data_sources.akshare.index_catalog_source.requests.get",
+            return_value=response,
+        ):
+            snapshots = IndexCatalogSource().get_cni_indexes()
+
+        response.raise_for_status.assert_called_once()
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0].index_code, "399001")
+        self.assertEqual(snapshots[0].index_name, "深证成份指数")
+        self.assertEqual(snapshots[0].index_short_name, "深证成指")
+        self.assertEqual(snapshots[0].source, "cnindex:index_list")
 
     def test_refresh_nav_returns_today_open_fund_local_nav_without_external_fetch(self) -> None:
         engine = create_engine("sqlite:///:memory:")
