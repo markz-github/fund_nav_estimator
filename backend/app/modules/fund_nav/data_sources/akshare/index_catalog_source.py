@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import akshare as ak
+import requests
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class MarketIndexSnapshot:
 
 class IndexCatalogSource:
     source_name = "akshare:index_catalog"
+    cni_index_list_url = "https://www.cnindex.com.cn/index/indexList"
 
     def get_indexes(self) -> list[MarketIndexSnapshot]:
         snapshots: list[MarketIndexSnapshot] = []
@@ -49,22 +51,32 @@ class IndexCatalogSource:
         return snapshots
 
     def get_cni_indexes(self) -> list[MarketIndexSnapshot]:
-        dataframe = ak.index_all_cni()
+        response = requests.get(
+            self.cni_index_list_url,
+            params={"channelCode": "-1", "rows": "2000", "pageNum": "1"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("data", {}).get("rows", [])
         snapshots: list[MarketIndexSnapshot] = []
-        for _, row in dataframe.iterrows():
-            index_code = self._clean(row.get("指数代码"))
-            index_short_name = self._clean(row.get("指数简称"))
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            index_code = self._normalize_index_code(row.get("indexcode"))
+            index_short_name = self._clean(row.get("indexname"))
+            index_name = self._clean(row.get("indexfullcname")) or index_short_name
             if not index_code or not index_short_name:
                 continue
             snapshots.append(
                 MarketIndexSnapshot(
                     index_code=index_code,
-                    index_name=index_short_name,
+                    index_name=index_name,
                     index_short_name=index_short_name,
                     provider="cni",
                     currency=None,
                     asset_class=None,
-                    source="akshare:index_all_cni",
+                    source="cnindex:index_list",
                     raw_snapshot=self._row_snapshot(row),
                 )
             )
@@ -80,10 +92,18 @@ class IndexCatalogSource:
         return text
 
     @classmethod
+    def _normalize_index_code(cls, value) -> str | None:
+        code = cls._clean(value)
+        if not code:
+            return None
+        return code.zfill(6) if code.isdigit() else code
+
+    @classmethod
     def _row_snapshot(cls, row) -> str:
+        values_source = row.to_dict() if hasattr(row, "to_dict") else row
         values = {
             str(key): cls._clean(value)
-            for key, value in row.to_dict().items()
+            for key, value in values_source.items()
             if cls._clean(value) is not None
         }
         return str(values)
