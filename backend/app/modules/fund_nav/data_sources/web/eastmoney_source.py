@@ -187,13 +187,13 @@ class EastmoneySource:
         self, fund_code: str, report_period: str, row: list[str]
     ) -> ParsedHolding | None:
         code_index = next(
-            (idx for idx, cell in enumerate(row) if re.fullmatch(r"\d{5,6}", cell.strip())),
+            (idx for idx, cell in enumerate(row) if self._is_holding_asset_code(cell)),
             None,
         )
         if code_index is None or code_index + 1 >= len(row):
             return None
 
-        asset_code = row[code_index].strip().zfill(5 if len(row[code_index].strip()) == 5 else 6)
+        asset_code = self._normalize_holding_asset_code(row[code_index])
         asset_name = row[code_index + 1].strip()
         asset_type = self._infer_asset_type(asset_code)
         ratio_index = next(
@@ -318,6 +318,8 @@ class EastmoneySource:
 
     @staticmethod
     def _infer_stock_market(asset_code: str) -> str | None:
+        if EastmoneySource._is_us_stock_code(asset_code):
+            return "US"
         if len(asset_code) == 5:
             return "HK"
         if asset_code.startswith(("6", "9")):
@@ -327,6 +329,25 @@ class EastmoneySource:
         if asset_code.startswith(("4", "8")):
             return "BJ"
         return None
+
+    @staticmethod
+    def _normalize_holding_asset_code(asset_code: object) -> str:
+        code = str(asset_code).strip().upper()
+        if re.search(r"[A-Z]", code):
+            # Eastmoney can pad QDII tickers such as NVDA as 00NVDA.
+            return re.sub(r"^0+", "", code)
+        return code.zfill(5 if len(code) == 5 else 6)
+
+    @staticmethod
+    def _is_us_stock_code(asset_code: str) -> bool:
+        return bool(re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", asset_code.upper()))
+
+    @classmethod
+    def _is_holding_asset_code(cls, value: object) -> bool:
+        raw_code = str(value).strip().upper()
+        if re.fullmatch(r"\d{5,6}", raw_code):
+            return True
+        return cls._is_us_stock_code(cls._normalize_holding_asset_code(raw_code))
 
     @staticmethod
     def _infer_asset_type(asset_code: str) -> str:

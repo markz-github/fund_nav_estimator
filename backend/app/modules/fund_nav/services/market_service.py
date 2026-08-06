@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time
 from time import perf_counter
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -27,7 +29,12 @@ class MarketService:
         return self.source.get_market_quotes(asset_codes)
 
     @timed()
-    def refresh_quotes_for_holdings(self, fund_codes: list[str] | None = None) -> list[MarketQuote]:
+    def refresh_quotes_for_holdings(
+        self,
+        fund_codes: list[str] | None = None,
+        *,
+        reference_time: datetime | None = None,
+    ) -> list[MarketQuote]:
         started = perf_counter()
         valuation_configs = load_asset_valuation_config_map(self.db)
         assets = self._assets_from_latest_holdings(fund_codes)
@@ -37,6 +44,12 @@ class MarketService:
             asset_code: asset
             for asset_code, asset in assets.items()
             if valuation_configs.resolve(asset["asset_type"], asset["market"]).realtime_valuable
+        }
+        refresh_time = reference_time or datetime.now()
+        valuable_assets = {
+            asset_code: asset
+            for asset_code, asset in valuable_assets.items()
+            if self._market_has_opened(asset.get("market"), refresh_time)
         }
         stock_asset_codes = [
             asset_code
@@ -212,3 +225,26 @@ class MarketService:
             if code.endswith(suffix):
                 return code[: -len(suffix)]
         return code
+
+    @staticmethod
+    def _market_has_opened(market: str | None, reference_time: datetime) -> bool:
+        """Avoid pre-open realtime requests while retaining post-close close-price refreshes."""
+        schedules = {
+            "SH": ("Asia/Shanghai", time(9, 30)),
+            "SZ": ("Asia/Shanghai", time(9, 30)),
+            "BJ": ("Asia/Shanghai", time(9, 30)),
+            "CN": ("Asia/Shanghai", time(9, 30)),
+            "HK": ("Asia/Hong_Kong", time(9, 30)),
+            "US": ("America/New_York", time(9, 30)),
+        }
+        schedule = schedules.get(market or "")
+        if schedule is None:
+            return True
+        timezone_name, open_time = schedule
+        if reference_time.tzinfo:
+            local_time = reference_time.astimezone(ZoneInfo(timezone_name))
+        else:
+            local_time = reference_time.replace(tzinfo=ZoneInfo("Asia/Shanghai")).astimezone(
+                ZoneInfo(timezone_name)
+            )
+        return local_time.weekday() < 5 and local_time.time() >= open_time
