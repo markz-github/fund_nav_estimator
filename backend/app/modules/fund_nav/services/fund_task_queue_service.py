@@ -160,8 +160,21 @@ class FundTaskQueueService:
         try:
             status, message = self._handler(task)
         except Exception as exc:
+            logger.exception(
+                "fund_queue event=handler_failed task_id=%s type=%s",
+                task.id,
+                task.task_type,
+            )
             self.db.rollback()
-            log_fetch_error(self.db, "internal", task.task_type, str(task.id), repr(exc))
+            try:
+                log_fetch_error(self.db, "internal", task.task_type, str(task.id), repr(exc))
+            except Exception:
+                self.db.rollback()
+                logger.exception(
+                    "fund_queue event=error_log_failed task_id=%s type=%s",
+                    task.id,
+                    task.task_type,
+                )
             status, message = "failed", repr(exc)
         task = self.db.get(FundTaskQueue, task_id)
         if task is not None:
@@ -391,6 +404,12 @@ class FundTaskDispatcher:
                     return
                 with SessionLocal() as db:
                     FundTaskQueueService(db).execute(task.id)
+        except Exception:
+            logger.exception(
+                "fund_queue event=worker_execution_failed task_id=%s type=%s",
+                task.id if "task" in locals() and task is not None else "unknown",
+                task.task_type if "task" in locals() and task is not None else "unknown",
+            )
         finally:
             with self.active_lock:
                 self.active -= 1

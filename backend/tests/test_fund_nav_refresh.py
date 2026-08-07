@@ -44,6 +44,7 @@ from app.modules.fund_nav.models.index_quote_symbol import IndexQuoteSymbol
 from app.modules.fund_nav.models.manual_fund_index_mapping import ManualFundIndexMapping
 from app.modules.fund_nav.models.market_index import MarketIndex
 from app.modules.fund_nav.models.market_quote import MarketQuote
+from app.modules.operations.models.task_log import TaskLog
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.schemas.fund import FundCreate, FundUpdate
 from app.modules.fund_nav.schemas.manual_index_mapping import ManualFundIndexMappingIn
@@ -54,6 +55,7 @@ from app.modules.fund_nav.services.fund_service import FundService
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
+from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.fund_nav.services.holding_service import HoldingService
 from app.modules.fund_nav.services.index_catalog_service import IndexCatalogService
 from app.modules.fund_nav.services.index_quote_source_status_service import (
@@ -1559,6 +1561,48 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertFalse(MarketService._market_has_opened("CN", datetime(2026, 6, 5, 9, 29)))
         self.assertFalse(MarketService._market_has_opened("US", datetime(2026, 6, 5, 20, 0)))
         self.assertTrue(MarketService._market_has_opened("US", datetime(2026, 6, 5, 22, 0)))
+
+    def test_task_handler_failure_is_written_to_application_log(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        task_log = TaskLog(
+            task_name="测试任务",
+            task_type="check_nav_quality",
+            status="running",
+            started_at=datetime(2026, 8, 6, 22, 30),
+        )
+        db.add(task_log)
+        db.flush()
+        task = FundTaskQueue(
+            task_log_id=task_log.id,
+            task_type="check_nav_quality",
+            task_name="测试任务",
+            origin="test",
+            dedupe_key="test-handler-failure",
+            status="running",
+            queued_at=datetime(2026, 8, 6, 22, 30),
+            started_at=datetime(2026, 8, 6, 22, 30),
+        )
+        db.add(task)
+        db.commit()
+
+        service = FundTaskQueueService(db)
+        with (
+            patch.object(service, "_handler", side_effect=RuntimeError("database query failed")),
+            patch("app.modules.fund_nav.services.fund_task_queue_service.logger.exception") as log_exception,
+        ):
+            service.execute(task.id)
+
+        refreshed = db.get(FundTaskQueue, task.id)
+        self.assertEqual(refreshed.status, "failed")
+        log_exception.assert_called_once_with(
+            "fund_queue event=handler_failed task_id=%s type=%s",
+            task.id,
+            "check_nav_quality",
+        )
+        db.close()
 
     def test_latest_holding_assets_exclude_soft_deleted_or_disabled_funds(self) -> None:
         engine = create_engine("sqlite:///:memory:")
