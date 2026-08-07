@@ -21,6 +21,7 @@ from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSour
 from app.modules.fund_nav.data_sources.akshare.eastmoney_index_source import EastmoneyIndexSource
 from app.modules.fund_nav.data_sources.web.eastmoney_source import EastmoneySource
 from app.modules.fund_nav.data_sources.web.eastmoney_index_source import EastmoneyHttpIndexSource
+from app.modules.fund_nav.data_sources.web.sina_fund_source import SinaFundSource
 from app.modules.fund_nav.data_sources.akshare.index_catalog_source import IndexCatalogSource, MarketIndexSnapshot
 from app.modules.fund_nav.data_sources.akshare.sina_index_source import SinaIndexSource
 from app.modules.fund_nav.data_sources.web.sina_index_source import SinaHttpIndexSource
@@ -1522,6 +1523,48 @@ class FundNavRefreshTests(unittest.TestCase):
             db.close()
 
         source.get_market_quotes.assert_called_once_with(["000001"])
+
+    def test_refresh_quotes_for_holdings_skips_assets_before_their_market_opens(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add_all(
+            [
+                Fund(id=1, fund_code="017436", fund_name="华宝纳斯达克精选", fund_type="QDII"),
+                FundHolding(
+                    id=1,
+                    fund_code="017436",
+                    report_period="2026Q2",
+                    asset_code="NVDA",
+                    asset_name="英伟达",
+                    asset_type="stock",
+                    market="US",
+                    holding_ratio=Decimal("1"),
+                    holding_value=None,
+                    source="test",
+                ),
+            ]
+        )
+        db.commit()
+        source = Mock()
+        source.get_market_quotes.return_value = []
+
+        try:
+            quotes = MarketService(db, source).refresh_quotes_for_holdings(
+                ["017436"], reference_time=datetime(2026, 6, 5, 20, 0)
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(quotes, [])
+        source.get_market_quotes.assert_not_called()
+
+    def test_market_has_opened_uses_the_asset_market_timezone(self) -> None:
+        self.assertTrue(MarketService._market_has_opened("CN", datetime(2026, 6, 5, 9, 30)))
+        self.assertFalse(MarketService._market_has_opened("CN", datetime(2026, 6, 5, 9, 29)))
+        self.assertFalse(MarketService._market_has_opened("US", datetime(2026, 6, 5, 20, 0)))
+        self.assertTrue(MarketService._market_has_opened("US", datetime(2026, 6, 5, 22, 0)))
 
     def test_latest_holding_assets_exclude_soft_deleted_or_disabled_funds(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -3819,6 +3862,31 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(holdings[0].asset_code, "603179")
         self.assertEqual(holdings[0].asset_name, "新泉股份")
         self.assertEqual(holdings[0].holding_ratio, Decimal("0.0937"))
+
+    def test_eastmoney_holdings_parses_qdii_us_tickers(self) -> None:
+        response_text = """
+            截止至：<font>2026-06-30</font><table><tr><td>1</td><td>00NVDA</td><td>英伟达</td>
+            <td>相关资讯</td><td>8.14%</td><td>61.70</td><td>84085.28</td></tr></table>
+        """
+
+        holdings = EastmoneySource()._parse_fund_archives_holdings("017436", response_text)
+
+        self.assertEqual(len(holdings), 1)
+        self.assertEqual(holdings[0].report_period, "2026Q2")
+        self.assertEqual(holdings[0].asset_code, "NVDA")
+        self.assertEqual(holdings[0].asset_type, "stock")
+        self.assertEqual(holdings[0].market, "US")
+        self.assertEqual(holdings[0].holding_ratio, Decimal("0.0814"))
+
+    def test_sina_holdings_normalizes_qdii_us_tickers(self) -> None:
+        payload = {"data": [{"symbol": "00AAPL", "name": "苹果", "ratio": "7.5", "date": "2026-06-30"}]}
+
+        holdings = SinaFundSource()._parse_holdings("017436", payload)
+
+        self.assertEqual(len(holdings), 1)
+        self.assertEqual(holdings[0]["asset_code"], "AAPL")
+        self.assertEqual(holdings[0]["market"], "US")
+        self.assertEqual(holdings[0]["holding_ratio"], Decimal("0.075"))
 
     def test_eastmoney_holdings_combines_latest_stock_and_bond_holdings(self) -> None:
         stock_response = """

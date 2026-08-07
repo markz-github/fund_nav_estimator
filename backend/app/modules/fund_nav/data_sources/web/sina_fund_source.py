@@ -86,7 +86,7 @@ class SinaFundSource:
             value = self._first_value(row, ("value", "sz", "market_value", "ccsz"))
             if not code or not name or ratio is None:
                 continue
-            asset_code = str(code).strip().zfill(5 if len(str(code).strip()) == 5 else 6)
+            asset_code = self._normalize_holding_asset_code(code)
             asset_type = self._infer_asset_type(asset_code)
             holdings.append(
                 {
@@ -166,6 +166,8 @@ class SinaFundSource:
 
     @staticmethod
     def _infer_stock_market(asset_code: str) -> str | None:
+        if SinaFundSource._is_us_stock_code(asset_code):
+            return "US"
         if len(asset_code) == 5:
             return "HK"
         if asset_code.startswith(("6", "9")):
@@ -175,6 +177,17 @@ class SinaFundSource:
         if asset_code.startswith(("4", "8")):
             return "BJ"
         return None
+
+    @staticmethod
+    def _normalize_holding_asset_code(asset_code: object) -> str:
+        code = str(asset_code).strip().upper()
+        if re.search(r"[A-Z]", code):
+            return re.sub(r"^0+", "", code)
+        return code.zfill(5 if len(code) == 5 else 6)
+
+    @staticmethod
+    def _is_us_stock_code(asset_code: str) -> bool:
+        return bool(re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", asset_code.upper()))
 
     @staticmethod
     def _infer_asset_type(asset_code: str) -> str:
