@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import BaseDialog from '../components/BaseDialog.vue'
 import { apiErrorMessage } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
 import { formatDateTime } from '../../../utils/datetime'
@@ -345,7 +346,7 @@ onMounted(loadMappings)
       </button>
     </nav>
 
-    <div v-if="mappingDialogOpen" class="modal-backdrop" @click.self="closeMappingDialog">
+    <BaseDialog v-if="mappingDialogOpen" :open="true" @close="closeMappingDialog">
       <section class="form-dialog" role="dialog" aria-modal="true" aria-labelledby="mapping-dialog-title">
         <div class="dialog-header">
           <div>
@@ -399,6 +400,6 @@ onMounted(loadMappings)
           </div>
         </form>
       </section>
-    </div>
+    </BaseDialog>
   </main>
 </template>

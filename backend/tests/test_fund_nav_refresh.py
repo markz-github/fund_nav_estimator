@@ -2883,7 +2883,7 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(refreshed.source, "manual")
         source.get_mapping.assert_not_called()
 
-    def test_manual_target_etf_mapping_used_when_web_sources_empty(self) -> None:
+    def test_manual_target_etf_mapping_overrides_web_source(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
         SessionLocal = sessionmaker(bind=engine)
@@ -2905,7 +2905,19 @@ class FundNavRefreshTests(unittest.TestCase):
         holding_source = Mock()
         holding_source.get_fund_holdings.return_value = []
         target_source = Mock()
-        target_source.get_target_fund_holdings.return_value = []
+        target_source.get_target_fund_holdings.return_value = [
+            {
+                "fund_code": "012805",
+                "report_period": "2025Q1",
+                "asset_code": "589000",
+                "asset_name": "错误的网页 ETF 提示",
+                "asset_type": "etf",
+                "market": "CN",
+                "holding_ratio": Decimal("1"),
+                "holding_value": None,
+                "source": "eastmoney:target_hint",
+            }
+        ]
         normalize_source = Mock()
         normalize_source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
 
@@ -2925,6 +2937,7 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(refreshed[0].asset_code, "513380")
         self.assertEqual(refreshed[0].asset_name, "广发恒生科技(QDII-ETF)")
         self.assertEqual(refreshed[0].source, "manual:target_etf")
+        target_source.get_target_fund_holdings.assert_not_called()
         self.assertEqual(detail["target_etf_code"], "513380")
         self.assertEqual(detail["target_etf_source"], "manual:target_etf")
         self.assertIsNotNone(snapshot)

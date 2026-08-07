@@ -60,17 +60,20 @@ class HoldingService:
         replace_all_periods = False
         use_target_fund_holdings = self._should_use_target_fund_holdings(normalized_code, snapshots)
         if use_target_fund_holdings:
-            target_fund_snapshots = self._collect_target_fund_holdings(normalized_code)
-            if target_fund_snapshots:
-                snapshots = target_fund_snapshots
+            manual_target = ManualIndexMappingService(self.db).get_target_etf_holding(normalized_code)
+            if manual_target is not None:
+                snapshots = [manual_target]
                 replace_all_periods = True
             else:
-                inferred_target = ManualIndexMappingService(self.db).get_target_etf_holding(normalized_code)
-                if inferred_target is None:
-                    inferred_target = self._infer_target_fund_holding(normalized_code)
-                if inferred_target is not None:
-                    snapshots = [inferred_target]
+                target_fund_snapshots = self._collect_target_fund_holdings(normalized_code)
+                if target_fund_snapshots:
+                    snapshots = target_fund_snapshots
                     replace_all_periods = True
+                else:
+                    inferred_target = self._infer_target_fund_holding(normalized_code)
+                    if inferred_target is not None:
+                        snapshots = [inferred_target]
+                        replace_all_periods = True
         else:
             self._delete_target_hint_holdings(normalized_code)
         snapshots = self._deduplicate_snapshots(snapshots)

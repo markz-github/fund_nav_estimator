@@ -12,7 +12,7 @@ const navItems = [
   { routeName: routeNames.fundNavQuality, label: '净值巡检' },
   { routeName: routeNames.estimateDriftList, label: '估算偏差' },
   { routeName: routeNames.fundEstimateLogs, label: '估算日志' },
-  { routeName: routeNames.manualIndexMappings, label: '指数映射' },
+  { routeName: routeNames.manualIndexMappings, label: '基金映射' },
   { routeName: routeNames.indexQuoteSources, label: '渠道管理' },
   { routeName: routeNames.operations, label: '运行状态' },
 ]

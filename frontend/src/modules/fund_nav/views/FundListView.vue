@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import FundTable from '../components/FundTable.vue'
+import BaseDialog from '../components/BaseDialog.vue'
 import { apiErrorMessage, isRequestTimeout } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
 import { refreshQuotesAndRunEstimates } from '../api/estimates'
@@ -279,7 +280,7 @@ onMounted(loadFunds)
       />
     </section>
 
-    <div v-if="pendingDeleteFund" class="modal-backdrop" @click.self="pendingDeleteFund = null">
+    <BaseDialog v-if="pendingDeleteFund" :open="true" @close="pendingDeleteFund = null">
       <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title">
         <p class="eyebrow">Delete Fund</p>
         <h2 id="delete-title">删除自选基金</h2>
@@ -292,9 +293,9 @@ onMounted(loadFunds)
           <button class="danger" type="button" @click="confirmDeleteFund">删除</button>
         </div>
       </section>
-    </div>
+    </BaseDialog>
 
-    <div v-if="addFundOpen" class="modal-backdrop" @click.self="addFundOpen = false">
+    <BaseDialog v-if="addFundOpen" :open="true" @close="addFundOpen = false">
       <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="add-fund-title">
         <p class="eyebrow">Add Fund</p>
         <h2 id="add-fund-title">添加基金</h2>
@@ -313,6 +314,6 @@ onMounted(loadFunds)
           </div>
         </form>
       </section>
-    </div>
+    </BaseDialog>
   </main>
 </template>
