@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import BaseDialog from '../components/BaseDialog.vue'
 import { apiErrorMessage } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
 import {
@@ -454,7 +455,7 @@ onMounted(loadSources)
       {{ popover.text }}
     </div>
 
-    <div v-if="viewingSource" class="modal-backdrop" @click.self="closeViewDialog">
+    <BaseDialog v-if="viewingSource" :open="true" @close="closeViewDialog">
       <section class="form-dialog source-rule-dialog" role="dialog" aria-modal="true" aria-labelledby="source-rule-view-title">
         <div class="dialog-header">
           <div>
@@ -483,9 +484,9 @@ onMounted(loadSources)
           <button class="primary" type="button" @click="openRuleDialog(viewingSource); closeViewDialog()">编辑</button>
         </div>
       </section>
-    </div>
+    </BaseDialog>
 
-    <div v-if="editingSource" class="modal-backdrop" @click.self="closeRuleDialog">
+    <BaseDialog v-if="editingSource" :open="true" @close="closeRuleDialog">
       <section class="form-dialog source-rule-dialog" role="dialog" aria-modal="true" aria-labelledby="source-rule-title">
         <div class="dialog-header">
           <div>
@@ -543,9 +544,9 @@ onMounted(loadSources)
           </div>
         </form>
       </section>
-    </div>
+    </BaseDialog>
 
-    <div v-if="symbolDialogOpen" class="modal-backdrop" @click.self="closeSymbolDialog">
+    <BaseDialog v-if="symbolDialogOpen" :open="true" @close="closeSymbolDialog">
       <section class="form-dialog source-rule-dialog" role="dialog" aria-modal="true" aria-labelledby="symbol-rule-title">
         <div class="dialog-header">
           <div>
@@ -600,7 +601,7 @@ onMounted(loadSources)
           </div>
         </form>
       </section>
-    </div>
+    </BaseDialog>
   </main>
 </template>
 
