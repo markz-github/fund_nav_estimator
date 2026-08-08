@@ -146,7 +146,14 @@ class MarketService:
         latest_period_statement = select(
             FundHolding.fund_code,
             func.max(FundHolding.report_period).label("report_period"),
-        ).where(FundHolding.holding_ratio > 0)
+        ).join(
+            Fund,
+            Fund.fund_code == FundHolding.fund_code,
+        ).where(
+            FundHolding.holding_ratio > 0,
+            Fund.enabled == 1,
+            Fund.is_deleted == 0,
+        )
         if fund_codes:
             latest_period_statement = latest_period_statement.where(FundHolding.fund_code.in_(fund_codes))
         latest_periods = latest_period_statement.group_by(FundHolding.fund_code).subquery()

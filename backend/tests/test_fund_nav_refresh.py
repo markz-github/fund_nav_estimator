@@ -1483,6 +1483,12 @@ class FundNavRefreshTests(unittest.TestCase):
         db = SessionLocal()
         db.add_all(
             [
+                Fund(
+                    id=1,
+                    fund_code="018125",
+                    fund_name="兴业聚华混合A",
+                    fund_type="混合型",
+                ),
                 FundHolding(
                     id=1,
                     fund_code="018125",
@@ -1514,7 +1520,9 @@ class FundNavRefreshTests(unittest.TestCase):
         source.get_market_quotes.return_value = []
 
         try:
-            MarketService(db, source).refresh_quotes_for_holdings(["018125"])
+            MarketService(db, source).refresh_quotes_for_holdings(
+                ["018125"], reference_time=datetime(2026, 6, 8, 10, 35)
+            )
         finally:
             db.close()
 
@@ -1714,7 +1722,9 @@ class FundNavRefreshTests(unittest.TestCase):
         ]
 
         try:
-            quotes = MarketService(db, source).refresh_quotes_for_holdings(["515450"])
+            quotes = MarketService(db, source).refresh_quotes_for_holdings(
+                ["515450"], reference_time=datetime(2026, 6, 5, 10, 30)
+            )
         finally:
             db.close()
 
@@ -1765,7 +1775,9 @@ class FundNavRefreshTests(unittest.TestCase):
         ]
 
         try:
-            quotes = MarketService(db, source).refresh_quotes_for_holdings(["501009"])
+            quotes = MarketService(db, source).refresh_quotes_for_holdings(
+                ["501009"], reference_time=datetime(2026, 6, 24, 15, 30)
+            )
         finally:
             db.close()
 
@@ -1837,7 +1849,9 @@ class FundNavRefreshTests(unittest.TestCase):
         source.get_index_quotes.side_effect = fake_index_quotes
 
         try:
-            MarketService(db, source).refresh_quotes_for_holdings()
+            MarketService(db, source).refresh_quotes_for_holdings(
+                reference_time=datetime(2026, 6, 5, 10, 30)
+            )
         finally:
             db.close()
 
