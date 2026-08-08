@@ -1503,7 +1503,7 @@ class FundNavRefreshTests(unittest.TestCase):
                     asset_name="25国债13",
                     asset_type="bond",
                     market="CN",
-                    holding_ratio=Decimal("0.500000"),
+                    holding_ratio=Decimal("0.120000"),
                     holding_value=None,
                     source="test",
                 ),
@@ -3054,6 +3054,9 @@ class FundNavRefreshTests(unittest.TestCase):
 
         self.assertEqual(result.estimated_growth_rate, Decimal("0.010000000000"))
         self.assertEqual(result.estimated_nav, Decimal("1.0100000000000000"))
+        # The reported holdings cover only 62% of the fund.  The coverage
+        # shown to users must not normalize the quoted 50% stock position to
+        # 100% of the disclosed holdings.
         self.assertEqual(result.coverage_ratio, Decimal("0.5"))
 
     def test_etf_feeder_estimate_skips_stale_target_etf_quote(self) -> None:

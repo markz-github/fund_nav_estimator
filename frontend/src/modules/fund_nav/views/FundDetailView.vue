@@ -623,7 +623,7 @@ onBeforeUnmount(disposeNavChart)
         <strong>{{ formatDateTime(fund.latest_estimate_time) }}</strong>
       </article>
       <article class="info-card" :class="{ 'warning-card': fund.latest_coverage_ratio && Number(fund.latest_coverage_ratio) < 0.6 }">
-        <span>有效覆盖率</span>
+        <span>实时估值持仓覆盖率</span>
         <strong>{{ percent(fund.latest_coverage_ratio) }}</strong>
       </article>
     </section>
@@ -631,7 +631,7 @@ onBeforeUnmount(disposeNavChart)
     <p v-if="fund && !fund.latest_unit_nav" class="message">缺少官方净值，请先刷新净值。</p>
     <p v-else-if="fund && !fund.latest_estimated_nav" class="message">当前还没有估算结果，可在运行状态页查看估算任务日志。</p>
     <p v-else-if="fund?.latest_coverage_ratio && Number(fund.latest_coverage_ratio) < 0.6" class="message">
-      当前估算覆盖率偏低，可能存在持仓、行情缺失，或债券等不可实时估值资产未参与估算。
+      当前实时估值持仓覆盖率偏低，表示只有这部分基金资产拥有可用的实时行情；未披露持仓、缺失行情及不可实时估值资产均未计入。
     </p>
 
     <section class="section-title">

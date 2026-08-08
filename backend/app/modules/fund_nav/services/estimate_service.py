@@ -57,10 +57,8 @@ class HoldingWeightedEstimateStrategy(EstimateStrategy):
         latest_quotes = self.service._latest_quotes([holding.asset_code for holding in valuable_holdings])
         weighted_growth = Decimal("0")
         covered_ratio = Decimal("0")
-        total_ratio = Decimal("0")
 
         for holding in holdings:
-            total_ratio += holding.holding_ratio
             if not valuation_configs.resolve(holding.asset_type, holding.market).realtime_valuable:
                 continue
             quote = latest_quotes.get(holding.asset_code)
@@ -71,12 +69,14 @@ class HoldingWeightedEstimateStrategy(EstimateStrategy):
             weighted_growth += holding.holding_ratio * quote.change_rate
             covered_ratio += holding.holding_ratio
 
-        if total_ratio == 0:
-            return "zero_holding_ratio"
         if covered_ratio == 0:
             return "missing_quotes"
 
-        coverage_ratio = covered_ratio / total_ratio
+        # Holding ratios are percentages of the fund's total assets.  Do not
+        # normalize by the disclosed holdings: public reports normally expose
+        # only the top holdings, and that would turn (for example) 62% into a
+        # misleading 100% coverage rate.
+        coverage_ratio = min(covered_ratio, Decimal("1"))
         estimated_nav = self.service.calculate_estimated_nav(latest_nav.unit_nav, weighted_growth)
         return FundEstimate(
             fund_code=fund_code,
