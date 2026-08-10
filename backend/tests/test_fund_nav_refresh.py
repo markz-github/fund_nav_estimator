@@ -3905,6 +3905,12 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(bond["market"], "CN")
         self.assertEqual(bond["holding_ratio"], Decimal("0.0045"))
 
+    def test_akshare_report_period_normalizes_interim_and_annual_reports(self) -> None:
+        source = AkshareSource()
+
+        self.assertEqual(source._parse_report_period("2026年中报股票投资明细"), "2026H1")
+        self.assertEqual(source._parse_report_period("2025年年度报告股票投资明细"), "2025Y")
+
     def test_eastmoney_target_hint_ignores_footer_code_and_page_title(self) -> None:
         html_text = (
             "沪ICP备11042629号-1 沪B2-20130026 网站备案号 "

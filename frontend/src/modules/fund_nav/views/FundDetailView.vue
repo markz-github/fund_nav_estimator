@@ -786,6 +786,13 @@ onBeforeUnmount(disposeNavChart)
         <button class="ghost" :disabled="refreshingHoldings" @click="refreshHoldings">
           {{ refreshingHoldings ? '刷新中...' : '刷新持仓' }}
         </button>
+        <RouterLink
+          v-if="selectedReportPeriod"
+          class="link-button"
+          :to="{ name: routeNames.fundReportDetail, params: { fundCode, reportPeriod: selectedReportPeriod } }"
+        >
+          查看报告详情
+        </RouterLink>
       </div>
     </section>
 
@@ -796,6 +803,7 @@ onBeforeUnmount(disposeNavChart)
         <thead>
           <tr>
             <th>报告期</th>
+            <th>报告详情</th>
             <th>资产代码</th>
             <th>资产名称</th>
             <th>资产类型</th>
@@ -807,13 +815,19 @@ onBeforeUnmount(disposeNavChart)
         </thead>
         <tbody>
           <tr v-if="holdings.length === 0">
-            <td colspan="8">当前还没有持仓数据，可以点击“刷新持仓”从 akshare 同步。</td>
+            <td colspan="9">当前还没有持仓数据，可以点击“刷新持仓”从 akshare 同步。</td>
           </tr>
           <tr v-else-if="filteredHoldings.length === 0">
-            <td colspan="8">当前报告期没有持仓数据。</td>
+            <td colspan="9">当前报告期没有持仓数据。</td>
           </tr>
           <tr v-for="holding in filteredHoldings" :key="`${holding.report_period}-${holding.asset_code}`">
             <td data-label="报告期">{{ holding.report_period }}</td>
+            <td data-label="报告详情">
+              <RouterLink
+                class="table-link"
+                :to="{ name: routeNames.fundReportDetail, params: { fundCode, reportPeriod: holding.report_period } }"
+              >查看</RouterLink>
+            </td>
             <td class="mono" data-label="资产代码">{{ holding.asset_code }}</td>
             <td data-label="资产名称">{{ holding.asset_name }}</td>
             <td data-label="资产类型">{{ holding.asset_type }}</td>

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import FundListView from '../modules/fund_nav/views/FundListView.vue'
 import FundDetailView from '../modules/fund_nav/views/FundDetailView.vue'
+import FundReportDetailView from '../modules/fund_nav/views/FundReportDetailView.vue'
 import EstimateDriftDetailView from '../modules/fund_nav/views/EstimateDriftDetailView.vue'
 import EstimateDriftListView from '../modules/fund_nav/views/EstimateDriftListView.vue'
 import FundEstimateLogsView from '../modules/fund_nav/views/FundEstimateLogsView.vue'
@@ -32,6 +33,11 @@ const router = createRouter({
       path: '/fund-nav/funds/:fundCode',
       name: routeNames.fundDetail,
       component: FundDetailView,
+    },
+    {
+      path: '/fund-nav/funds/:fundCode/reports/:reportPeriod',
+      name: routeNames.fundReportDetail,
+      component: FundReportDetailView,
     },
     {
       path: '/fund-nav/quality/nav',
