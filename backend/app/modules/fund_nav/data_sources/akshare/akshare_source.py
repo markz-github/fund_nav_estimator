@@ -697,7 +697,7 @@ class AkshareSource:
             )
             raise TimeoutError(f"Timed out waiting for AkShare endpoint lock: {endpoint}")
         try:
-            logging.getLogger("app.performance").info(
+            logging.getLogger("app.performance").debug(
                 "akshare_lock endpoint=%s status=acquired wait_ms=%.2f",
                 endpoint,
                 (monotonic() - wait_started) * 1000,
@@ -762,16 +762,16 @@ class AkshareSource:
     def _fresh_cache(cls, endpoint: str, ttl_seconds: int):
         cached = cls._stale_cache(endpoint)
         if cached is None:
-            logging.getLogger("app.performance").info("akshare_cache endpoint=%s status=miss", endpoint)
+            logging.getLogger("app.performance").debug("akshare_cache endpoint=%s status=miss", endpoint)
             return None
         dataframe, loaded_at = cached
         age = monotonic() - loaded_at
         if age >= ttl_seconds:
-            logging.getLogger("app.performance").info(
+            logging.getLogger("app.performance").debug(
                 "akshare_cache endpoint=%s status=expired age_seconds=%.2f", endpoint, age
             )
             return None
-        logging.getLogger("app.performance").info(
+        logging.getLogger("app.performance").debug(
             "akshare_cache endpoint=%s status=hit age_seconds=%.2f", endpoint, age
         )
         return dataframe
@@ -903,9 +903,16 @@ class AkshareSource:
     @staticmethod
     def _parse_report_period(value: str) -> str:
         match = re.search(r"(\d{4})年(\d)季度", value)
-        if not match:
-            return value.strip()
-        return f"{match.group(1)}Q{match.group(2)}"
+        if match:
+            return f"{match.group(1)}Q{match.group(2)}"
+        year_match = re.search(r"(\d{4})年", value)
+        if year_match:
+            year = year_match.group(1)
+            if any(marker in value for marker in ("中报", "中期报告", "半年度报告")):
+                return f"{year}H1"
+            if any(marker in value for marker in ("年报", "年度报告")):
+                return f"{year}Y"
+        return value.strip()
 
     @staticmethod
     def _infer_stock_market(asset_code: str) -> str | None:

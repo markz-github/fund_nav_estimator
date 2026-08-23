@@ -1,6 +1,7 @@
 export const routeNames = {
   fundList: 'fund-list',
   fundDetail: 'fund-detail',
+  fundReportDetail: 'fund-report-detail',
   fundNavQuality: 'fund-nav-quality',
   estimateDriftList: 'estimate-drift-list',
   estimateDriftDetail: 'estimate-drift-detail',

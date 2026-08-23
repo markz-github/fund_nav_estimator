@@ -205,6 +205,37 @@ h1 {
   box-shadow: 0 16px 40px rgba(35, 52, 45, 0.08);
 }
 
+.report-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0 24px 28px;
+}
+
+.report-summary-card {
+  padding: 18px 20px;
+}
+
+.report-summary-card h3 {
+  margin: 0 0 14px;
+  font-size: 1rem;
+}
+
+.report-summary-card dl {
+  margin: 0;
+}
+
+.report-summary-card dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(36, 63, 47, 0.1);
+}
+
+.report-summary-card dt { color: #66746d; }
+.report-summary-card dd { margin: 0; font-weight: 800; }
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -1745,6 +1776,12 @@ tbody tr:hover {
   .add-card,
   .table-card,
   .pagination-bar {
+    margin-right: 12px;
+    margin-left: 12px;
+  }
+
+  .report-summary-grid {
+    grid-template-columns: 1fr;
     margin-right: 12px;
     margin-left: 12px;
   }

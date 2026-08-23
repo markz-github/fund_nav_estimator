@@ -389,8 +389,6 @@ class FundTaskDispatcher:
             for _ in range(available):
                 with self.active_lock:
                     self.active += 1
-                    active = self.active
-                logger.info("fund_queue event=dispatch_attempt active=%s", active)
                 self.executor.submit(self._execute_next)
 
     def _execute_next(self) -> None:

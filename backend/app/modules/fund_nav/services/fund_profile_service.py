@@ -39,7 +39,7 @@ class FundProfileService:
             )
             raise TimeoutError("Timed out waiting for fund profile synchronization")
         try:
-            logging.getLogger("app.performance").info(
+            logging.getLogger("app.performance").debug(
                 "akshare_lock endpoint=fund_name_em status=acquired wait_ms=%.2f",
                 (perf_counter() - wait_started) * 1000,
             )
@@ -60,7 +60,7 @@ class FundProfileService:
             )
             raise TimeoutError("Timed out waiting for fund profile synchronization")
         try:
-            logging.getLogger("app.performance").info(
+            logging.getLogger("app.performance").debug(
                 "akshare_lock endpoint=fund_name_em status=acquired wait_ms=%.2f",
                 (perf_counter() - wait_started) * 1000,
             )

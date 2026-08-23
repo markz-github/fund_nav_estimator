@@ -623,7 +623,7 @@ onBeforeUnmount(disposeNavChart)
         <strong>{{ formatDateTime(fund.latest_estimate_time) }}</strong>
       </article>
       <article class="info-card" :class="{ 'warning-card': fund.latest_coverage_ratio && Number(fund.latest_coverage_ratio) < 0.6 }">
-        <span>有效覆盖率</span>
+        <span>实时估值持仓覆盖率</span>
         <strong>{{ percent(fund.latest_coverage_ratio) }}</strong>
       </article>
     </section>
@@ -631,7 +631,7 @@ onBeforeUnmount(disposeNavChart)
     <p v-if="fund && !fund.latest_unit_nav" class="message">缺少官方净值，请先刷新净值。</p>
     <p v-else-if="fund && !fund.latest_estimated_nav" class="message">当前还没有估算结果，可在运行状态页查看估算任务日志。</p>
     <p v-else-if="fund?.latest_coverage_ratio && Number(fund.latest_coverage_ratio) < 0.6" class="message">
-      当前估算覆盖率偏低，可能存在持仓、行情缺失，或债券等不可实时估值资产未参与估算。
+      当前实时估值持仓覆盖率偏低，表示只有这部分基金资产拥有可用的实时行情；未披露持仓、缺失行情及不可实时估值资产均未计入。
     </p>
 
     <section class="section-title">
@@ -786,6 +786,13 @@ onBeforeUnmount(disposeNavChart)
         <button class="ghost" :disabled="refreshingHoldings" @click="refreshHoldings">
           {{ refreshingHoldings ? '刷新中...' : '刷新持仓' }}
         </button>
+        <RouterLink
+          v-if="selectedReportPeriod"
+          class="link-button"
+          :to="{ name: routeNames.fundReportDetail, params: { fundCode, reportPeriod: selectedReportPeriod } }"
+        >
+          查看报告详情
+        </RouterLink>
       </div>
     </section>
 
@@ -796,6 +803,7 @@ onBeforeUnmount(disposeNavChart)
         <thead>
           <tr>
             <th>报告期</th>
+            <th>报告详情</th>
             <th>资产代码</th>
             <th>资产名称</th>
             <th>资产类型</th>
@@ -807,13 +815,19 @@ onBeforeUnmount(disposeNavChart)
         </thead>
         <tbody>
           <tr v-if="holdings.length === 0">
-            <td colspan="8">当前还没有持仓数据，可以点击“刷新持仓”从 akshare 同步。</td>
+            <td colspan="9">当前还没有持仓数据，可以点击“刷新持仓”从 akshare 同步。</td>
           </tr>
           <tr v-else-if="filteredHoldings.length === 0">
-            <td colspan="8">当前报告期没有持仓数据。</td>
+            <td colspan="9">当前报告期没有持仓数据。</td>
           </tr>
           <tr v-for="holding in filteredHoldings" :key="`${holding.report_period}-${holding.asset_code}`">
             <td data-label="报告期">{{ holding.report_period }}</td>
+            <td data-label="报告详情">
+              <RouterLink
+                class="table-link"
+                :to="{ name: routeNames.fundReportDetail, params: { fundCode, reportPeriod: holding.report_period } }"
+              >查看</RouterLink>
+            </td>
             <td class="mono" data-label="资产代码">{{ holding.asset_code }}</td>
             <td data-label="资产名称">{{ holding.asset_name }}</td>
             <td data-label="资产类型">{{ holding.asset_type }}</td>

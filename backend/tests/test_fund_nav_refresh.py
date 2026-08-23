@@ -1509,7 +1509,7 @@ class FundNavRefreshTests(unittest.TestCase):
                     asset_name="25国债13",
                     asset_type="bond",
                     market="CN",
-                    holding_ratio=Decimal("0.500000"),
+                    holding_ratio=Decimal("0.120000"),
                     holding_value=None,
                     source="test",
                 ),
@@ -1520,7 +1520,9 @@ class FundNavRefreshTests(unittest.TestCase):
         source.get_market_quotes.return_value = []
 
         try:
-            MarketService(db, source).refresh_quotes_for_holdings(["018125"])
+            MarketService(db, source).refresh_quotes_for_holdings(
+                ["018125"], reference_time=datetime(2026, 6, 8, 10, 35)
+            )
         finally:
             db.close()
 
@@ -1720,7 +1722,9 @@ class FundNavRefreshTests(unittest.TestCase):
         ]
 
         try:
-            quotes = MarketService(db, source).refresh_quotes_for_holdings(["515450"])
+            quotes = MarketService(db, source).refresh_quotes_for_holdings(
+                ["515450"], reference_time=datetime(2026, 6, 5, 10, 30)
+            )
         finally:
             db.close()
 
@@ -1771,7 +1775,9 @@ class FundNavRefreshTests(unittest.TestCase):
         ]
 
         try:
-            quotes = MarketService(db, source).refresh_quotes_for_holdings(["501009"])
+            quotes = MarketService(db, source).refresh_quotes_for_holdings(
+                ["501009"], reference_time=datetime(2026, 6, 24, 15, 30)
+            )
         finally:
             db.close()
 
@@ -1843,7 +1849,9 @@ class FundNavRefreshTests(unittest.TestCase):
         source.get_index_quotes.side_effect = fake_index_quotes
 
         try:
-            MarketService(db, source).refresh_quotes_for_holdings()
+            MarketService(db, source).refresh_quotes_for_holdings(
+                reference_time=datetime(2026, 6, 5, 10, 30)
+            )
         finally:
             db.close()
 
@@ -3060,6 +3068,9 @@ class FundNavRefreshTests(unittest.TestCase):
 
         self.assertEqual(result.estimated_growth_rate, Decimal("0.010000000000"))
         self.assertEqual(result.estimated_nav, Decimal("1.0100000000000000"))
+        # The reported holdings cover only 62% of the fund.  The coverage
+        # shown to users must not normalize the quoted 50% stock position to
+        # 100% of the disclosed holdings.
         self.assertEqual(result.coverage_ratio, Decimal("0.5"))
 
     def test_etf_feeder_estimate_skips_stale_target_etf_quote(self) -> None:
@@ -3893,6 +3904,12 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(bond["asset_name"], "25国债13")
         self.assertEqual(bond["market"], "CN")
         self.assertEqual(bond["holding_ratio"], Decimal("0.0045"))
+
+    def test_akshare_report_period_normalizes_interim_and_annual_reports(self) -> None:
+        source = AkshareSource()
+
+        self.assertEqual(source._parse_report_period("2026年中报股票投资明细"), "2026H1")
+        self.assertEqual(source._parse_report_period("2025年年度报告股票投资明细"), "2025Y")
 
     def test_eastmoney_target_hint_ignores_footer_code_and_page_title(self) -> None:
         html_text = (
