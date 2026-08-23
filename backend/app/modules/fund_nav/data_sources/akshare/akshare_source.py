@@ -697,7 +697,7 @@ class AkshareSource:
             )
             raise TimeoutError(f"Timed out waiting for AkShare endpoint lock: {endpoint}")
         try:
-            logging.getLogger("app.performance").info(
+            logging.getLogger("app.performance").debug(
                 "akshare_lock endpoint=%s status=acquired wait_ms=%.2f",
                 endpoint,
                 (monotonic() - wait_started) * 1000,
@@ -762,16 +762,16 @@ class AkshareSource:
     def _fresh_cache(cls, endpoint: str, ttl_seconds: int):
         cached = cls._stale_cache(endpoint)
         if cached is None:
-            logging.getLogger("app.performance").info("akshare_cache endpoint=%s status=miss", endpoint)
+            logging.getLogger("app.performance").debug("akshare_cache endpoint=%s status=miss", endpoint)
             return None
         dataframe, loaded_at = cached
         age = monotonic() - loaded_at
         if age >= ttl_seconds:
-            logging.getLogger("app.performance").info(
+            logging.getLogger("app.performance").debug(
                 "akshare_cache endpoint=%s status=expired age_seconds=%.2f", endpoint, age
             )
             return None
-        logging.getLogger("app.performance").info(
+        logging.getLogger("app.performance").debug(
             "akshare_cache endpoint=%s status=hit age_seconds=%.2f", endpoint, age
         )
         return dataframe

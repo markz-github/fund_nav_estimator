@@ -91,3 +91,10 @@ def configure_logging(
         logger.handlers.clear()
         logger.setLevel(level)
         logger.propagate = True
+
+    # The task queue logs the useful lifecycle events (submitted, claimed,
+    # finished and failures).  APScheduler's per-run "Running job" and
+    # "executed successfully" messages only duplicate those events.
+    # Keep scheduler warnings and errors visible without producing a heartbeat
+    # line for every cron trigger.
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
