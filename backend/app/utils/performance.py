@@ -8,9 +8,12 @@ from typing import Callable, TypeVar
 
 F = TypeVar("F", bound=Callable)
 logger = logging.getLogger("app.performance")
+DEFAULT_SLOW_METHOD_THRESHOLD_MS = 500.0
 
 
-def timed(label: str | None = None):
+def timed(label: str | None = None, *, threshold_ms: float = DEFAULT_SLOW_METHOD_THRESHOLD_MS):
+    """Log only method calls that exceed the configured slow-call threshold."""
+
     def decorator(func: F) -> F:
         metric_name = label or f"{func.__module__}.{func.__qualname__}"
 
@@ -21,7 +24,13 @@ def timed(label: str | None = None):
                 return func(*args, **kwargs)
             finally:
                 duration_ms = (perf_counter() - started_at) * 1000
-                logger.info("method=%s duration_ms=%.2f", metric_name, duration_ms)
+                if duration_ms >= threshold_ms:
+                    logger.warning(
+                        "slow_method=%s duration_ms=%.2f threshold_ms=%.2f",
+                        metric_name,
+                        duration_ms,
+                        threshold_ms,
+                    )
 
         return wrapper  # type: ignore[return-value]
 
