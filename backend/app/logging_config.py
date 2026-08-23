@@ -86,11 +86,18 @@ def configure_logging(
         root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)
 
-    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    for logger_name in ("uvicorn", "uvicorn.error"):
         logger = logging.getLogger(logger_name)
         logger.handlers.clear()
         logger.setLevel(level)
         logger.propagate = True
+
+    # Request middleware emits failures and slow requests with more useful
+    # context.  Suppress Uvicorn's one-line entry for every successful request.
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.handlers.clear()
+    access_logger.setLevel(logging.WARNING)
+    access_logger.propagate = True
 
     # The task queue logs the useful lifecycle events (submitted, claimed,
     # finished and failures).  APScheduler's per-run "Running job" and

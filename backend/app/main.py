@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.logging_config import configure_logging
 from app.scheduler.scheduler import create_a_stock_scheduler, create_fund_scheduler
 from app.modules.fund_nav.services.fund_task_queue_service import dispatcher
+from app.utils.request_logging import request_log_level
 
 
 settings = get_settings()
@@ -43,15 +44,29 @@ a_stock_scheduler = create_a_stock_scheduler() if settings.scheduler_a_stock_ena
 @app.middleware("http")
 async def log_request_duration(request: Request, call_next):
     started_at = perf_counter()
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (perf_counter() - started_at) * 1000
+        logging.getLogger("app.performance").exception(
+            "request method=%s path=%s status=500 outcome=exception duration_ms=%.2f",
+            request.method,
+            request.url.path,
+            duration_ms,
+        )
+        raise
+
     duration_ms = (perf_counter() - started_at) * 1000
-    logging.getLogger("app.performance").info(
-        "request method=%s path=%s status=%s duration_ms=%.2f",
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration_ms,
-    )
+    level = request_log_level(response.status_code, duration_ms)
+    if level is not None:
+        logging.getLogger("app.performance").log(
+            level,
+            "request method=%s path=%s status=%s duration_ms=%.2f",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
     return response
 
 
