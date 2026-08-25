@@ -27,12 +27,28 @@ from app.modules.fund_nav.services.nav_quality_service import FundNavQualityServ
 from app.modules.fund_nav.data_sources.akshare.akshare_source import FetchDiagnostic
 from app.modules.operations.models.task_log import TaskLog
 from app.modules.operations.services.operation_log_service import log_fetch_error
+from app.utils.performance import slow_method_threshold
 
 
 logger = logging.getLogger("app.performance")
 WORKER_COUNT = 2
 POLL_INTERVAL_SECONDS = 2
 INTERRUPTED_MESSAGE = "Fund task worker interrupted before completion"
+# Thresholds apply to individual instrumented methods within a queue task, not
+# to the task's total runtime (which is already persisted for the task page).
+SLOW_METHOD_THRESHOLD_BY_TASK_TYPE: dict[str, float | None] = {
+    "refresh_profile": 15_000.0,
+    "refresh_nav": 5_000.0,
+    "check_nav_quality": 10_000.0,
+    "refresh_holding": 15_000.0,
+    "refresh_quote": 15_000.0,
+    "estimate_nav": 10_000.0,
+    "refresh_quote_estimate": 20_000.0,
+    "refresh_index_mapping": 5_000.0,
+    "refresh_index_catalog": 15_000.0,
+    "sync_new_fund_data": 30_000.0,
+}
+DEFAULT_QUEUE_SLOW_METHOD_THRESHOLD_MS = 10_000.0
 
 
 def normalize_fund_codes(fund_codes: list[str] | None) -> list[str] | None:
@@ -158,7 +174,10 @@ class FundTaskQueueService:
             return
         started = perf_counter()
         try:
-            status, message = self._handler(task)
+            with slow_method_threshold(
+                SLOW_METHOD_THRESHOLD_BY_TASK_TYPE.get(task.task_type, DEFAULT_QUEUE_SLOW_METHOD_THRESHOLD_MS)
+            ):
+                status, message = self._handler(task)
         except Exception as exc:
             logger.exception(
                 "fund_queue event=handler_failed task_id=%s type=%s",
