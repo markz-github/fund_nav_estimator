@@ -59,12 +59,13 @@ ADJUST_TABLES = {
 PROGRESS_TABLE = "stock_daily_bars_sync_progress"
 TASK_TABLE = "a_stock_history_sync_tasks"
 PROGRESS_RUNNING_STALE_MINUTES = 30
-_hist_source_available = True
 _hist_source_lock = Lock()
 _akshare_fetch_lock = Lock()
 _progress_lock = Lock()
 _rebuild_lock = Lock()
 logger = logging.getLogger("app.a_stock.daily_sync")
+HIST_SOURCE_RETRY_COOLDOWN_SECONDS = 60
+_hist_source_retry_at = 0.0
 
 
 @dataclass(frozen=True)
@@ -125,17 +126,22 @@ def normalize_symbol(value) -> str:
 
 
 def prefixed_symbol(symbol: str) -> str:
+    # Beijing Exchange stocks include the newer 920xxx code range.  Shanghai
+    # B-shares also start with 9, so only this explicit range is Beijing.
+    if symbol.startswith(("4", "8", "920")):
+        return f"bj{symbol}"
     if symbol.startswith(("6", "9")):
         return f"sh{symbol}"
-    if symbol.startswith(("4", "8")):
-        return f"bj{symbol}"
     return f"sz{symbol}"
 
 
 def fetch_history_dataframe(symbol: str, start_date: str, end_date: str, adjust: str):
-    global _hist_source_available
+    global _hist_source_retry_at
     with _akshare_fetch_lock:
-        if _hist_source_available:
+        now = monotonic()
+        with _hist_source_lock:
+            primary_source_available = now >= _hist_source_retry_at
+        if primary_source_available:
             try:
                 dataframe = ak.stock_zh_a_hist(
                     symbol=symbol,
@@ -145,10 +151,19 @@ def fetch_history_dataframe(symbol: str, start_date: str, end_date: str, adjust:
                     adjust=adjust,
                     timeout=30,
                 )
+                with _hist_source_lock:
+                    _hist_source_retry_at = 0.0
                 return dataframe, "akshare:stock_zh_a_hist"
             except Exception:
                 with _hist_source_lock:
-                    _hist_source_available = False
+                    _hist_source_retry_at = monotonic() + HIST_SOURCE_RETRY_COOLDOWN_SECONDS
+                logger.warning(
+                    "akshare_history_primary_failed endpoint=stock_zh_a_hist symbol=%s adjust=%s cooldown_seconds=%s",
+                    symbol,
+                    adjust or "none",
+                    HIST_SOURCE_RETRY_COOLDOWN_SECONDS,
+                    exc_info=True,
+                )
 
         try:
             dataframe = ak.stock_zh_a_hist_tx(

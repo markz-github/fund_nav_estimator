@@ -22,8 +22,8 @@ class AStockSchedulerJobTests(unittest.TestCase):
         dataframe = pd.DataFrame(
             [{"date": date(2026, 7, 24), "open": 39, "close": 38.18, "high": 39.15, "low": 38.15, "amount": 1}]
         )
-        previous_available = sync_a_stock_daily_bars._hist_source_available
-        sync_a_stock_daily_bars._hist_source_available = False
+        previous_retry_at = sync_a_stock_daily_bars._hist_source_retry_at
+        sync_a_stock_daily_bars._hist_source_retry_at = float("inf")
         try:
             with (
                 patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist_tx", return_value=dataframe) as tencent,
@@ -31,12 +31,44 @@ class AStockSchedulerJobTests(unittest.TestCase):
             ):
                 result, source = sync_a_stock_daily_bars.fetch_history_dataframe("689009", "20260724", "20260724", "")
         finally:
-            sync_a_stock_daily_bars._hist_source_available = previous_available
+            sync_a_stock_daily_bars._hist_source_retry_at = previous_retry_at
 
         self.assertEqual(source, "akshare:stock_zh_a_hist_tx")
         self.assertIs(result, dataframe)
         tencent.assert_called_once_with(symbol="sh689009", start_date="20260724", end_date="20260724", adjust="")
         sina.assert_not_called()
+
+    def test_beijing_exchange_920_code_uses_bj_prefix_for_fallback(self) -> None:
+        dataframe = pd.DataFrame(
+            [{"date": date(2026, 7, 24), "open": 10, "close": 10, "high": 10, "low": 10, "amount": 1}]
+        )
+        previous_retry_at = sync_a_stock_daily_bars._hist_source_retry_at
+        sync_a_stock_daily_bars._hist_source_retry_at = float("inf")
+        try:
+            with patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist_tx", return_value=dataframe) as tencent:
+                result, source = sync_a_stock_daily_bars.fetch_history_dataframe("920112", "20260724", "20260724", "")
+        finally:
+            sync_a_stock_daily_bars._hist_source_retry_at = previous_retry_at
+
+        self.assertEqual(source, "akshare:stock_zh_a_hist_tx")
+        self.assertIs(result, dataframe)
+        tencent.assert_called_once_with(symbol="bj920112", start_date="20260724", end_date="20260724", adjust="")
+
+    def test_primary_history_failure_uses_temporary_cooldown(self) -> None:
+        dataframe = pd.DataFrame(
+            [{"date": date(2026, 7, 24), "open": 10, "close": 10, "high": 10, "low": 10, "amount": 1}]
+        )
+        previous_retry_at = sync_a_stock_daily_bars._hist_source_retry_at
+        sync_a_stock_daily_bars._hist_source_retry_at = 0.0
+        try:
+            with (
+                patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist", side_effect=RuntimeError("source unavailable")),
+                patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist_tx", return_value=dataframe),
+            ):
+                sync_a_stock_daily_bars.fetch_history_dataframe("600000", "20260724", "20260724", "")
+            self.assertGreater(sync_a_stock_daily_bars._hist_source_retry_at, 0.0)
+        finally:
+            sync_a_stock_daily_bars._hist_source_retry_at = previous_retry_at
 
     def test_scheduler_job_checks_and_starts_missing_previous_trading_day(self) -> None:
         service = Mock()
