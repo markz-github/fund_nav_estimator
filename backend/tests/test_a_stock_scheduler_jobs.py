@@ -70,6 +70,21 @@ class AStockSchedulerJobTests(unittest.TestCase):
         finally:
             sync_a_stock_daily_bars._hist_source_retry_at = previous_retry_at
 
+    def test_repeated_fetch_issues_are_logged_as_a_summary(self) -> None:
+        sync_a_stock_daily_bars.reset_fetch_issue_stats()
+        try:
+            with patch.object(sync_a_stock_daily_bars.logger, "warning") as warning:
+                sync_a_stock_daily_bars.record_fetch_issue("empty_response", "stock_zh_a_daily", "920111", "")
+                sync_a_stock_daily_bars.record_fetch_issue("empty_response", "stock_zh_a_daily", "920112", "")
+                sync_a_stock_daily_bars.log_fetch_issue_summary()
+
+            self.assertEqual(warning.call_count, 2)
+            self.assertIn("repeats_will_be_summarized=true", warning.call_args_list[0].args[0])
+            self.assertIn("akshare_fetch_issue_summary", warning.call_args_list[1].args[0])
+            self.assertEqual(warning.call_args_list[1].args[4], 2)
+        finally:
+            sync_a_stock_daily_bars.reset_fetch_issue_stats()
+
     def test_scheduler_job_checks_and_starts_missing_previous_trading_day(self) -> None:
         service = Mock()
         service.sync_previous_trading_day_if_missing.return_value = {"started": True, "trade_date": "20260609"}

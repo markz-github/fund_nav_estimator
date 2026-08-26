@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -63,15 +64,62 @@ _hist_source_lock = Lock()
 _akshare_fetch_lock = Lock()
 _progress_lock = Lock()
 _rebuild_lock = Lock()
+_fetch_issue_lock = Lock()
 logger = logging.getLogger("app.a_stock.daily_sync")
 HIST_SOURCE_RETRY_COOLDOWN_SECONDS = 60
 _hist_source_retry_at = 0.0
+_fetch_issue_counts: Counter[tuple[str, str, str]] = Counter()
+_fetch_issue_examples: dict[tuple[str, str, str], tuple[str, str | None]] = {}
 
 
 @dataclass(frozen=True)
 class StockInfo:
     symbol: str
     name: str | None
+
+
+def reset_fetch_issue_stats() -> None:
+    with _fetch_issue_lock:
+        _fetch_issue_counts.clear()
+        _fetch_issue_examples.clear()
+
+
+def record_fetch_issue(event: str, endpoint: str, symbol: str, adjust: str, error: BaseException | None = None) -> None:
+    """Aggregate repeated upstream failures and retain one representative sample."""
+
+    key = (event, endpoint, adjust or "none")
+    error_text = repr(error) if error is not None else None
+    with _fetch_issue_lock:
+        _fetch_issue_counts[key] += 1
+        count = _fetch_issue_counts[key]
+        _fetch_issue_examples.setdefault(key, (symbol, error_text))
+    if count == 1:
+        logger.warning(
+            "akshare_fetch_issue event=%s endpoint=%s adjust=%s example_symbol=%s error=%s repeats_will_be_summarized=true",
+            event,
+            endpoint,
+            adjust or "none",
+            symbol,
+            error_text or "none",
+        )
+
+
+def log_fetch_issue_summary() -> None:
+    with _fetch_issue_lock:
+        summaries = [
+            (*key, count, *_fetch_issue_examples[key])
+            for key, count in sorted(_fetch_issue_counts.items())
+        ]
+    for event, endpoint, adjust, count, symbol, error_text in summaries:
+        logger.warning(
+            "akshare_fetch_issue_summary event=%s endpoint=%s adjust=%s count=%s example_symbol=%s error=%s",
+            event,
+            endpoint,
+            adjust,
+            count,
+            symbol,
+            error_text or "none",
+        )
 
 
 def quote_identifier(identifier: str) -> str:
@@ -154,15 +202,15 @@ def fetch_history_dataframe(symbol: str, start_date: str, end_date: str, adjust:
                 with _hist_source_lock:
                     _hist_source_retry_at = 0.0
                 return dataframe, "akshare:stock_zh_a_hist"
-            except Exception:
+            except Exception as exc:
                 with _hist_source_lock:
                     _hist_source_retry_at = monotonic() + HIST_SOURCE_RETRY_COOLDOWN_SECONDS
-                logger.warning(
-                    "akshare_history_primary_failed endpoint=stock_zh_a_hist symbol=%s adjust=%s cooldown_seconds=%s",
+                record_fetch_issue(
+                    "primary_failed",
+                    "stock_zh_a_hist",
                     symbol,
                     adjust or "none",
-                    HIST_SOURCE_RETRY_COOLDOWN_SECONDS,
-                    exc_info=True,
+                    exc,
                 )
 
         try:
@@ -173,12 +221,13 @@ def fetch_history_dataframe(symbol: str, start_date: str, end_date: str, adjust:
                 adjust=adjust,
             )
             return dataframe, "akshare:stock_zh_a_hist_tx"
-        except Exception:
-            logger.warning(
-                "akshare_history_fallback_failed endpoint=stock_zh_a_hist_tx symbol=%s adjust=%s",
+        except Exception as exc:
+            record_fetch_issue(
+                "fallback_failed",
+                "stock_zh_a_hist_tx",
                 symbol,
                 adjust or "none",
-                exc_info=True,
+                exc,
             )
 
         try:
@@ -191,19 +240,21 @@ def fetch_history_dataframe(symbol: str, start_date: str, end_date: str, adjust:
         except KeyError as exc:
             if str(exc).strip("'\"") != "date":
                 raise
-            logger.warning(
-                "akshare_empty_response endpoint=stock_zh_a_daily symbol=%s adjust=%s missing_column=date",
+            record_fetch_issue(
+                "empty_response",
+                "stock_zh_a_daily",
                 symbol,
                 adjust or "none",
             )
             return pd.DataFrame(), "akshare:stock_zh_a_daily:empty"
 
         if not dataframe.empty and "date" not in dataframe.columns and "日期" not in dataframe.columns:
-            logger.warning(
-                "akshare_invalid_response endpoint=stock_zh_a_daily symbol=%s adjust=%s columns=%s",
+            record_fetch_issue(
+                "invalid_response",
+                "stock_zh_a_daily",
                 symbol,
                 adjust or "none",
-                ",".join(str(column) for column in dataframe.columns),
+                ValueError(f"columns={','.join(str(column) for column in dataframe.columns)}"),
             )
             return pd.DataFrame(), "akshare:stock_zh_a_daily:invalid"
         return dataframe, "akshare:stock_zh_a_daily"
@@ -1093,7 +1144,7 @@ def sync_one_with_status(
 ) -> tuple[str, str | None]:
     with _progress_lock:
         if use_progress and stock.symbol in completed_symbols:
-            logger.info("[%s/%s] SKIP %s %s progress=done source=memory", index, total, stock.symbol, stock.name or "")
+            logger.debug("[%s/%s] SKIP %s %s progress=done source=memory", index, total, stock.symbol, stock.name or "")
             return stock.symbol, None
 
     started = monotonic()
@@ -1102,12 +1153,12 @@ def sync_one_with_status(
         if claim_status == "done":
             with _progress_lock:
                 completed_symbols.add(stock.symbol)
-            logger.info("[%s/%s] SKIP %s %s progress=done source=database", index, total, stock.symbol, stock.name or "")
+            logger.debug("[%s/%s] SKIP %s %s progress=done source=database", index, total, stock.symbol, stock.name or "")
             return stock.symbol, None
         if claim_status == "running":
-            logger.info("[%s/%s] SKIP %s %s progress=running source=database", index, total, stock.symbol, stock.name or "")
+            logger.debug("[%s/%s] SKIP %s %s progress=running source=database", index, total, stock.symbol, stock.name or "")
             return stock.symbol, None
-    logger.info("[%s/%s] START %s %s", index, total, stock.symbol, stock.name or "")
+    logger.debug("[%s/%s] START %s %s", index, total, stock.symbol, stock.name or "")
 
     try:
         counts, retry_reason = sync_stock_with_conflict_retry(
@@ -1127,7 +1178,7 @@ def sync_one_with_status(
         count_text = ", ".join(
             f"{table}={'skip' if count == -1 else count}" for table, count in counts.items()
         )
-        logger.info(
+        logger.debug(
             "[%s/%s] DONE %s %s %s duration=%.2fs retried_rebuild=%s retry_reason=%s",
             index,
             total,
@@ -1225,6 +1276,7 @@ def main() -> None:
         log_file_name="a_stock_daily_sync.log",
         console=False,
     )
+    reset_fetch_issue_stats()
     engine = database_engine(args.database)
     if args.import_completed_from_logs is not None:
         imported_count = import_completed_from_logs(
@@ -1333,6 +1385,7 @@ def main() -> None:
                 for stock in list_progress_by_status(engine, args.start_date, args.end_date, "failed", args.task_id)
             ]
 
+    log_fetch_issue_summary()
     finish_task(engine, args.task_id, args.start_date, args.end_date)
     if failures:
         logger.error("Failures:")
