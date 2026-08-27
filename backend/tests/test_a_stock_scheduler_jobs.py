@@ -38,21 +38,22 @@ class AStockSchedulerJobTests(unittest.TestCase):
         tencent.assert_called_once_with(symbol="sh689009", start_date="20260724", end_date="20260724", adjust="")
         sina.assert_not_called()
 
-    def test_beijing_exchange_920_code_uses_bj_prefix_for_fallback(self) -> None:
-        dataframe = pd.DataFrame(
-            [{"date": date(2026, 7, 24), "open": 10, "close": 10, "high": 10, "low": 10, "amount": 1}]
-        )
+    def test_beijing_exchange_920_code_skips_unsupported_history_fallbacks(self) -> None:
         previous_retry_at = sync_a_stock_daily_bars._hist_source_retry_at
         sync_a_stock_daily_bars._hist_source_retry_at = float("inf")
         try:
-            with patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist_tx", return_value=dataframe) as tencent:
+            with (
+                patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist_tx") as tencent,
+                patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_daily") as sina,
+            ):
                 result, source = sync_a_stock_daily_bars.fetch_history_dataframe("920112", "20260724", "20260724", "")
         finally:
             sync_a_stock_daily_bars._hist_source_retry_at = previous_retry_at
 
-        self.assertEqual(source, "akshare:stock_zh_a_hist_tx")
-        self.assertIs(result, dataframe)
-        tencent.assert_called_once_with(symbol="bj920112", start_date="20260724", end_date="20260724", adjust="")
+        self.assertEqual(source, "akshare:bse_history_fallback:unsupported")
+        self.assertTrue(result.empty)
+        tencent.assert_not_called()
+        sina.assert_not_called()
 
     def test_primary_history_failure_uses_temporary_cooldown(self) -> None:
         dataframe = pd.DataFrame(

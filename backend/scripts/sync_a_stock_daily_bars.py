@@ -173,10 +173,14 @@ def normalize_symbol(value) -> str:
     return str(value).strip().zfill(6)
 
 
+def is_beijing_exchange_symbol(symbol: str) -> bool:
+    return symbol.startswith(("4", "8", "920"))
+
+
 def prefixed_symbol(symbol: str) -> str:
     # Beijing Exchange stocks include the newer 920xxx code range.  Shanghai
     # B-shares also start with 9, so only this explicit range is Beijing.
-    if symbol.startswith(("4", "8", "920")):
+    if is_beijing_exchange_symbol(symbol):
         return f"bj{symbol}"
     if symbol.startswith(("6", "9")):
         return f"sh{symbol}"
@@ -212,6 +216,19 @@ def fetch_history_dataframe(symbol: str, start_date: str, end_date: str, adjust:
                     adjust or "none",
                     exc,
                 )
+
+        # Tencent and Sina history endpoints do not return a compatible daily
+        # series for Beijing Exchange symbols.  Skipping them is deliberate:
+        # AkShare otherwise raises internally while trying to read an absent
+        # `day` field, producing an IndexError/KeyError for every adjustment.
+        if is_beijing_exchange_symbol(symbol):
+            record_fetch_issue(
+                "fallback_unsupported",
+                "stock_zh_a_hist_tx_and_stock_zh_a_daily",
+                symbol,
+                adjust or "none",
+            )
+            return pd.DataFrame(), "akshare:bse_history_fallback:unsupported"
 
         try:
             dataframe = ak.stock_zh_a_hist_tx(
