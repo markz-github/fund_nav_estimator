@@ -1175,8 +1175,6 @@ def sync_one_with_status(
         if claim_status == "running":
             logger.debug("[%s/%s] SKIP %s %s progress=running source=database", index, total, stock.symbol, stock.name or "")
             return stock.symbol, None
-    logger.debug("[%s/%s] START %s %s", index, total, stock.symbol, stock.name or "")
-
     try:
         counts, retry_reason = sync_stock_with_conflict_retry(
             engine=engine,
@@ -1192,20 +1190,6 @@ def sync_one_with_status(
             mark_progress_done(engine, stock, start_date, end_date, counts, duration_seconds, task_id)
             with _progress_lock:
                 completed_symbols.add(stock.symbol)
-        count_text = ", ".join(
-            f"{table}={'skip' if count == -1 else count}" for table, count in counts.items()
-        )
-        logger.debug(
-            "[%s/%s] DONE %s %s %s duration=%.2fs retried_rebuild=%s retry_reason=%s",
-            index,
-            total,
-            stock.symbol,
-            stock.name or "",
-            count_text,
-            duration_seconds,
-            retry_reason is not None,
-            retry_reason or "none",
-        )
         return stock.symbol, None
     except Exception as exc:
         duration_seconds = monotonic() - started
