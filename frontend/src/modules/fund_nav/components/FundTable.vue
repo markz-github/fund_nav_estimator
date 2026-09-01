@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { routeNames } from '../../../router/routeNames'
-import type { Fund, FundSortBy, SortOrder } from '../api/funds'
+import type { Fund, FundDailySummaryItem, FundSortBy, SortOrder } from '../api/funds'
 import { statusClass as commonStatusClass } from '../utils/status'
 import { formatDateTime } from '../../../utils/datetime'
 
@@ -14,6 +14,7 @@ const props = defineProps<{
   sortOrder?: SortOrder
   favoriteUpdatingCode?: string | null
   emptyText?: string
+  dailySummaryByFund?: Record<string, FundDailySummaryItem>
 }>()
 
 const emit = defineEmits<{
@@ -83,6 +84,17 @@ function sortIndicator(sortBy: FundSortBy) {
   if (props.sortBy !== sortBy) return '↕'
   return props.sortOrder === 'asc' ? '↑' : '↓'
 }
+
+function isContinuousTrend(fund: Fund) {
+  const trend = props.dailySummaryByFund?.[fund.fund_code]
+  return Boolean(trend?.trend_direction && trend.trend_days >= 3)
+}
+
+function trendText(fund: Fund) {
+  const trend = props.dailySummaryByFund?.[fund.fund_code]
+  if (!trend?.trend_direction) return ''
+  return `连${trend.trend_direction === 'up' ? '涨' : '跌'} ${trend.trend_days}${trend.trend_days_capped ? '+' : ''} 天`
+}
 </script>
 
 <template>
@@ -130,6 +142,23 @@ function sortIndicator(sortBy: FundSortBy) {
           <td class="fund-cell" data-label="基金资产">
             <RouterLink class="fund-name" :to="{ name: routeNames.fundDetail, params: { fundCode: fund.fund_code } }">{{ fund.fund_name }}</RouterLink>
             <span v-if="fund.is_favorite === 1" class="favorite-badge">特别关注</span>
+            <span
+              v-if="isContinuousTrend(fund)"
+              class="trend-badge"
+              :class="dailySummaryByFund?.[fund.fund_code]?.trend_direction"
+              :title="`区间累计 ${growthPercent(dailySummaryByFund?.[fund.fund_code]?.trend_cumulative_growth_rate)}`"
+            >
+              {{ trendText(fund) }}
+            </span>
+            <span
+              v-for="match in dailySummaryByFund?.[fund.fund_code]?.rule_matches ?? []"
+              :key="match.rule_id"
+              class="rule-badge"
+              :class="match.direction"
+              :title="match.rule_name"
+            >
+              近{{ match.window_days }}天{{ match.direction === 'up' ? '涨' : '跌' }} {{ growthPercent(match.growth_rate) }}
+            </span>
             <span class="fund-code-line">
               <span class="muted mono">{{ fund.fund_code }}</span>
               <button

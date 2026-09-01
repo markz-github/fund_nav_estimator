@@ -286,6 +286,50 @@ h1 {
   min-width: 0;
 }
 
+.daily-summary {
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(32, 55, 47, 0.1);
+  border-radius: 12px;
+  background: #f8faf6;
+}
+
+.daily-summary-heading,
+.trend-summary-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.daily-summary-heading .eyebrow { margin: 0 0 2px; }
+.daily-summary-heading h2 { margin: 0; font-size: 1.2rem; }
+
+.daily-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.daily-summary-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 11px 13px;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.daily-summary-item strong { font-size: 1.35rem; }
+.daily-summary-item.up strong { color: #b33b31; }
+.daily-summary-item.down strong { color: #277849; }
+.daily-summary-item.flat strong,
+.daily-summary-item.muted-item strong { color: #6b756f; }
+.trend-summary-line { justify-content: flex-start; margin: 12px 0 0; flex-wrap: wrap; }
+.daily-summary-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 10px; }
+.daily-summary-actions button { padding: 0.45rem 0.7rem; }
+
 .fund-search {
   display: block;
   flex: 0 1 260px;
@@ -1383,6 +1427,33 @@ tbody tr:hover {
   line-height: 1.35;
 }
 
+.trend-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.trend-badge.up { background: #fee2df; color: #9c2e27; }
+.trend-badge.down { background: #dff2e5; color: #21683f; }
+.rule-badge { display: inline-flex; width: fit-content; margin-top: 4px; padding: 2px 7px; border-radius: 999px; font-size: 0.72rem; font-weight: 800; }
+.rule-badge.up { background: #ffd9d5; color: #96251f; }
+.rule-badge.down { background: #d5efde; color: #185f37; }
+.rule-badge.alert { background: #fff0c2; color: #765400; }
+
+.summary-rule-dialog { width: min(920px, calc(100vw - 32px)); }
+.summary-rule-dialog h2 { margin-top: 0; }
+.summary-rule-list { display: grid; gap: 10px; margin: 18px 0; max-height: 55vh; overflow: auto; }
+.summary-rule-row { display: grid; grid-template-columns: minmax(160px, 1.5fr) repeat(3, minmax(100px, 0.7fr)) auto auto; gap: 9px; align-items: end; padding: 12px; border-radius: 9px; background: #f5f8f3; }
+.summary-rule-row label { display: grid; gap: 4px; color: #627068; font-size: 0.78rem; }
+.summary-rule-row .rule-enabled { display: flex; align-items: center; min-height: 42px; }
+.summary-rule-row .rule-enabled input { width: auto; }
+.dialog-action-spacer { flex: 1; }
+
 .fund-code-line {
   display: inline-flex;
   align-items: center;
@@ -1598,6 +1669,11 @@ tbody tr:hover {
     gap: 10px;
     padding: 10px;
   }
+
+  .daily-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .daily-summary-heading { align-items: flex-start; }
+  .summary-rule-row { grid-template-columns: 1fr 1fr; }
+  .summary-rule-row > input:first-child { grid-column: 1 / -1; }
 
   .fund-list-toolbar .mobile-collapsible,
   .fund-list-toolbar .page-actions,

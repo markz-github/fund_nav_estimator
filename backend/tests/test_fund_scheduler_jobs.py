@@ -14,6 +14,7 @@ from app.scheduler.fund_jobs import (
     refresh_fund_navs_job,
     refresh_index_catalog_job,
     refresh_quotes_and_estimate_job,
+    generate_daily_summary_job,
 )
 from app.scheduler.scheduler import create_fund_scheduler
 from app.config import AppConfig, _load_app_config
@@ -27,6 +28,7 @@ class FundSchedulerJobTests(unittest.TestCase):
         self.assertEqual(config.scheduler_check_nav_quality_cron, "30 22 * * mon-fri")
         self.assertEqual(config.scheduler_refresh_index_catalog_cron, "20 3 * * *")
         self.assertEqual(config.scheduler_refresh_quote_estimate_cron, "0,30 9-15 * * mon-fri")
+        self.assertEqual(config.scheduler_daily_summary_cron, "35 15 * * mon-fri")
 
     def test_default_config_file_schedules_intraday_quote_refresh_and_estimate_as_one_job(self) -> None:
         config = _load_app_config("local")
@@ -38,6 +40,7 @@ class FundSchedulerJobTests(unittest.TestCase):
         job_ids = {job.id for job in scheduler.get_jobs()}
 
         self.assertIn("refresh_quotes_and_estimate", job_ids)
+        self.assertIn("generate_daily_summary", job_ids)
         self.assertNotIn("refresh_market_quotes", job_ids)
         self.assertNotIn("estimate_fund_navs", job_ids)
 
@@ -114,6 +117,25 @@ class FundSchedulerJobTests(unittest.TestCase):
         service.submit.assert_called_once_with(
             "refresh_quote_estimate",
             "刷新行情并估算",
+            origin="scheduled",
+        )
+
+    def test_scheduled_daily_summary_job_only_submits_queue_task(self) -> None:
+        db = Mock()
+        session_context = Mock()
+        session_context.__enter__ = Mock(return_value=db)
+        session_context.__exit__ = Mock(return_value=False)
+        service = Mock()
+
+        with (
+            patch("app.scheduler.fund_jobs.SessionLocal", return_value=session_context),
+            patch("app.scheduler.fund_jobs.FundTaskQueueService", return_value=service),
+        ):
+            generate_daily_summary_job()
+
+        service.submit.assert_called_once_with(
+            "generate_daily_summary",
+            "生成基金每日总结",
             origin="scheduled",
         )
 

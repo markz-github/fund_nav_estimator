@@ -31,6 +31,8 @@ from app.modules.fund_nav.data_sources.index_mapping_source import FundIndexMapp
 from app.database import Base
 from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
 from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.models.fund_daily_summary import FundDailySummary
+from app.modules.fund_nav.models.fund_summary_rule import FundSummaryRule
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
@@ -52,6 +54,7 @@ from app.modules.fund_nav.schemas.task_detail import FundTaskDetailLogOut
 from app.modules.fund_nav.api.funds import list_task_detail_logs
 from app.modules.fund_nav.api.market import index_quote_sources
 from app.modules.fund_nav.services.fund_service import FundService
+from app.modules.fund_nav.services.daily_summary_service import FundDailySummaryService
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
@@ -316,6 +319,72 @@ class FundNavRefreshTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 10)
         self.assertEqual(select_count, 1)
+
+    def test_list_funds_marks_continuous_trend_and_includes_newer_estimate(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(Fund(id=1, fund_code="000001", fund_name="趋势基金"))
+        db.add_all(
+            [
+                FundNav(id=1, fund_code="000001", nav_date=date(2026, 6, 3), unit_nav=Decimal("1.00"), daily_growth_rate=Decimal("0.01"), source="test"),
+                FundNav(id=2, fund_code="000001", nav_date=date(2026, 6, 4), unit_nav=Decimal("1.01"), daily_growth_rate=Decimal("0.02"), source="test"),
+                FundNav(id=3, fund_code="000001", nav_date=date(2026, 6, 5), unit_nav=Decimal("1.02"), daily_growth_rate=Decimal("0.03"), source="test"),
+                FundEstimate(
+                    id=1,
+                    fund_code="000001",
+                    estimate_date=date(2026, 6, 8),
+                    estimate_time=datetime(2026, 6, 8, 14, 30),
+                    base_nav_date=date(2026, 6, 5),
+                    base_unit_nav=Decimal("1.02"),
+                    estimated_growth_rate=Decimal("0.04"),
+                    estimated_nav=Decimal("1.0608"),
+                    coverage_ratio=Decimal("0.90"),
+                    source_snapshot="test",
+                ),
+                FundLatestSnapshot(fund_code="000001", latest_nav_id=3, latest_estimate_id=1),
+                FundSummaryRule(
+                    id=1,
+                    rule_name="近30天上涨10%",
+                    window_days=30,
+                    rise_threshold=Decimal("0.10"),
+                    fall_threshold=Decimal("0.10"),
+                    enabled=1,
+                    sort_order=0,
+                ),
+            ]
+        )
+        db.commit()
+
+        try:
+            summary = FundDailySummaryService(db).generate(datetime(2026, 6, 8, 15, 35))
+        finally:
+            db.close()
+
+        fund = summary["items"][0]
+        self.assertEqual(summary["summary_date"], date(2026, 6, 8))
+        self.assertEqual(fund["trend_direction"], "up")
+        self.assertEqual(fund["trend_days"], 4)
+        self.assertEqual(fund["trend_start_date"], date(2026, 6, 3))
+        self.assertEqual(fund["trend_end_date"], date(2026, 6, 8))
+        self.assertEqual(fund["trend_cumulative_growth_rate"], Decimal("0.10355024"))
+        self.assertEqual(fund["latest_growth_rate"], Decimal("0.040000"))
+        self.assertEqual(fund["rule_matches"][0]["direction"], "up")
+        self.assertEqual(fund["rule_matches"][0]["window_days"], 30)
+
+    def test_zero_growth_breaks_continuous_trend(self) -> None:
+        trend = FundDailySummaryService.calculate_trend(
+            [
+                (date(2026, 6, 5), Decimal("-0.01")),
+                (date(2026, 6, 4), Decimal("-0.02")),
+                (date(2026, 6, 3), Decimal("0")),
+                (date(2026, 6, 2), Decimal("-0.03")),
+            ]
+        )
+
+        self.assertEqual(trend["direction"], "down")
+        self.assertEqual(trend["days"], 2)
 
     def test_fund_classifier_prefers_saved_category(self) -> None:
         fund = Fund(

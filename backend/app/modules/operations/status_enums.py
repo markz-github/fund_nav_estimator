@@ -32,6 +32,7 @@ FUND_NAV_TASK_TYPES = (
     StatusOption("refresh_quote_estimate", "刷新行情并估算"),
     StatusOption("refresh_index_mapping", "刷新基金指数映射"),
     StatusOption("sync_new_fund_data", "新增基金后同步数据"),
+    StatusOption("generate_daily_summary", "生成基金每日总结"),
 )
 
 

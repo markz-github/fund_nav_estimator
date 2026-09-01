@@ -2,6 +2,7 @@
 
 from app.scheduler.a_stock_jobs import sync_previous_a_stock_trading_day_job
 from app.scheduler.fund_jobs import (
+    generate_daily_summary_job,
     estimate_fund_navs_job,
     refresh_fund_holdings_job,
     refresh_fund_navs_job,
@@ -17,6 +18,7 @@ __all__ = [
     "create_fund_scheduler",
     "create_scheduler",
     "estimate_fund_navs_job",
+    "generate_daily_summary_job",
     "refresh_fund_holdings_job",
     "refresh_fund_navs_job",
     "refresh_fund_profiles_job",

@@ -12,6 +12,7 @@ from app.scheduler.fund_jobs import (
     refresh_fund_navs_job,
     refresh_fund_profiles_job,
     refresh_quotes_and_estimate_job,
+    generate_daily_summary_job,
 )
 
 
@@ -32,6 +33,7 @@ def _add_fund_jobs(scheduler: BackgroundScheduler) -> None:
             settings.scheduler_refresh_quote_estimate_cron,
             "refresh_quotes_and_estimate",
         ),
+        (generate_daily_summary_job, settings.scheduler_daily_summary_cron, "generate_daily_summary"),
     ]
     for handler, cron, job_id in fund_jobs:
         scheduler.add_job(

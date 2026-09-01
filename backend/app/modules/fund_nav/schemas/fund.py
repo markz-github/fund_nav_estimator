@@ -60,5 +60,4 @@ class FundOut(BaseModel):
     latest_estimate_date: date | None = None
     latest_estimate_time: datetime | None = None
     latest_coverage_ratio: Decimal | None = None
-
     model_config = {"from_attributes": True}

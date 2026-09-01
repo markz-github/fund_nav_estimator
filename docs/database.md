@@ -2,6 +2,12 @@
 
 数据库使用 MySQL，字符集建议使用 `utf8mb4`。
 
+## fund_daily_summaries
+
+基金每日总结快照表。按基金和总结日期保存最新有效涨跌幅、连续涨跌方向、连续天数、区间日期和累计涨跌幅。`summary_date + fund_code` 唯一，基金估值页只读取最近一个总结日期的数据；表结构由 `scripts/init_db.py` 创建。
+
+`rule_matches_json` 保存当次总结命中的区间涨跌规则。全局规则维护在 `fund_summary_rules`，包含自然日窗口、上涨阈值、下跌阈值、启用状态和排序。
+
 ## funds
 
 自选基金表，保存用户关注的基金基础信息。
