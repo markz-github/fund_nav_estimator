@@ -28,7 +28,7 @@ class FundSchedulerJobTests(unittest.TestCase):
         self.assertEqual(config.scheduler_check_nav_quality_cron, "30 22 * * mon-fri")
         self.assertEqual(config.scheduler_refresh_index_catalog_cron, "20 3 * * *")
         self.assertEqual(config.scheduler_refresh_quote_estimate_cron, "0,30 9-15 * * mon-fri")
-        self.assertEqual(config.scheduler_daily_summary_cron, "35 15 * * mon-fri")
+        self.assertEqual(config.scheduler_daily_summary_cron, "0 23 * * *")
 
     def test_default_config_file_schedules_intraday_quote_refresh_and_estimate_as_one_job(self) -> None:
         config = _load_app_config("local")

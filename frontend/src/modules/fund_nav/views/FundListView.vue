@@ -380,7 +380,7 @@ onMounted(loadFunds)
         <p v-if="dailySummary.continuousUp || dailySummary.continuousDown" class="trend-summary-line">
           <span v-if="dailySummary.continuousUp" class="trend-badge up">持续上涨 {{ dailySummary.continuousUp }} 只</span>
           <span v-if="dailySummary.continuousDown" class="trend-badge down">持续下跌 {{ dailySummary.continuousDown }} 只</span>
-          <span class="muted">基金定时调度启用后每日 15:35 生成，连续 3 个交易日起标注。</span>
+          <span class="muted">基金定时调度启用后每天 23:00 生成，连续 3 个交易日起标注。</span>
         </p>
         <p v-else class="trend-summary-line muted">当前范围暂无连续 3 天以上的上涨或下跌基金。</p>
         <p v-if="dailySummary.ruleAlerts" class="trend-summary-line">
