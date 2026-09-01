@@ -22,8 +22,8 @@ class AStockSchedulerJobTests(unittest.TestCase):
         dataframe = pd.DataFrame(
             [{"date": date(2026, 7, 24), "open": 39, "close": 38.18, "high": 39.15, "low": 38.15, "amount": 1}]
         )
-        previous_available = sync_a_stock_daily_bars._hist_source_available
-        sync_a_stock_daily_bars._hist_source_available = False
+        previous_retry_at = sync_a_stock_daily_bars._hist_source_retry_at
+        sync_a_stock_daily_bars._hist_source_retry_at = float("inf")
         try:
             with (
                 patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist_tx", return_value=dataframe) as tencent,
@@ -31,12 +31,60 @@ class AStockSchedulerJobTests(unittest.TestCase):
             ):
                 result, source = sync_a_stock_daily_bars.fetch_history_dataframe("689009", "20260724", "20260724", "")
         finally:
-            sync_a_stock_daily_bars._hist_source_available = previous_available
+            sync_a_stock_daily_bars._hist_source_retry_at = previous_retry_at
 
         self.assertEqual(source, "akshare:stock_zh_a_hist_tx")
         self.assertIs(result, dataframe)
         tencent.assert_called_once_with(symbol="sh689009", start_date="20260724", end_date="20260724", adjust="")
         sina.assert_not_called()
+
+    def test_beijing_exchange_920_code_skips_unsupported_history_fallbacks(self) -> None:
+        previous_retry_at = sync_a_stock_daily_bars._hist_source_retry_at
+        sync_a_stock_daily_bars._hist_source_retry_at = float("inf")
+        try:
+            with (
+                patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist_tx") as tencent,
+                patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_daily") as sina,
+            ):
+                result, source = sync_a_stock_daily_bars.fetch_history_dataframe("920112", "20260724", "20260724", "")
+        finally:
+            sync_a_stock_daily_bars._hist_source_retry_at = previous_retry_at
+
+        self.assertEqual(source, "akshare:bse_history_fallback:unsupported")
+        self.assertTrue(result.empty)
+        tencent.assert_not_called()
+        sina.assert_not_called()
+
+    def test_primary_history_failure_uses_temporary_cooldown(self) -> None:
+        dataframe = pd.DataFrame(
+            [{"date": date(2026, 7, 24), "open": 10, "close": 10, "high": 10, "low": 10, "amount": 1}]
+        )
+        previous_retry_at = sync_a_stock_daily_bars._hist_source_retry_at
+        sync_a_stock_daily_bars._hist_source_retry_at = 0.0
+        try:
+            with (
+                patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist", side_effect=RuntimeError("source unavailable")),
+                patch.object(sync_a_stock_daily_bars.ak, "stock_zh_a_hist_tx", return_value=dataframe),
+            ):
+                sync_a_stock_daily_bars.fetch_history_dataframe("600000", "20260724", "20260724", "")
+            self.assertGreater(sync_a_stock_daily_bars._hist_source_retry_at, 0.0)
+        finally:
+            sync_a_stock_daily_bars._hist_source_retry_at = previous_retry_at
+
+    def test_repeated_fetch_issues_are_logged_as_a_summary(self) -> None:
+        sync_a_stock_daily_bars.reset_fetch_issue_stats()
+        try:
+            with patch.object(sync_a_stock_daily_bars.logger, "warning") as warning:
+                sync_a_stock_daily_bars.record_fetch_issue("empty_response", "stock_zh_a_daily", "920111", "")
+                sync_a_stock_daily_bars.record_fetch_issue("empty_response", "stock_zh_a_daily", "920112", "")
+                sync_a_stock_daily_bars.log_fetch_issue_summary()
+
+            self.assertEqual(warning.call_count, 2)
+            self.assertIn("repeats_will_be_summarized=true", warning.call_args_list[0].args[0])
+            self.assertIn("akshare_fetch_issue_summary", warning.call_args_list[1].args[0])
+            self.assertEqual(warning.call_args_list[1].args[4], 2)
+        finally:
+            sync_a_stock_daily_bars.reset_fetch_issue_stats()
 
     def test_scheduler_job_checks_and_starts_missing_previous_trading_day(self) -> None:
         service = Mock()

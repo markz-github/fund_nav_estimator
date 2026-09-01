@@ -15,6 +15,7 @@ from app.database import SessionLocal
 from app.modules.fund_nav.services.asset_valuation_config_service import seed_default_asset_valuation_configs
 from app.modules.fund_nav.services.index_quote_source_status_service import seed_default_index_quote_source_statuses
 from app.modules.fund_nav.services.index_quote_symbol_service import seed_default_index_quote_symbols
+from app.modules.fund_nav.services.fund_summary_rule_service import seed_default_fund_summary_rules
 from app import models  # noqa: F401
 from scripts.sync_a_stock_daily_bars import (
     create_tables as create_a_stock_tables,
@@ -120,6 +121,16 @@ def ensure_index_quote_source_status_columns() -> None:
         )
 
 
+def ensure_fund_daily_summary_columns() -> None:
+    with engine.begin() as connection:
+        ensure_column(
+            connection,
+            "fund_daily_summaries",
+            "rule_matches_json",
+            "`rule_matches_json` JSON NULL COMMENT '命中的区间涨跌规则'",
+        )
+
+
 def backfill_fund_latest_snapshots() -> None:
     with engine.begin() as connection:
         connection.execute(
@@ -172,6 +183,7 @@ def main() -> None:
     ensure_fund_category_columns()
     ensure_fund_favorite_column()
     ensure_index_quote_source_status_columns()
+    ensure_fund_daily_summary_columns()
     backfill_fund_latest_snapshots()
     create_fund_history_tables(engine)
     settings = get_settings()
@@ -181,6 +193,7 @@ def main() -> None:
         seed_default_asset_valuation_configs(db)
         seed_default_index_quote_source_statuses(db)
         seed_default_index_quote_symbols(db)
+        seed_default_fund_summary_rules(db)
         db.commit()
     print("Database initialized.")
     print("Created or verified tables:")

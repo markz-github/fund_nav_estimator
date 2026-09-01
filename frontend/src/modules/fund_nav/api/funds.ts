@@ -29,6 +29,52 @@ export interface Fund {
   latest_coverage_ratio?: string | null
 }
 
+export interface FundDailySummaryItem {
+  fund_code: string
+  latest_data_date?: string | null
+  latest_growth_rate?: string | null
+  trend_direction?: 'up' | 'down' | null
+  trend_days: number
+  trend_days_capped: boolean
+  trend_start_date?: string | null
+  trend_end_date?: string | null
+  trend_cumulative_growth_rate?: string | null
+  rule_matches: FundSummaryRuleMatch[]
+}
+
+export interface FundSummaryRuleMatch {
+  rule_id: number
+  rule_name: string
+  window_days: number
+  direction: 'up' | 'down'
+  growth_rate: string
+  threshold: string
+}
+
+export interface FundSummaryRule {
+  id: number
+  rule_name: string
+  window_days: number
+  rise_threshold: string
+  fall_threshold: string
+  enabled: number
+}
+
+export interface FundSummaryRuleInput {
+  id?: number
+  rule_name: string
+  window_days: number
+  rise_threshold: number
+  fall_threshold: number
+  enabled: number
+}
+
+export interface FundDailySummary {
+  summary_date?: string | null
+  generated_at?: string | null
+  items: FundDailySummaryItem[]
+}
+
 export type FundSortBy = 'latest_estimated_growth_rate'
 export type SortOrder = 'asc' | 'desc'
 
@@ -100,6 +146,26 @@ export async function listFunds(options?: { sortBy?: FundSortBy | null; sortOrde
         }
       : undefined,
   })
+  return data
+}
+
+export async function getDailySummary(): Promise<FundDailySummary> {
+  const { data } = await apiClient.get<FundDailySummary>('/funds/daily-summary')
+  return data
+}
+
+export async function generateDailySummary(): Promise<FundTaskSubmitResult> {
+  const { data } = await apiClient.post<FundTaskSubmitResult>('/funds/actions/generate-daily-summary')
+  return data
+}
+
+export async function listDailySummaryRules(): Promise<FundSummaryRule[]> {
+  const { data } = await apiClient.get<FundSummaryRule[]>('/funds/daily-summary/rules')
+  return data
+}
+
+export async function replaceDailySummaryRules(rules: FundSummaryRuleInput[]): Promise<FundSummaryRule[]> {
+  const { data } = await apiClient.put<FundSummaryRule[]>('/funds/daily-summary/rules', rules)
   return data
 }
 

@@ -12,6 +12,7 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
 from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.schemas.fund import FundCreate, FundNavOut, FundOut, FundUpdate, RefreshFundNavsRequest
+from app.modules.fund_nav.schemas.daily_summary import FundDailySummaryOut, FundSummaryRuleIn, FundSummaryRuleOut
 from app.modules.fund_nav.schemas.holding import FundHoldingOut
 from app.modules.fund_nav.schemas.manual_index_mapping import (
     ManualFundIndexMappingIn,
@@ -20,6 +21,8 @@ from app.modules.fund_nav.schemas.manual_index_mapping import (
     PendingManualFundMappingOut,
 )
 from app.modules.fund_nav.services.fund_service import FundService
+from app.modules.fund_nav.services.daily_summary_service import FundDailySummaryService
+from app.modules.fund_nav.services.fund_summary_rule_service import FundSummaryRuleService
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
 from app.modules.fund_nav.schemas.task_detail import FundTaskDetailLogOut, FundTaskDetailLogPageOut
@@ -57,6 +60,32 @@ def list_funds(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     return FundService(db).list_funds(sort_by=sort_by, sort_order=sort_order)
+
+
+@router.get("/daily-summary", response_model=FundDailySummaryOut)
+def get_daily_summary(db: Session = Depends(get_db)) -> dict:
+    return FundDailySummaryService(db).get_latest()
+
+
+@router.get("/daily-summary/rules", response_model=list[FundSummaryRuleOut])
+def list_daily_summary_rules(db: Session = Depends(get_db)):
+    return FundSummaryRuleService(db).list_rules()
+
+
+@router.put("/daily-summary/rules", response_model=list[FundSummaryRuleOut])
+def replace_daily_summary_rules(payload: list[FundSummaryRuleIn], db: Session = Depends(get_db)):
+    return FundSummaryRuleService(db).replace_rules(payload)
+
+
+@router.post(
+    "/actions/generate-daily-summary",
+    response_model=FundTaskSubmitOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def generate_daily_summary(db: Session = Depends(get_db)) -> dict:
+    return FundTaskQueueService(db).submit(
+        "generate_daily_summary", "生成基金每日总结", origin="manual"
+    )
 
 
 @router.post("", response_model=FundOut, status_code=status.HTTP_201_CREATED)

@@ -39,3 +39,7 @@ def estimate_fund_navs_job() -> None:
 
 def refresh_quotes_and_estimate_job() -> None:
     _enqueue("refresh_quote_estimate", "刷新行情并估算")
+
+
+def generate_daily_summary_job() -> None:
+    _enqueue("generate_daily_summary", "生成基金每日总结")

@@ -66,6 +66,33 @@ class FundTaskQueueTests(unittest.TestCase):
         self.assertFalse(second.reused)
         self.assertNotEqual(second.task_id, first.task_id)
 
+    def test_generate_daily_summary_task_persists_snapshot(self) -> None:
+        self.db.add(Fund(id=1, fund_code="000001", fund_name="总结基金"))
+        self.db.commit()
+        submitted = self.service.submit(
+            "generate_daily_summary", "生成基金每日总结", origin="scheduled"
+        )
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        summary_service = Mock()
+        summary_service.generate.return_value = {
+            "summary_date": date(2026, 9, 1),
+            "generated_at": None,
+            "items": [{"fund_code": "000001"}],
+        }
+        with patch(
+            "app.modules.fund_nav.services.fund_task_queue_service.FundDailySummaryService",
+            return_value=summary_service,
+        ):
+            self.service.execute(submitted.task_id)
+
+        task_log = self.db.get(TaskLog, submitted.task_log_id)
+        self.assertEqual(task_log.status, "success")
+        self.assertIn("summary_date=2026-09-01;funds=1", task_log.message)
+        summary_service.generate.assert_called_once_with()
+
     def test_claims_pending_tasks_fifo(self) -> None:
         first = self.service.submit("refresh_nav", "刷新基金官方净值", origin="manual", fund_codes=["1"])
         self.service.submit("refresh_nav", "刷新基金官方净值", origin="manual", fund_codes=["2"])

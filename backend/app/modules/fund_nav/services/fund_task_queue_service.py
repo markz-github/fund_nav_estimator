@@ -17,6 +17,7 @@ from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
 from app.modules.fund_nav.services.estimate_service import EstimateService
+from app.modules.fund_nav.services.daily_summary_service import FundDailySummaryService
 from app.modules.fund_nav.services.fund_index_mapping_service import FundIndexMappingService
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.modules.fund_nav.services.fund_service import FundService
@@ -47,6 +48,7 @@ SLOW_METHOD_THRESHOLD_BY_TASK_TYPE: dict[str, float | None] = {
     "refresh_index_mapping": 5_000.0,
     "refresh_index_catalog": 15_000.0,
     "sync_new_fund_data": 30_000.0,
+    "generate_daily_summary": 10_000.0,
 }
 DEFAULT_QUEUE_SLOW_METHOD_THRESHOLD_MS = 10_000.0
 
@@ -266,6 +268,12 @@ class FundTaskQueueService:
         if task.task_type == "refresh_index_catalog":
             indexes = IndexCatalogService(self.db).refresh_indexes()
             return ("success" if indexes else "no_data"), f"indexes={len(indexes)}"
+        if task.task_type == "generate_daily_summary":
+            result = FundDailySummaryService(self.db).generate()
+            count = len(result["items"])
+            return ("success" if count else "no_data"), (
+                f"summary_date={result['summary_date']};funds={count}"
+            )
         if task.task_type == "sync_new_fund_data":
             return self._sync_new_fund(payload["fund_code"], task.task_log_id)
         raise ValueError(f"Unsupported fund task type: {task.task_type}")

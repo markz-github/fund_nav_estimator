@@ -24,6 +24,7 @@ class AppConfig(BaseModel):
     scheduler_refresh_index_catalog_cron: str = "20 3 * * *"
     scheduler_refresh_holdings_cron: str = "30 20 * * mon-fri"
     scheduler_refresh_quote_estimate_cron: str = "0,30 9-15 * * mon-fri"
+    scheduler_daily_summary_cron: str = "0 23 * * *"
     scheduler_a_stock_history_cron: str = "0 4 * * *"
     scheduler_a_stock_history_workers: int = 8
 

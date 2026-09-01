@@ -1,6 +1,8 @@
 from app.modules.operations.models.data_fetch_error import DataFetchError
 from app.modules.fund_nav.models.asset_valuation_config import AssetValuationConfig
 from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.models.fund_daily_summary import FundDailySummary
+from app.modules.fund_nav.models.fund_summary_rule import FundSummaryRule
 from app.modules.fund_nav.models.fund_estimate import FundEstimate
 from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
@@ -20,6 +22,8 @@ __all__ = [
     "DataFetchError",
     "AssetValuationConfig",
     "Fund",
+    "FundDailySummary",
+    "FundSummaryRule",
     "FundEstimate",
     "FundHolding",
     "FundIndexMapping",
