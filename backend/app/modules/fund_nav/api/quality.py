@@ -4,7 +4,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,11 +17,31 @@ from app.modules.fund_nav.schemas.quality import (
     FundNavQualityReportOut,
     FundNavQualityTaskOut,
 )
+from app.modules.fund_nav.schemas.task import FundTaskSubmitOut
 from app.modules.fund_nav.services.estimate_drift_service import EstimateDriftService
+from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.operations.models.data_fetch_error import DataFetchError
 from app.modules.operations.models.task_log import TaskLog
 
 router = APIRouter(prefix="/fund-nav/quality", tags=["fund-nav-quality"])
+
+
+@router.post(
+    "/nav/tasks/{task_log_id}/retry",
+    response_model=FundTaskSubmitOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def retry_fund_nav_quality_check(task_log_id: int, db: Session = Depends(get_db)) -> FundTaskSubmitOut:
+    task_log = db.get(TaskLog, task_log_id)
+    if task_log is None or task_log.task_type != "check_nav_quality":
+        raise HTTPException(status_code=404, detail="巡检任务不存在")
+    if task_log.status != "failed":
+        raise HTTPException(status_code=409, detail="只有失败的巡检任务可以重试")
+    return FundTaskQueueService(db).submit(
+        "check_nav_quality",
+        "检查基金官方净值新鲜度",
+        origin="manual",
+    )
 
 
 @router.get("/nav", response_model=FundNavQualityReportOut)

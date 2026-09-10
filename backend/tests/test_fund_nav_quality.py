@@ -21,10 +21,12 @@ from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
+from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.api.quality import (
     get_estimate_drift_detail,
     get_fund_nav_quality_report,
     list_estimate_drift_funds,
+    retry_fund_nav_quality_check,
 )
 from app.modules.fund_nav.schemas.manual_index_mapping import ManualFundIndexMappingIn
 from app.modules.fund_nav.services.manual_index_mapping_service import ManualIndexMappingService
@@ -41,6 +43,24 @@ class FundNavQualityTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.db.close()
+
+    def test_failed_quality_check_can_be_retried(self) -> None:
+        failed_task = TaskLog(
+            task_name="检查基金官方净值新鲜度",
+            task_type="check_nav_quality",
+            status="failed",
+            started_at=datetime(2026, 9, 10, 22, 30),
+        )
+        self.db.add(failed_task)
+        self.db.commit()
+
+        result = retry_fund_nav_quality_check(failed_task.id, self.db)
+
+        queued = self.db.get(FundTaskQueue, result.task_id)
+        self.assertEqual(result.status, "pending")
+        self.assertEqual(queued.task_type, "check_nav_quality")
+        self.assertEqual(queued.origin, "manual")
+        self.assertEqual(queued.task_log_id, result.task_log_id)
 
     def test_expected_nav_date_uses_previous_business_day_before_evening(self) -> None:
         self.assertEqual(

@@ -4,10 +4,11 @@ import { RouterLink } from 'vue-router'
 import { apiErrorMessage } from '../../../api/client'
 import { routeNames } from '../../../router/routeNames'
 import { dateInputValue, offsetDateInputValue } from '../../../utils/datetime'
-import { getFundNavQualityReport, type FundNavQualityReport } from '../api/quality'
+import { getFundNavQualityReport, retryFundNavQualityCheck, type FundNavQualityReport } from '../api/quality'
 
 const report = ref<FundNavQualityReport | null>(null)
 const loading = ref(false)
+const retrying = ref(false)
 const message = ref('')
 const endDate = ref(dateInputValue())
 const startDate = ref(offsetDateInputValue(-4))
@@ -125,6 +126,22 @@ async function loadReport() {
   }
 }
 
+async function retryQualityCheck() {
+  if (!latestTask.value || latestTask.value.status !== 'failed') return
+  retrying.value = true
+  message.value = ''
+  try {
+    const result = await retryFundNavQualityCheck(latestTask.value.id)
+    const successMessage = result.reused ? '巡检任务已在等待或执行中。' : '巡检重试任务已提交。'
+    await loadReport()
+    message.value = successMessage
+  } catch (error) {
+    message.value = apiErrorMessage(error, '巡检重试提交失败，请稍后重试。')
+  } finally {
+    retrying.value = false
+  }
+}
+
 onMounted(loadReport)
 </script>
 
@@ -138,9 +155,19 @@ onMounted(loadReport)
         <h1>净值巡检</h1>
         <p class="subtitle">查看官方净值、映射完整性，以及估算策略回退问题。</p>
       </div>
-      <button class="ghost" :disabled="loading" @click="loadReport">
-        {{ loading ? '刷新中...' : '刷新结果' }}
-      </button>
+      <div class="quick-actions">
+        <button
+          v-if="latestTask?.status === 'failed'"
+          type="button"
+          :disabled="retrying || loading"
+          @click="retryQualityCheck"
+        >
+          {{ retrying ? '提交中...' : '重试巡检' }}
+        </button>
+        <button class="ghost" type="button" :disabled="loading || retrying" @click="loadReport">
+          {{ loading ? '刷新中...' : '刷新结果' }}
+        </button>
+      </div>
     </section>
 
     <p v-if="message" class="message">{{ message }}</p>

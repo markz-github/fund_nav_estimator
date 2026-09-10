@@ -1,4 +1,5 @@
 import { apiClient } from '../../../api/client'
+import type { FundTaskSubmitResult } from './funds'
 
 export interface FundNavQualityTask {
   id: number
@@ -100,6 +101,11 @@ export async function getFundNavQualityReport(filters?: FundNavQualityFilters): 
       occurred_to: filters?.occurredTo || undefined,
     },
   })
+  return data
+}
+
+export async function retryFundNavQualityCheck(taskLogId: number): Promise<FundTaskSubmitResult> {
+  const { data } = await apiClient.post<FundTaskSubmitResult>(`/fund-nav/quality/nav/tasks/${taskLogId}/retry`)
   return data
 }
 
