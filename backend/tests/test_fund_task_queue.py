@@ -246,12 +246,29 @@ class FundTaskQueueTests(unittest.TestCase):
             "刷新基金持仓",
             origin="manual",
             fund_codes=["501009"],
+            payload={"force_profile_refresh": True},
         )
         task = self.db.get(FundTaskQueue, submitted.task_id)
         task.status = "running"
         self.db.commit()
 
-        calls: dict[str, list] = {"holdings": [], "mappings": []}
+        calls: dict[str, list] = {"holdings": [], "mappings": [], "profiles": [], "fund_profiles": []}
+
+        class FakeFundProfileService:
+            def __init__(self, db):
+                pass
+
+            def refresh_profiles(self):
+                calls["profiles"].append("all")
+                return 1
+
+        class FakeFundService:
+            def __init__(self, db):
+                pass
+
+            def refresh_profile(self, fund_code):
+                calls["fund_profiles"].append(fund_code)
+                return object()
 
         class FakeHoldingService:
             def __init__(self, db):
@@ -270,6 +287,8 @@ class FundTaskQueueTests(unittest.TestCase):
                 return [object(), object()]
 
         with (
+            patch("app.modules.fund_nav.services.fund_task_queue_service.FundProfileService", FakeFundProfileService),
+            patch("app.modules.fund_nav.services.fund_task_queue_service.FundService", FakeFundService),
             patch("app.modules.fund_nav.services.fund_task_queue_service.HoldingService", FakeHoldingService),
             patch(
                 "app.modules.fund_nav.services.fund_task_queue_service.FundIndexMappingService",
@@ -284,6 +303,8 @@ class FundTaskQueueTests(unittest.TestCase):
         self.assertIn("index_mappings=2", task_log.message)
         self.assertEqual(calls["holdings"], ["501009"])
         self.assertEqual(calls["mappings"], [["501009"]])
+        self.assertEqual(calls["profiles"], ["all"])
+        self.assertEqual(calls["fund_profiles"], ["501009"])
 
     def test_refresh_index_catalog_task_records_count(self) -> None:
         submitted = self.service.submit("refresh_index_catalog", "刷新指数目录", origin="manual")

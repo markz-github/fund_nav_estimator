@@ -102,13 +102,16 @@ class FundService:
         return fund
 
     @timed()
-    def refresh_profile(self, fund_code: str) -> Fund | None:
+    def refresh_profile(self, fund_code: str, *, force_refresh: bool = False) -> Fund | None:
         normalized_code = self.source._normalize_fund_code(fund_code)
         fund = self.db.scalar(select(Fund).where(Fund.fund_code == normalized_code))
         if fund is None:
             return None
 
-        profile = FundProfileService(self.db, self.source).get_or_sync_profile(normalized_code)
+        profile = FundProfileService(self.db, self.source).get_or_sync_profile(
+            normalized_code,
+            force_refresh=force_refresh,
+        )
         if profile is None:
             return fund
         fund.fund_name = profile.fund_name

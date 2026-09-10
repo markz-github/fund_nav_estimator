@@ -238,7 +238,10 @@ class FundTaskQueueService:
                 self._nav_quality_message(result),
             )
         if task.task_type == "refresh_holding":
-            holding_total, mapping_total = self._refresh_holdings_and_index_mappings(fund_codes)
+            holding_total, mapping_total = self._refresh_holdings_and_index_mappings(
+                fund_codes,
+                force_profile_refresh=bool(payload.get("force_profile_refresh")),
+            )
             return ("success" if holding_total or mapping_total else "no_data"), (
                 f"holdings={holding_total};index_mappings={mapping_total}"
             )
@@ -280,7 +283,7 @@ class FundTaskQueueService:
 
     def _sync_new_fund(self, fund_code: str, task_log_id: int | None = None) -> tuple[str, str]:
         fund_service = FundService(self.db)
-        profile = fund_service.refresh_profile(fund_code)
+        profile = fund_service.refresh_profile(fund_code, force_refresh=True)
         mapping = FundIndexMappingService(self.db).refresh_mapping(fund_code)
         nav = fund_service.refresh_nav(fund_code)
         holdings = HoldingService(self.db).refresh_holdings(fund_code)
@@ -298,8 +301,18 @@ class FundTaskQueueService:
             f"holdings={len(holdings)};{quote_message};{self._estimate_message(estimates)}"
         )
 
-    def _refresh_holdings_and_index_mappings(self, fund_codes: list[str] | None) -> tuple[int, int]:
+    def _refresh_holdings_and_index_mappings(
+        self,
+        fund_codes: list[str] | None,
+        *,
+        force_profile_refresh: bool = False,
+    ) -> tuple[int, int]:
         codes = self._codes(fund_codes)
+        if force_profile_refresh:
+            FundProfileService(self.db).refresh_profiles()
+            fund_service = FundService(self.db)
+            for code in codes:
+                fund_service.refresh_profile(code)
         mapping_total = len(FundIndexMappingService(self.db).refresh_mappings_for_index_related_funds(codes))
         holding_total = sum(len(HoldingService(self.db).refresh_holdings(code)) for code in codes)
         return holding_total, mapping_total

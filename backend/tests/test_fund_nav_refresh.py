@@ -17,7 +17,13 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource, EtfIopvSnapshot, FundNavSnapshot, MarketQuoteSnapshot
+from app.modules.fund_nav.data_sources.akshare.akshare_source import (
+    AkshareSource,
+    EtfIopvSnapshot,
+    FundNavSnapshot,
+    FundProfile as SourceFundProfile,
+    MarketQuoteSnapshot,
+)
 from app.modules.fund_nav.data_sources.akshare.eastmoney_index_source import EastmoneyIndexSource
 from app.modules.fund_nav.data_sources.web.eastmoney_source import EastmoneySource
 from app.modules.fund_nav.data_sources.web.eastmoney_index_source import EastmoneyHttpIndexSource
@@ -290,6 +296,54 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(fund.fund_category, "index_tracking")
         self.assertEqual(rows[0]["fund_category"], "index_tracking")
         self.assertEqual(rows[0]["fund_category_label"], "指数跟踪基金")
+
+    def test_force_refresh_profile_replaces_existing_cached_name_and_category(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        source = Mock()
+        source.source_name = "akshare"
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        source.get_fund_profiles.return_value = [
+            SourceFundProfile(
+                fund_code="160517",
+                fund_name="博时中证银行ETF联接A",
+                fund_type="指数型-股票",
+            )
+        ]
+        db.add_all(
+            [
+                FundProfile(
+                    id=1,
+                    fund_code="160517",
+                    fund_name="博时中证银行指数（LOF）A",
+                    fund_type="指数型-股票",
+                    fund_category="index_tracking",
+                    fund_category_source="auto",
+                    source="akshare",
+                    synced_at=datetime(2025, 11, 1),
+                ),
+                Fund(
+                    id=1,
+                    fund_code="160517",
+                    fund_name="博时中证银行指数（LOF）A",
+                    fund_type="指数型-股票",
+                    fund_category="index_tracking",
+                    fund_category_source="auto",
+                ),
+            ]
+        )
+        db.commit()
+
+        try:
+            fund = FundService(db, source).refresh_profile("160517", force_refresh=True)
+        finally:
+            db.close()
+
+        source.get_fund_profiles.assert_called_once_with()
+        self.assertEqual(fund.fund_name, "博时中证银行ETF联接A")
+        self.assertEqual(fund.fund_category, "etf_feeder")
 
     def test_list_funds_uses_fixed_number_of_queries(self) -> None:
         engine = create_engine("sqlite:///:memory:")

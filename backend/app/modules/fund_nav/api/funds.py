@@ -293,7 +293,11 @@ def refresh_nav_history(fund_code: str, db: Session = Depends(get_db)):
 @router.post("/{fund_code}/refresh-holdings", response_model=FundTaskSubmitOut, status_code=status.HTTP_202_ACCEPTED)
 def refresh_holdings(fund_code: str, db: Session = Depends(get_db)) -> dict:
     return FundTaskQueueService(db).submit(
-        "refresh_holding", "手动刷新基金持仓", origin="manual", fund_codes=[fund_code]
+        "refresh_holding",
+        "手动刷新基金持仓",
+        origin="manual",
+        fund_codes=[fund_code],
+        payload={"force_profile_refresh": True},
     )
 
 

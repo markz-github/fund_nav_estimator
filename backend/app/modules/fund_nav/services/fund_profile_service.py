@@ -48,9 +48,9 @@ class FundProfileService:
             self._profile_sync_lock.release()
 
     @timed()
-    def get_or_sync_profile(self, fund_code: str) -> FundProfile | None:
+    def get_or_sync_profile(self, fund_code: str, *, force_refresh: bool = False) -> FundProfile | None:
         profile = self.get_profile(fund_code)
-        if profile is not None:
+        if profile is not None and not force_refresh:
             return profile
         wait_started = perf_counter()
         if not self._profile_sync_lock.acquire(timeout=self._profile_sync_timeout_seconds):
@@ -65,7 +65,7 @@ class FundProfileService:
                 (perf_counter() - wait_started) * 1000,
             )
             profile = self.get_profile(fund_code)
-            if profile is not None:
+            if profile is not None and not force_refresh:
                 return profile
             self.refresh_profiles_from_source()
             return self.get_profile(fund_code)
