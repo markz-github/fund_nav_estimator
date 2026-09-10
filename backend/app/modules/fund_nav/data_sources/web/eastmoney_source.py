@@ -6,6 +6,7 @@ from decimal import Decimal
 from html import unescape
 from html.parser import HTMLParser
 import re
+from urllib.parse import urljoin
 
 import requests
 
@@ -76,6 +77,28 @@ class EastmoneySource:
         )
         if not text:
             return []
+
+        related_etf = re.search(
+            r"__RELATED_ETF__:(?P<code>[15]\d{5}):(?P<name>[^\s]+)",
+            text,
+        )
+        if related_etf:
+            asset_code = related_etf.group("code")
+            asset_name = related_etf.group("name")
+            if self._is_valid_target_hint(normalized_code, asset_code, asset_name):
+                return [
+                    {
+                        "fund_code": normalized_code,
+                        "report_period": self._current_report_period(),
+                        "asset_code": asset_code,
+                        "asset_name": asset_name,
+                        "asset_type": "etf",
+                        "market": "CN",
+                        "holding_ratio": Decimal("1"),
+                        "holding_value": None,
+                        "source": f"{self.source_name}:related_etf_link",
+                    }
+                ]
 
         # Some ETF feeder pages mention the target ETF in prose rather than a table.
         # Treat these as low-confidence 100% target mappings only when a code/name is explicit.
@@ -247,10 +270,46 @@ class EastmoneySource:
     def _fetch_pages_text(self, urls: list[str]) -> str:
         texts: list[str] = []
         for url in urls:
-            text = self._fetch_text(url)
-            if text:
-                texts.append(self._strip_tags(text))
+            html_text = self._fetch_text(url)
+            if not html_text:
+                continue
+            related_etf = self._extract_related_etf_link(html_text, url)
+            if related_etf is not None:
+                asset_code, target_url = related_etf
+                target_html = self._fetch_text(target_url)
+                asset_name = self._extract_fund_name(target_html, asset_code) or f"ETF{asset_code}"
+                texts.append(f"__RELATED_ETF__:{asset_code}:{asset_name}")
+            texts.append(self._strip_tags(html_text))
         return " ".join(texts)
+
+    @classmethod
+    def _extract_related_etf_link(cls, html_text: str, page_url: str) -> tuple[str, str] | None:
+        for anchor in re.finditer(r"<a\b(?P<attrs>[^>]*)>(?P<label>[\s\S]*?)</a>", html_text, re.IGNORECASE):
+            label = cls._strip_tags(anchor.group("label"))
+            if "相关ETF" not in label or "ETF联接" in label:
+                continue
+            href_match = re.search(r'href=["\'](?P<href>[^"\']+)["\']', anchor.group("attrs"), re.IGNORECASE)
+            if not href_match:
+                continue
+            target_url = urljoin(page_url, unescape(href_match.group("href")))
+            code_match = re.search(r"/(?P<code>[15]\d{5})\.html(?:[?#]|$)", target_url)
+            if code_match:
+                return code_match.group("code"), target_url
+        return None
+
+    @staticmethod
+    def _extract_fund_name(html_text: str, fund_code: str) -> str | None:
+        if not html_text:
+            return None
+        title_match = re.search(
+            rf"<title>\s*(?P<name>[^<(]+?)\s*\(\s*{re.escape(fund_code)}\s*\)",
+            html_text,
+            re.IGNORECASE,
+        )
+        if not title_match:
+            return None
+        name = re.sub(r"\s+", "", unescape(title_match.group("name")))
+        return name or None
 
     @staticmethod
     def _fetch_text(url: str, params: dict | None = None, headers: dict | None = None) -> str:

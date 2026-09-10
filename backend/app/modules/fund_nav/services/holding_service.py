@@ -13,6 +13,7 @@ from app.modules.fund_nav.data_sources.web.public_fund_source import PublicWebFu
 from app.modules.fund_nav.data_sources.web.sina_fund_source import SinaFundSource
 from app.modules.fund_nav.models.fund import Fund
 from app.modules.fund_nav.models.fund_holding import FundHolding
+from app.modules.fund_nav.models.fund_profile import FundProfile
 from app.modules.fund_nav.report_period import latest_completed_quarter_period
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
 from app.modules.fund_nav.services.fund_latest_snapshot_service import FundLatestSnapshotService
@@ -245,18 +246,32 @@ class HoldingService:
         if not FundClassifier.is_etf_feeder_fund(profile):
             return None
 
-        candidates = self.db.scalars(
+        profile_candidates = self.db.scalars(
+            select(FundProfile)
+            .where(
+                FundProfile.fund_code != fund_code,
+                FundProfile.fund_code.regexp_match(r"^[15][0-9]{5}$"),
+                FundProfile.fund_name.like("%ETF%"),
+            )
+            .order_by(FundProfile.fund_code.asc())
+        ).all()
+        candidate_codes = {candidate.fund_code for candidate in profile_candidates}
+        local_candidates = self.db.scalars(
             select(Fund)
             .where(
                 Fund.enabled == 1,
                 Fund.fund_code != fund_code,
                 Fund.fund_code.regexp_match(r"^[15][0-9]{5}$"),
                 Fund.fund_name.like("%ETF%"),
+                Fund.fund_code.not_in(candidate_codes),
             )
             .order_by(Fund.fund_code.asc())
         ).all()
+        candidates = [*profile_candidates, *local_candidates]
         for candidate in candidates:
             candidate_name = candidate.fund_name or ""
+            if not FundClassifier.is_exchange_traded_fund(candidate):
+                continue
             if self._is_target_fund_name_match(fund_name, candidate_name):
                 return {
                     "fund_code": fund_code,

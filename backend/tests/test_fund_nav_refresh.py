@@ -3121,6 +3121,58 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(detail["target_etf_name"], "电力ETF华泰柏瑞")
         self.assertEqual(detail["target_etf_source"], "local:fund_name_match")
 
+    def test_target_etf_is_inferred_from_full_profile_catalog(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(
+            Fund(
+                id=1,
+                fund_code="160517",
+                fund_name="博时中证银行ETF联接A",
+                fund_type="指数型-股票",
+                fund_category="etf_feeder",
+                fund_category_source="auto",
+            )
+        )
+        db.add(
+            FundProfile(
+                id=1,
+                fund_code="159253",
+                fund_name="银行ETF博时",
+                fund_type="指数型-股票",
+                fund_category="etf",
+                fund_category_source="auto",
+                source="akshare",
+                synced_at=datetime(2026, 9, 10),
+            )
+        )
+        db.commit()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        holding_source = Mock()
+        holding_source.get_fund_holdings.return_value = []
+        target_source = Mock()
+        target_source.get_target_fund_holdings.return_value = []
+
+        try:
+            refreshed = HoldingService(
+                db,
+                source=source,
+                holding_sources=[holding_source],
+                target_fund_sources=[target_source],
+            ).refresh_holdings("160517")
+            snapshot = db.get(FundLatestSnapshot, "160517")
+        finally:
+            db.close()
+
+        self.assertEqual(len(refreshed), 1)
+        self.assertEqual(refreshed[0].asset_code, "159253")
+        self.assertEqual(refreshed[0].asset_name, "银行ETF博时")
+        self.assertEqual(refreshed[0].source, "local:fund_name_match")
+        self.assertEqual(snapshot.target_etf_holding_id, refreshed[0].id)
+
     def test_bond_holdings_do_not_participate_in_estimate_but_reduce_coverage(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
@@ -4044,6 +4096,31 @@ class FundNavRefreshTests(unittest.TestCase):
             holdings = EastmoneySource().get_target_fund_holdings("018172")
 
         self.assertEqual(holdings, [])
+
+    def test_eastmoney_target_hint_parses_related_etf_href(self) -> None:
+        feeder_html = """
+            <html><head><title>博时中证银行ETF联接A(160517)</title></head><body>
+            <a href="http://fund.eastmoney.com/159253.html">查看相关ETF&gt;</a>
+            </body></html>
+        """
+        target_html = """
+            <html><head><title>银行ETF博时(159253)基金净值_估值_行情走势</title></head></html>
+        """
+
+        def fetch_text(url: str, **_kwargs) -> str:
+            if url == "https://fund.eastmoney.com/160517.html":
+                return feeder_html
+            if url == "http://fund.eastmoney.com/159253.html":
+                return target_html
+            return ""
+
+        with patch.object(EastmoneySource, "_fetch_text", side_effect=fetch_text):
+            holdings = EastmoneySource().get_target_fund_holdings("160517")
+
+        self.assertEqual(len(holdings), 1)
+        self.assertEqual(holdings[0]["asset_code"], "159253")
+        self.assertEqual(holdings[0]["asset_name"], "银行ETF博时")
+        self.assertEqual(holdings[0]["source"], "eastmoney:related_etf_link")
 
     def test_eastmoney_holdings_parses_report_date_wrapped_in_font_tag(self) -> None:
         response_text = """
