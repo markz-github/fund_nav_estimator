@@ -7,7 +7,16 @@ from app.modules.fund_nav.models.fund_holding import FundHolding
 from app.modules.fund_nav.models.fund_latest_snapshot import FundLatestSnapshot
 
 
-TARGET_ETF_SOURCES = ("fund_company", "local:fund_name_match", "manual:target_etf")
+TARGET_ETF_SOURCES = (
+    "fund_company",
+    "etf88",
+    "eastmoney:target_hint",
+    "eastmoney:related_etf_link",
+    "sina_fund:target_hint",
+    "public_web:target_hint",
+    "local:fund_name_match",
+    "manual:target_etf",
+)
 
 
 class FundLatestSnapshotService:

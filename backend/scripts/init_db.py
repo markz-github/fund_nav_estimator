@@ -158,7 +158,10 @@ def backfill_fund_latest_snapshots() -> None:
                           AND h.is_deleted = 0
                           AND h.asset_type = 'etf'
                           AND h.source IN (
-                              'fund_company', 'local:fund_name_match', 'manual:target_etf'
+                              'fund_company', 'etf88',
+                              'eastmoney:target_hint', 'eastmoney:related_etf_link',
+                              'sina_fund:target_hint', 'public_web:target_hint',
+                              'local:fund_name_match', 'manual:target_etf'
                           )
                         ORDER BY h.report_period DESC, h.holding_ratio DESC, h.id DESC
                         LIMIT 1

@@ -49,7 +49,8 @@ class FundProfileService:
 
     @timed()
     def get_or_sync_profile(self, fund_code: str, *, force_refresh: bool = False) -> FundProfile | None:
-        profile = self.get_profile(fund_code)
+        normalized_code = self.source._normalize_fund_code(fund_code)
+        profile = self.get_profile(normalized_code)
         if profile is not None and not force_refresh:
             return profile
         wait_started = perf_counter()
@@ -64,11 +65,12 @@ class FundProfileService:
                 "akshare_lock endpoint=fund_name_em status=acquired wait_ms=%.2f",
                 (perf_counter() - wait_started) * 1000,
             )
-            profile = self.get_profile(fund_code)
+            profile = self.get_profile(normalized_code)
             if profile is not None and not force_refresh:
                 return profile
-            self.refresh_profiles_from_source()
-            return self.get_profile(fund_code)
+            source_profile = self.source.get_fund_profile(normalized_code)
+            self.upsert_profiles([source_profile], self.source.source_name)
+            return self.get_profile(normalized_code)
         finally:
             self._profile_sync_lock.release()
 

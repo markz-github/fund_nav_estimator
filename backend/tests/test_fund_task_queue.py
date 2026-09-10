@@ -252,22 +252,14 @@ class FundTaskQueueTests(unittest.TestCase):
         task.status = "running"
         self.db.commit()
 
-        calls: dict[str, list] = {"holdings": [], "mappings": [], "profiles": [], "fund_profiles": []}
-
-        class FakeFundProfileService:
-            def __init__(self, db):
-                pass
-
-            def refresh_profiles(self):
-                calls["profiles"].append("all")
-                return 1
+        calls: dict[str, list] = {"holdings": [], "mappings": [], "fund_profiles": []}
 
         class FakeFundService:
             def __init__(self, db):
                 pass
 
-            def refresh_profile(self, fund_code):
-                calls["fund_profiles"].append(fund_code)
+            def refresh_profile(self, fund_code, *, force_refresh=False):
+                calls["fund_profiles"].append((fund_code, force_refresh))
                 return object()
 
         class FakeHoldingService:
@@ -287,7 +279,6 @@ class FundTaskQueueTests(unittest.TestCase):
                 return [object(), object()]
 
         with (
-            patch("app.modules.fund_nav.services.fund_task_queue_service.FundProfileService", FakeFundProfileService),
             patch("app.modules.fund_nav.services.fund_task_queue_service.FundService", FakeFundService),
             patch("app.modules.fund_nav.services.fund_task_queue_service.HoldingService", FakeHoldingService),
             patch(
@@ -303,8 +294,7 @@ class FundTaskQueueTests(unittest.TestCase):
         self.assertIn("index_mappings=2", task_log.message)
         self.assertEqual(calls["holdings"], ["501009"])
         self.assertEqual(calls["mappings"], [["501009"]])
-        self.assertEqual(calls["profiles"], ["all"])
-        self.assertEqual(calls["fund_profiles"], ["501009"])
+        self.assertEqual(calls["fund_profiles"], [("501009", True)])
 
     def test_refresh_index_catalog_task_records_count(self) -> None:
         submitted = self.service.submit("refresh_index_catalog", "刷新指数目录", origin="manual")

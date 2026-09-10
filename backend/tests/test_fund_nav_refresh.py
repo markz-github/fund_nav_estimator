@@ -305,13 +305,13 @@ class FundNavRefreshTests(unittest.TestCase):
         source = Mock()
         source.source_name = "akshare"
         source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
-        source.get_fund_profiles.return_value = [
+        source.get_fund_profile.return_value = (
             SourceFundProfile(
                 fund_code="160517",
                 fund_name="博时中证银行ETF联接A",
                 fund_type="指数型-股票",
             )
-        ]
+        )
         db.add_all(
             [
                 FundProfile(
@@ -341,7 +341,8 @@ class FundNavRefreshTests(unittest.TestCase):
         finally:
             db.close()
 
-        source.get_fund_profiles.assert_called_once_with()
+        source.get_fund_profile.assert_called_once_with("160517")
+        source.get_fund_profiles.assert_not_called()
         self.assertEqual(fund.fund_name, "博时中证银行ETF联接A")
         self.assertEqual(fund.fund_category, "etf_feeder")
 
@@ -3171,6 +3172,59 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertEqual(refreshed[0].asset_code, "159253")
         self.assertEqual(refreshed[0].asset_name, "银行ETF博时")
         self.assertEqual(refreshed[0].source, "local:fund_name_match")
+        self.assertEqual(snapshot.target_etf_holding_id, refreshed[0].id)
+
+    def test_related_etf_link_refreshes_latest_target_etf(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        db.add(
+            Fund(
+                id=1,
+                fund_code="160517",
+                fund_name="Bosera Bank ETF Feeder A",
+                fund_type="index",
+                fund_category="etf_feeder",
+                fund_category_source="auto",
+            )
+        )
+        db.commit()
+        source = Mock()
+        source._normalize_fund_code.side_effect = lambda code: str(code).strip().zfill(6)
+        holding_source = Mock()
+        holding_source.get_fund_holdings.return_value = []
+        target_source = Mock()
+        target_source.get_target_fund_holdings.return_value = [
+            {
+                "fund_code": "160517",
+                "report_period": "2026Q3",
+                "asset_code": "159253",
+                "asset_name": "Bank ETF Bosera",
+                "asset_type": "etf",
+                "market": "CN",
+                "holding_ratio": Decimal("1"),
+                "holding_value": None,
+                "source": "eastmoney:related_etf_link",
+            }
+        ]
+
+        try:
+            refreshed = HoldingService(
+                db,
+                source=source,
+                holding_sources=[holding_source],
+                target_fund_sources=[target_source],
+            ).refresh_holdings("160517")
+            detail = FundService(db, source).get_fund_detail("160517")
+            snapshot = db.get(FundLatestSnapshot, "160517")
+        finally:
+            db.close()
+
+        self.assertEqual(len(refreshed), 1)
+        self.assertEqual(refreshed[0].asset_code, "159253")
+        self.assertEqual(detail["target_etf_code"], "159253")
+        self.assertEqual(detail["target_etf_source"], "eastmoney:related_etf_link")
         self.assertEqual(snapshot.target_etf_holding_id, refreshed[0].id)
 
     def test_bond_holdings_do_not_participate_in_estimate_but_reduce_coverage(self) -> None:

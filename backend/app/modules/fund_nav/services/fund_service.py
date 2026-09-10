@@ -15,7 +15,10 @@ from app.modules.fund_nav.models.fund_latest_snapshot import FundLatestSnapshot
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.schemas.fund import FundCreate, FundUpdate
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
-from app.modules.fund_nav.services.fund_latest_snapshot_service import FundLatestSnapshotService
+from app.modules.fund_nav.services.fund_latest_snapshot_service import (
+    TARGET_ETF_SOURCES,
+    FundLatestSnapshotService,
+)
 from app.modules.fund_nav.services.fund_profile_service import FundProfileService
 from app.utils.performance import timed
 
@@ -392,7 +395,7 @@ class FundService:
             .where(
                 FundHolding.fund_code == fund_code,
                 FundHolding.asset_type == "etf",
-                FundHolding.source.in_(("fund_company", "local:fund_name_match", "manual:target_etf")),
+                FundHolding.source.in_(TARGET_ETF_SOURCES),
             )
             .order_by(FundHolding.report_period.desc(), FundHolding.holding_ratio.desc())
             .limit(1)

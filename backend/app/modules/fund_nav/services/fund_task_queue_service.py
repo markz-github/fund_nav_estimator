@@ -309,10 +309,9 @@ class FundTaskQueueService:
     ) -> tuple[int, int]:
         codes = self._codes(fund_codes)
         if force_profile_refresh:
-            FundProfileService(self.db).refresh_profiles()
             fund_service = FundService(self.db)
             for code in codes:
-                fund_service.refresh_profile(code)
+                fund_service.refresh_profile(code, force_refresh=True)
         mapping_total = len(FundIndexMappingService(self.db).refresh_mappings_for_index_related_funds(codes))
         holding_total = sum(len(HoldingService(self.db).refresh_holdings(code)) for code in codes)
         return holding_total, mapping_total
