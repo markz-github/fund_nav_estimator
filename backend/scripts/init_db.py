@@ -131,6 +131,24 @@ def ensure_fund_daily_summary_columns() -> None:
         )
 
 
+def ensure_task_status_column_lengths() -> None:
+    with engine.begin() as connection:
+        for table_name, default_clause in (
+            ("fund_task_queue", " DEFAULT 'pending'"),
+            ("task_logs", ""),
+        ):
+            columns = {column["name"]: column for column in inspect(connection).get_columns(table_name)}
+            status_column = columns.get("status")
+            current_length = getattr(status_column["type"], "length", None) if status_column else None
+            if current_length is not None and current_length < 32:
+                connection.execute(
+                    text(
+                        f"ALTER TABLE {quote_identifier(table_name)} "
+                        f"MODIFY COLUMN `status` VARCHAR(32) NOT NULL{default_clause}"
+                    )
+                )
+
+
 def backfill_fund_latest_snapshots() -> None:
     with engine.begin() as connection:
         connection.execute(
@@ -187,6 +205,7 @@ def main() -> None:
     ensure_fund_favorite_column()
     ensure_index_quote_source_status_columns()
     ensure_fund_daily_summary_columns()
+    ensure_task_status_column_lengths()
     backfill_fund_latest_snapshots()
     create_fund_history_tables(engine)
     settings = get_settings()

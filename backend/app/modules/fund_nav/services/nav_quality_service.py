@@ -11,6 +11,7 @@ from app.modules.fund_nav.models.fund_index_mapping import FundIndexMapping
 from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.fund_task_detail_log import FundTaskDetailLog
 from app.modules.fund_nav.services.fund_classifier import FundClassifier
+from app.modules.fund_nav.services.fund_latest_snapshot_service import TARGET_ETF_SOURCES
 from app.modules.operations.models.data_fetch_error import DataFetchError
 from app.modules.operations.services.operation_log_service import log_fetch_error
 
@@ -92,17 +93,7 @@ class FundNavQualityService:
             self.db.scalars(
                 select(FundHolding.fund_code).where(
                     FundHolding.asset_type == "etf",
-                    FundHolding.source.in_(
-                        (
-                            "etf88",
-                            "eastmoney",
-                            "fund_company",
-                            "sina",
-                            "public_web",
-                            "local:fund_name_match",
-                            "manual:target_etf",
-                        )
-                    ),
+                    FundHolding.source.in_(TARGET_ETF_SOURCES),
                 )
             ).all()
         )

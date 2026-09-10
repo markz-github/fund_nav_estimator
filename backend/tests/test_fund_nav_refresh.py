@@ -766,6 +766,7 @@ class FundNavRefreshTests(unittest.TestCase):
         self.assertIsNotNone(nav)
         self.assertEqual(nav.daily_growth_rate, Decimal("-0.0095"))
         source.get_latest_fund_nav.assert_called_once_with("000001")
+        source.get_fund_nav_history.assert_not_called()
 
     def test_five_prefix_etf_uses_etf_source_before_open_fund_daily_table(self) -> None:
         etf_df = pd.DataFrame(

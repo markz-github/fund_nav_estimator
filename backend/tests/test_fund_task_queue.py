@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import sys
@@ -19,6 +20,7 @@ import app.models  # noqa: F401
 from app.database import Base
 from app.modules.fund_nav.data_sources.akshare.akshare_source import FetchDiagnostic
 from app.modules.fund_nav.models.fund import Fund
+from app.modules.fund_nav.models.fund_nav import FundNav
 from app.modules.fund_nav.models.fund_task_queue import FundTaskQueue
 from app.modules.fund_nav.services.fund_task_queue_service import FundTaskQueueService
 from app.modules.operations.models.task_log import TaskLog
@@ -55,7 +57,7 @@ class FundTaskQueueTests(unittest.TestCase):
         self.assertEqual(second.task_id, first.task_id)
         self.assertEqual(self.db.query(FundTaskQueue).count(), 1)
 
-    def test_running_task_does_not_block_new_pending_task(self) -> None:
+    def test_reuses_same_running_task(self) -> None:
         first = self.service.submit("refresh_quote", "刷新持仓资产行情", origin="scheduled")
         running = self.db.get(FundTaskQueue, first.task_id)
         running.status = "running"
@@ -63,8 +65,13 @@ class FundTaskQueueTests(unittest.TestCase):
 
         second = self.service.submit("refresh_quote", "刷新持仓资产行情", origin="manual")
 
-        self.assertFalse(second.reused)
-        self.assertNotEqual(second.task_id, first.task_id)
+        self.assertTrue(second.reused)
+        self.assertEqual(second.task_id, first.task_id)
+        self.assertEqual(self.db.query(FundTaskQueue).count(), 1)
+
+    def test_task_status_columns_accept_completed_with_issues(self) -> None:
+        self.assertGreaterEqual(FundTaskQueue.__table__.c.status.type.length, len("completed_with_issues"))
+        self.assertGreaterEqual(TaskLog.__table__.c.status.type.length, len("completed_with_issues"))
 
     def test_generate_daily_summary_task_persists_snapshot(self) -> None:
         self.db.add(Fund(id=1, fund_code="000001", fund_name="总结基金"))
@@ -124,6 +131,38 @@ class FundTaskQueueTests(unittest.TestCase):
 
         self.assertEqual(task.status, "pending")
         self.assertEqual(task_log.status, "pending")
+
+    def test_database_flush_failure_marks_task_failed(self) -> None:
+        self.db.add(
+            FundNav(
+                fund_code="000001",
+                nav_date=date(2026, 9, 10),
+                unit_nav=Decimal("1"),
+                source="test",
+            )
+        )
+        self.db.commit()
+        submitted = self.service.submit("refresh_nav", "refresh", origin="manual", fund_codes=["000001"])
+        task = self.db.get(FundTaskQueue, submitted.task_id)
+        task.status = "running"
+        self.db.commit()
+
+        def duplicate_nav(_task):
+            self.db.add(
+                FundNav(
+                    fund_code="000001",
+                    nav_date=date(2026, 9, 10),
+                    unit_nav=Decimal("2"),
+                    source="test",
+                )
+            )
+            self.db.flush()
+
+        with patch.object(self.service, "_handler", side_effect=duplicate_nav):
+            self.service.execute(task.id)
+
+        self.assertEqual(self.db.get(FundTaskQueue, task.id).status, "failed")
+        self.assertEqual(self.db.get(TaskLog, submitted.task_log_id).status, "failed")
 
     def test_refresh_quote_records_upstream_failure_in_task_log(self) -> None:
         submitted = self.service.submit("refresh_quote", "刷新持仓资产行情", origin="manual")

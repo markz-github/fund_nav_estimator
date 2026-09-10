@@ -17,7 +17,7 @@ class TaskLog(Base):
     target_type: Mapped[Optional[str]] = mapped_column(String(50))
     target_id: Mapped[Optional[str]] = mapped_column(String(100))
     external_task_id: Mapped[Optional[str]] = mapped_column(String(100))
-    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     duration_ms: Mapped[Optional[int]] = mapped_column(BigInteger)

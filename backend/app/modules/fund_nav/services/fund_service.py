@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 import logging
 
 from sqlalchemy import Select, asc, desc, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.fund_nav.data_sources.akshare.akshare_source import AkshareSource, FundNavSnapshot
@@ -161,8 +162,13 @@ class FundService:
             )
             return latest_nav
 
-        self.refresh_nav_history(normalized_code)
-        latest_nav = self.db.scalar(self._latest_nav_query(normalized_code))
+        # The regular refresh only needs the newest official NAV. Import the
+        # complete history once for a fund that has no local NAV yet; repeatedly
+        # importing thousands of historical rows made the scheduled task look
+        # stuck and increased the chance of concurrent unique-key conflicts.
+        if latest_nav is None:
+            self.refresh_nav_history(normalized_code)
+            latest_nav = self.db.scalar(self._latest_nav_query(normalized_code))
 
         snapshot = self.source.get_latest_fund_nav(normalized_code)
         if snapshot is None:
@@ -231,7 +237,35 @@ class FundService:
         nav.daily_growth_rate = daily_growth_rate
         nav.source = snapshot.source
 
-        self.db.flush()
+        try:
+            self.db.flush()
+        except IntegrityError:
+            # Another worker may have committed the same fund/date between our
+            # lookup and insert. Reload and update that row instead of failing
+            # the whole queue task.
+            self.db.rollback()
+            logger.warning(
+                "refresh_nav concurrent_upsert_retry fund_code=%s nav_date=%s",
+                normalized_code,
+                snapshot.nav_date,
+            )
+            latest_nav = self.db.scalar(self._latest_nav_query(normalized_code))
+            nav = self.db.scalar(
+                select(FundNav)
+                .where(
+                    FundNav.fund_code == normalized_code,
+                    FundNav.nav_date == snapshot.nav_date,
+                )
+                .execution_options(include_deleted=True)
+            )
+            if nav is None:
+                raise
+            nav.is_deleted = 0
+            nav.unit_nav = snapshot.unit_nav
+            nav.accumulated_nav = snapshot.accumulated_nav
+            nav.daily_growth_rate = daily_growth_rate
+            nav.source = snapshot.source
+            self.db.flush()
         if latest_nav is None or nav.nav_date >= latest_nav.nav_date:
             FundLatestSnapshotService(self.db).set_latest_nav(normalized_code, nav.id)
         self.db.commit()
@@ -257,7 +291,13 @@ class FundService:
             return []
 
         navs = [self._upsert_nav_snapshot(snapshot) for snapshot in snapshots]
-        self.db.flush()
+        try:
+            self.db.flush()
+        except IntegrityError:
+            self.db.rollback()
+            logger.warning("refresh_nav_history concurrent_upsert_retry fund_code=%s", normalized_code)
+            navs = [self._upsert_nav_snapshot(snapshot) for snapshot in snapshots]
+            self.db.flush()
         if navs:
             latest_nav = max(navs, key=lambda item: item.nav_date)
             FundLatestSnapshotService(self.db).set_latest_nav(normalized_code, latest_nav.id)

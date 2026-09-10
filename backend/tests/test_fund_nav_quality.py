@@ -331,7 +331,7 @@ class FundNavQualityTests(unittest.TestCase):
                     market="CN",
                     holding_ratio=Decimal("1"),
                     holding_value=None,
-                    source="manual:target_etf",
+                    source="eastmoney:related_etf_link",
                 ),
             ]
         )

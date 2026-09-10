@@ -51,6 +51,7 @@ SLOW_METHOD_THRESHOLD_BY_TASK_TYPE: dict[str, float | None] = {
     "generate_daily_summary": 10_000.0,
 }
 DEFAULT_QUEUE_SLOW_METHOD_THRESHOLD_MS = 10_000.0
+ACTIVE_TASK_STATUSES = ("pending", "running")
 
 
 def normalize_fund_codes(fund_codes: list[str] | None) -> list[str] | None:
@@ -85,7 +86,10 @@ class FundTaskQueueService:
         with self._dedupe_guard(digest):
             existing = self.db.scalar(
                 select(FundTaskQueue)
-                .where(FundTaskQueue.dedupe_key == dedupe_key, FundTaskQueue.status == "pending")
+                .where(
+                    FundTaskQueue.dedupe_key == dedupe_key,
+                    FundTaskQueue.status.in_(ACTIVE_TASK_STATUSES),
+                )
                 .order_by(FundTaskQueue.id.asc())
             )
             if existing is not None:
@@ -174,27 +178,28 @@ class FundTaskQueueService:
         task = self.db.get(FundTaskQueue, task_id)
         if task is None:
             return
+        task_type = task.task_type
         started = perf_counter()
         try:
             with slow_method_threshold(
-                SLOW_METHOD_THRESHOLD_BY_TASK_TYPE.get(task.task_type, DEFAULT_QUEUE_SLOW_METHOD_THRESHOLD_MS)
+                SLOW_METHOD_THRESHOLD_BY_TASK_TYPE.get(task_type, DEFAULT_QUEUE_SLOW_METHOD_THRESHOLD_MS)
             ):
                 status, message = self._handler(task)
         except Exception as exc:
+            self.db.rollback()
             logger.exception(
                 "fund_queue event=handler_failed task_id=%s type=%s",
-                task.id,
-                task.task_type,
+                task_id,
+                task_type,
             )
-            self.db.rollback()
             try:
-                log_fetch_error(self.db, "internal", task.task_type, str(task.id), repr(exc))
+                log_fetch_error(self.db, "internal", task_type, str(task_id), repr(exc))
             except Exception:
                 self.db.rollback()
                 logger.exception(
                     "fund_queue event=error_log_failed task_id=%s type=%s",
-                    task.id,
-                    task.task_type,
+                    task_id,
+                    task_type,
                 )
             status, message = "failed", repr(exc)
         task = self.db.get(FundTaskQueue, task_id)
@@ -203,7 +208,7 @@ class FundTaskQueueService:
         logger.info(
             "fund_queue event=finished task_id=%s type=%s status=%s duration_ms=%.2f",
             task_id,
-            task.task_type if task else "unknown",
+            task_type,
             status,
             (perf_counter() - started) * 1000,
         )
@@ -372,7 +377,7 @@ class FundTaskQueueService:
         started_at = task.started_at or task.queued_at
         task.status = status
         task.finished_at = now
-        task.duration_ms = int((now - started_at).total_seconds() * 1000)
+        task.duration_ms = max(0, int((now - started_at).total_seconds() * 1000))
         task.message = message[:2000]
         task_log = self.db.get(TaskLog, task.task_log_id)
         if task_log is not None:
@@ -431,6 +436,8 @@ class FundTaskDispatcher:
                 self.executor.submit(self._execute_next)
 
     def _execute_next(self) -> None:
+        task_id: int | None = None
+        task_type = "unknown"
         try:
             with _worker_slot() as acquired:
                 if not acquired:
@@ -439,14 +446,28 @@ class FundTaskDispatcher:
                     task = FundTaskQueueService(db).claim_next()
                 if task is None:
                     return
+                task_id = task.id
+                task_type = task.task_type
                 with SessionLocal() as db:
-                    FundTaskQueueService(db).execute(task.id)
-        except Exception:
+                    FundTaskQueueService(db).execute(task_id)
+        except Exception as exc:
             logger.exception(
                 "fund_queue event=worker_execution_failed task_id=%s type=%s",
-                task.id if "task" in locals() and task is not None else "unknown",
-                task.task_type if "task" in locals() and task is not None else "unknown",
+                task_id if task_id is not None else "unknown",
+                task_type,
             )
+            if task_id is not None:
+                try:
+                    with SessionLocal() as db:
+                        failed_task = db.get(FundTaskQueue, task_id)
+                        if failed_task is not None and failed_task.status == "running":
+                            FundTaskQueueService(db)._finish(failed_task, "failed", repr(exc))
+                except Exception:
+                    logger.exception(
+                        "fund_queue event=worker_failure_status_update_failed task_id=%s type=%s",
+                        task_id,
+                        task_type,
+                    )
         finally:
             with self.active_lock:
                 self.active -= 1

@@ -24,7 +24,7 @@ class FundTaskQueue(Base):
     origin: Mapped[str] = mapped_column(String(20), nullable=False)
     payload_json: Mapped[Optional[dict]] = mapped_column(JSON)
     dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", server_default="pending")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending")
     queued_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
